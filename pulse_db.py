@@ -791,6 +791,15 @@ def make_id(prefix):
 
 
 def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600, category=None):
+    # #118: every caller passes through the contract's limits - internal links only, bounded text.
+    try:
+        import pulse_inbox_contract as _contract
+        if not _contract.is_safe_path(url):
+            url = _contract.INBOX_URL
+        title = str(title or "")[:_contract.MAX_TITLE]
+        body = str(body or "")[:_contract.MAX_BODY]
+    except Exception:
+        pass
     # U-11: personal preferences – a muted category is stored as already read, DMs are optional.
     try:
         import pulse_notify_prefs
@@ -2229,6 +2238,9 @@ def checkin_stats(kind="activity", since=None):
         return int(row["n"])
 
 
+_CORRELATED_TARGETS = {"ticket": "ticket", "task": "task"}  # same pairs as pulse_events.CORRELATION_ACTION
+
+
 def record_event(event_type, target_type="", target_id="", actor_id="", actor_name="", payload: Any = None, *, correlation_id=None):
     """Append a central event; optional correlation_id links related actions across Pulse surfaces.
 
@@ -2237,13 +2249,21 @@ def record_event(event_type, target_type="", target_id="", actor_id="", actor_na
     """
     event_payload = payload if payload is not None else {}
     correlation = str(correlation_id or "").strip()[:128]
+    if not correlation and target_id and target_type in _CORRELATED_TARGETS and isinstance(event_payload, dict) \
+            and "correlation_id" not in event_payload:
+        correlation = f"{_CORRELATED_TARGETS[target_type]}:{target_id}"  # #122: legacy writers join the same history as emit()
     if correlation:
         event_payload = dict(event_payload) if isinstance(event_payload, dict) else {"value": event_payload}
         event_payload["correlation_id"] = correlation
     with connect() as db:
         eid = make_id("event")
         db.execute("INSERT INTO events VALUES (?,?,?,?,?,?,?,?)", (eid, event_type, target_type or "", str(target_id or ""), str(actor_id or ""), actor_name or "", json.dumps(event_payload, ensure_ascii=False), _now()))
-        return eid
+    try:  # #117: wake live streams for legacy writers too; the table stays the source of truth
+        import pulse_eventbus
+        pulse_eventbus.bump()
+    except Exception:
+        pass
+    return eid
 
 
 def events(limit=200, event_type=None, target_type=None, actor_id=None):

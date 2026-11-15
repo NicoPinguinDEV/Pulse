@@ -678,8 +678,24 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             return
         person = f"\nPerson: <@{entry['person_id']}>" if entry.get("person_id", "").isdigit() else ""
         hint = self._repeat_line(entry.get("person_id"), perms, interaction.guild.id)
-        await interaction.response.send_message(f"🔎 {self._history_line(entry)}{person}{hint}\n-# Verlauf: /mod verlauf · Beweise: /mod beweise",
+        link = self._dashboard_link(entry.get("ref") or referenz)
+        await interaction.response.send_message(f"🔎 {self._history_line(entry)}{person}{hint}{link}\n-# Verlauf: /mod verlauf · Beweise: /mod beweise",
                                                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @staticmethod
+    def _dashboard_link(case_ref) -> str:
+        """#119: the same case in the dashboard (full URL only when PUBLIC_BASE_URL is set; the page checks the rights)."""
+        try:
+            import os
+
+            import pulse_inbox_contract as contract
+            import pulse_case_registry as reg
+            if not reg.parse_ref(case_ref):
+                return ""
+            url = contract.absolute_link(contract.link_for(case_ref=case_ref), os.getenv("PUBLIC_BASE_URL", ""))
+        except Exception:
+            return ""
+        return f"\n🔗 {url}" if url else ""
 
     @staticmethod
     def _repeat_line(person_id, perms, guild_id) -> str:

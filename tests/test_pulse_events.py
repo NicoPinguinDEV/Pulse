@@ -108,7 +108,7 @@ class DbTests(unittest.TestCase):
         info = ev.describe(self._row(eid))
         self.assertTrue(info["legacy"])
         self.assertEqual(info["domain"], "ticket")
-        self.assertEqual(info["correlation_id"], "")
+        self.assertEqual(info["correlation_id"], "ticket:T1")  # #122: Alt-Schreiber erhalten die gemeinsame Korrelation
 
     def test_describe_survives_broken_payload(self):
         row = {"id": "e", "event_type": "x", "payload_json": "{kaputt", "created_at": "t"}
