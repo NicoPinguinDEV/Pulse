@@ -943,15 +943,18 @@ def register(app):
         if has_perm(ctx,"can_manage_announcements"):
             create=u.card("""<h3 style='margin-top:0'>📢 News erstellen</h3><form method=post action='/ultimate/announcements/create' class=form>
             <input class=input name=title placeholder='Titel' required><select class=select name=priority><option>normal</option><option>important</option><option>critical</option></select>
-            <textarea class='ta span2' name=body placeholder='Nachricht' required></textarea><input class=input name=expires_at placeholder='optional: 2026-10-31T23:59:00+00:00'><label><input type=checkbox name=pinned> Anheften</label><button class='btn primary'>Veröffentlichen</button></form>""")
+            <textarea class='ta span2' name=body placeholder='Nachricht' required></textarea><input class=input name=expires_at placeholder='optional: 2026-10-31T23:59:00+00:00'><label><input type=checkbox name=pinned> Anheften</label><label><input type=checkbox name=ack value=1> Lesebestätigung erforderlich</label><button class='btn primary'>Veröffentlichen</button></form>""")
         return next_page(ctx,"announcements","Team-News","Wichtige Informationen mit Lesebestätigung.",create+"".join(cards) or u.card("<div class=tiny>Keine Team-News.</div>"))
 
     @app.post("/ultimate/announcements/create")
-    async def announcements_create(request:Request,title:str=Form(...),body:str=Form(...),priority:str=Form("normal"),expires_at:str=Form(""),pinned:str=Form(""),user_session:str=Cookie(None)):
+    async def announcements_create(request:Request,title:str=Form(...),body:str=Form(...),priority:str=Form("normal"),expires_at:str=Form(""),pinned:str=Form(""),ack:str=Form(""),user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,require="can_manage_announcements")
         if priority not in {"normal","important","critical"}: priority="normal"
         with cx() as c:
-            c.execute("INSERT INTO next_announcements VALUES(?,?,?,?,?,?,?,?,?,?)",(u.uid("news"),title[:180],body[:8000],priority,"team",1 if pinned else 0,expires_at[:80] or None,actor_id(ctx),actor_name(ctx),iso()))
+            news_id=u.uid("news")
+            c.execute("INSERT INTO next_announcements VALUES(?,?,?,?,?,?,?,?,?,?)",(news_id,title[:180],body[:8000],priority,"team",1 if pinned else 0,expires_at[:80] or None,actor_id(ctx),actor_name(ctx),iso()))
+        if ack=="1":  # #53: Lesebestätigung für diese Team-News
+            __import__("pulse_ack_pages").require_and_notify(ctx.guild,ctx.config,"team_news",news_id,title[:160],actor_id=actor_id(ctx),actor_name=actor_name(ctx))
         save_audit(ctx,"Team-News veröffentlicht","",title)
         for m in members(ctx.guild):
             db.notify(m.id,"📢 "+title,body[:300],"critical" if priority=="critical" else "info","/ultimate/announcements")
@@ -962,6 +965,7 @@ def register(app):
         ctx=ctx_auth(request,user_session)
         with cx() as c:
             c.execute("INSERT OR REPLACE INTO next_announcement_reads VALUES(?,?,?)",(announcement_id,actor_id(ctx),iso()))
+        __import__("pulse_ack").acknowledge("team_news",announcement_id,actor_id(ctx),actor_name(ctx))  # #53: zählt auch als Bestätigung, falls verlangt
         touch_member(actor_id(ctx),"announcement_read")
         return RedirectResponse("/ultimate/announcements",status_code=303)
 

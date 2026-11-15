@@ -1952,19 +1952,21 @@ def register(app):
         c=cctx(request,user_session,perm=None); manager=c.perms.get('can_manage_announcements') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         items=db.announcements(100); rows=''.join(f'<article class="pulse-row"><div class="pulse-avatar">✦</div><div class="pulse-row-main"><div class="pulse-row-title">{e(x["title"])}</div><div class="pulse-row-meta">{e(x["author_name"])} · {e(fmt_dt(x["created_at"]))}</div><div class="text-[11px] text-slate-500 whitespace-pre-wrap mt-2">{e(x["content"])}</div></div>{pill("Discord gesendet","good") if x.get("discord_message_id") else pill("Lokal")}</article>' for x in items)
-        form_html='<form action="/announcements/create" method="post" class="space-y-3"><input name="title" required maxlength="160" class="pulse-input" placeholder="Titel"><select name="kind" class="pulse-input"><option value="info">ℹ Information</option><option value="success">✅ Erfolg</option><option value="warning">⚠️ Wichtig</option><option value="critical">🚨 Dringend</option></select><textarea name="content" required maxlength="4000" class="pulse-input pulse-textarea" placeholder="Text der Team-Ankündigung…"></textarea><button class="pulse-btn primary w-full">✦ Ankündigung senden</button></form>'
+        form_html='<form action="/announcements/create" method="post" class="space-y-3"><input name="title" required maxlength="160" class="pulse-input" placeholder="Titel"><select name="kind" class="pulse-input"><option value="info">ℹ Information</option><option value="success">✅ Erfolg</option><option value="warning">⚠️ Wichtig</option><option value="critical">🚨 Dringend</option></select><textarea name="content" required maxlength="4000" class="pulse-input pulse-textarea" placeholder="Text der Team-Ankündigung…"></textarea><label class="text-xs flex gap-2 items-center"><input type="checkbox" name="ack" value="1"> Lesebestätigung erforderlich</label><button class="pulse-btn primary w-full">✦ Ankündigung senden</button></form>'
         empty_ann='<div class="pulse-empty">Noch keine Ankündigungen.</div>'
         body=f'<div class="pulse-topbar"><div><div class="pulse-section-title">✦ Team-Ankündigungen</div><div class="pulse-section-sub">Ein Beitrag, ein Embed, ein Audit-Eintrag.</div></div></div><div class="pulse-grid"><div>{card("Historie",rows or empty_ann,"✦")}</div><div>{card("Neue Ankündigung",form_html,"✦")}</div></div>'
         return render_pro_page(ws,'Ankündigungen',c,'announcements',body)
 
 
-    async def create_announcement(request: Request, title: str=Form(...), content: str=Form(...), kind: str=Form('info'), user_session: str=Cookie(None)):
+    async def create_announcement(request: Request, title: str=Form(...), content: str=Form(...), kind: str=Form('info'), ack: str=Form(''), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None); manager=c.perms.get('can_manage_announcements') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         colors={'info':_pulse_color("info"),'success':_pulse_color("success"),'warning':_pulse_color("warning"),'critical':_pulse_color("danger")}
         msg=await team_update(c.guild,title.strip()[:160],content.strip()[:4000],colors.get(kind,_pulse_color("info")))
         aid=db.create_announcement(title.strip()[:160],content.strip()[:4000],c.user['id'],c.user.get('global_name') or 'Team',kind,getattr(msg,'id',None))
         db.record_event('announcement_created','announcement',aid,c.user['id'],c.user.get('global_name') or 'Team',{'kind':kind,'sent':bool(msg)})
+        if ack=='1':  # #53: Lesebestätigung für diese Ankündigung
+            __import__('pulse_ack_pages').require_and_notify(c.guild,c.config,'announcement',aid,title.strip()[:160],actor_id=c.user['id'],actor_name=c.user.get('global_name') or 'Team')
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Ankündigung Gesendet',title.strip()[:160])
         return ws.back('/announcements','Ankündigung gespeichert und an Discord gesendet.' if msg else 'Ankündigung lokal gespeichert – kein Team-Update-Kanal gefunden.',bool(msg))
 

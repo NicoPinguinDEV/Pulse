@@ -365,6 +365,45 @@ def set_calendar_rsvp(event_id, user_id, display_name, response, *, require_upco
         return dict(event)
 
 
+class PollError(Exception):
+    """Validation error for a poll action; ``status`` mirrors the dashboard's HTTP code."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def cast_poll_vote(poll_id, user_id, choices) -> list[int]:
+    """Save one person's vote (replaces their earlier one). Shared by the dashboard and the Discord poll cards.
+    Raises :class:`PollError`; returns the stored option indexes."""
+    init_db()
+    with cx() as c:
+        poll = c.execute("SELECT * FROM ultimate_polls WHERE id=? AND active=1", (str(poll_id),)).fetchone()
+    if not poll:
+        raise PollError(404, "Abstimmung nicht gefunden.")
+    if poll["ends_at"]:
+        try:
+            if datetime.fromisoformat(str(poll["ends_at"]).replace("Z", "+00:00")) <= utcnow():
+                with cx() as c:
+                    c.execute("UPDATE ultimate_polls SET active=0 WHERE id=?", (str(poll_id),))
+                raise PollError(410, "Diese Abstimmung ist bereits beendet.")
+        except ValueError:
+            pass
+    options = json.loads(poll["options_json"])
+    selected = sorted({int(x) for x in choices if str(x).isdigit() and int(x) < len(options)})
+    if not selected:
+        raise PollError(400, "Keine Option ausgewählt.")
+    if poll["poll_type"] == "single":
+        selected = selected[:1]
+    user = str(user_id)
+    with cx() as c:
+        c.execute("DELETE FROM ultimate_poll_votes WHERE poll_id=? AND user_id=?", (str(poll_id), user))
+        for idx in selected:
+            c.execute("INSERT INTO ultimate_poll_votes VALUES(?,?,?,?)", (str(poll_id), user, idx, iso()))
+    return selected
+
+
 def list_upcoming_rsvp_events(query="", limit=25):
     """Upcoming events that accept RSVPs, for Discord autocomplete. No attendee data."""
     try:
@@ -1791,31 +1830,10 @@ def register(app) -> None:
         ctx = ctx_auth(request, user_session)
         form = await request.form()
         choices = form.getlist("option")
-        with cx() as c:
-            p = c.execute("SELECT * FROM ultimate_polls WHERE id=? AND active=1", (poll_id,)).fetchone()
-        if not p:
-            raise HTTPException(404, "Abstimmung nicht gefunden.")
-        if p["ends_at"]:
-            try:
-                if datetime.fromisoformat(str(p["ends_at"]).replace("Z","+00:00")) <= utcnow():
-                    with cx() as c:
-                        c.execute("UPDATE ultimate_polls SET active=0 WHERE id=?", (poll_id,))
-                    raise HTTPException(410, "Diese Abstimmung ist bereits beendet.")
-            except ValueError:
-                pass
-        options = json.loads(p["options_json"])
-        selected = sorted({int(x) for x in choices if str(x).isdigit() and int(x) < len(options)})
-        if not selected:
-            raise HTTPException(400, "Keine Option ausgewählt.")
-        if p["poll_type"] == "single":
-            selected = selected[:1]
-        with cx() as c:
-            c.execute("DELETE FROM ultimate_poll_votes WHERE poll_id=? AND user_id=?", (poll_id, str(ctx.user["id"])))
-            for idx in selected:
-                c.execute(
-                    "INSERT INTO ultimate_poll_votes VALUES(?,?,?,?)",
-                    (poll_id, str(ctx.user["id"]), idx, iso()),
-                )
+        try:  # one voting rule for dashboard and Discord (#44)
+            selected = cast_poll_vote(poll_id, ctx.user["id"], choices)
+        except PollError as exc:
+            raise HTTPException(exc.status, exc.message)
         audit(ctx, "Abstimmung abgegeben", poll_id, "", f"Optionen={selected}")
         return RedirectResponse("/ultimate/polls", status_code=303)
 

@@ -122,9 +122,100 @@ def _quiet_hours_label(start, end) -> str:
     return f"{first:02d}:00–{last:02d}:00"
 
 
+def _event_card_embed(event: dict, data: dict) -> discord.Embed:
+    import pulse_event_cards as cards
+    fields = cards.card_fields(event, data)
+    embed = discord.Embed(title=fields["title"], description=fields["description"], color=discord.Color.blurple())
+    for name, value, inline in fields["fields"]:
+        embed.add_field(name=name, value=value[:1000], inline=inline)
+    embed.set_footer(text="Antworten über die Buttons · gilt nur für das Team")
+    return embed
+
+
+class EventRsvpButton(discord.ui.DynamicItem[discord.ui.Button], template=r"pulse:rsvp:(?P<eid>[A-Za-z0-9_-]{1,60}):(?P<resp>going|declined|remove)"):
+    """#41: Zu-/Absage-Buttons einer Terminkarte (überleben Neustarts, weil die ID den Termin enthält)."""
+
+    STYLES = {"going": discord.ButtonStyle.success, "declined": discord.ButtonStyle.danger, "remove": discord.ButtonStyle.secondary}
+
+    def __init__(self, event_id: str, response: str):
+        import pulse_event_cards as cards
+        super().__init__(discord.ui.Button(label=cards.RESPONSES[response][0], style=self.STYLES[response], custom_id=cards.custom_id(event_id, response)))
+        self.event_id, self.response = event_id, response
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["eid"], match["resp"])
+
+    async def callback(self, interaction: discord.Interaction):
+        import asyncio
+
+        import pulse_event_cards as cards
+        import pulse_ultimate
+        import webserver
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Diese Karte ist für das Team.", ephemeral=True); return
+        try:
+            data = await asyncio.to_thread(cards.respond, self.event_id, interaction.user.id, interaction.user.display_name, self.response)
+        except pulse_ultimate.CalendarRsvpError as exc:
+            await interaction.response.send_message(f"❌ {exc.message}", ephemeral=True); return
+        event = await asyncio.to_thread(cards.get_event, self.event_id)
+        if not event:
+            await interaction.response.send_message("Termin nicht gefunden.", ephemeral=True); return
+        await interaction.response.edit_message(embed=_event_card_embed(event, data))
+
+
+def _poll_card_embed(poll: dict) -> discord.Embed:
+    import pulse_poll_cards as polls
+    fields = polls.card_fields(poll)
+    embed = discord.Embed(title=fields["title"], description=fields["description"], color=discord.Color.blurple())
+    embed.set_footer(text=fields["footer"])
+    return embed
+
+
+class PollVoteButton(discord.ui.DynamicItem[discord.ui.Button], template=r"pulse:poll:(?P<pid>[A-Za-z0-9_-]{1,60}):(?P<idx>\d)"):
+    """#44: Abstimmungs-Button einer Umfragekarte (ID enthält Umfrage und Option, daher neustartfest)."""
+
+    def __init__(self, poll_id: str, index: int, label: str = ""):
+        import pulse_poll_cards as polls
+        super().__init__(discord.ui.Button(label=(label or f"Option {int(index) + 1}")[:80], style=discord.ButtonStyle.primary, custom_id=polls.custom_id(poll_id, index)))
+        self.poll_id, self.index = poll_id, int(index)
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["pid"], int(match["idx"]))
+
+    async def callback(self, interaction: discord.Interaction):
+        import asyncio
+
+        import pulse_poll_cards as polls
+        import pulse_ultimate
+        import webserver
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Diese Umfrage ist für das Team.", ephemeral=True); return
+        try:
+            poll = await asyncio.to_thread(polls.vote, self.poll_id, interaction.user.id, self.index)
+        except pulse_ultimate.PollError as exc:
+            await interaction.response.send_message(f"❌ {exc.message}", ephemeral=True); return
+        await interaction.response.edit_message(embed=_poll_card_embed(poll))
+
+
 class PulsePro(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        try:
+            bot.add_dynamic_items(PollVoteButton)
+        except Exception as exc:
+            record_error("Umfragekarten", exc)
+        try:
+            bot.add_dynamic_items(EventRsvpButton)
+        except Exception as exc:  # a bot without dynamic-item support keeps every other function
+            record_error("Terminkarten", exc)
         self.housekeeping_loop.start()
 
     def cog_unload(self):
@@ -853,7 +944,7 @@ class PulsePro(commands.Cog):
     @app_commands.command(name="teamannounce", description="Sendet eine Team-Ankündigung und speichert sie in Pulse.")
     @app_commands.describe(title="Kurzer Titel", message="Inhalt der Ankündigung", importance="Priorität")
     @app_commands.choices(importance=[app_commands.Choice(name="Info", value="info"),app_commands.Choice(name="Wichtig", value="warning"),app_commands.Choice(name="Dringend", value="urgent")])
-    async def teamannounce(self, interaction: discord.Interaction, title: str, message: str, importance: app_commands.Choice[str] = None):
+    async def teamannounce(self, interaction: discord.Interaction, title: str, message: str, importance: app_commands.Choice[str] = None, bestaetigung: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
         import webserver
@@ -865,6 +956,9 @@ class PulsePro(commands.Cog):
         if not title or not message:
             await interaction.response.send_message("Titel und Nachricht dürfen nicht leer sein.", ephemeral=True); return
         aid=db.create_announcement(title,message,interaction.user.id,interaction.user.display_name,kind)
+        if bestaetigung:  # #53: Lesebestätigung, Bestätigen über /bestaetigungen oder das Dashboard
+            import pulse_ack_pages
+            pulse_ack_pages.require_and_notify(interaction.guild,cfg,"announcement",aid,title,actor_id=interaction.user.id,actor_name=interaction.user.display_name)
         color=_pulse_color("danger") if kind=="urgent" else _pulse_color("warning") if kind=="warning" else _pulse_color("info")
         sent=await webserver.send_team_update_embed(interaction.guild,title,message,color)
         for m in self.team_members(interaction.guild):
@@ -921,6 +1015,74 @@ class PulsePro(commands.Cog):
             msg="❌ Du bist nicht für diese Aufgabe zuständig." if res["code"]=="forbidden" else f"❌ {res['message']}"
             await interaction.response.send_message(msg, ephemeral=True); return
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
+
+    @app_commands.command(name="bestaetigungen", description="Zeigt deine offenen Lesebestätigungen und lässt dich sie bestätigen.")
+    async def bestaetigungen(self, interaction: discord.Interaction):
+        import pulse_ack
+        pending = pulse_ack.pending_for(interaction.user.id)
+        if not pending:
+            await interaction.response.send_message("✅ Du hast nichts zu bestätigen.", ephemeral=True); return
+        shown = pending[:25]
+        options = [discord.SelectOption(label=p["title"][:100], value=f"{p['kind']}|{p['subject_id']}", description=p["kind_label"]) for p in shown]
+        select = discord.ui.Select(placeholder="Beitrag als gelesen bestätigen", options=options, min_values=1, max_values=len(options))
+
+        async def confirm(inter: discord.Interaction):
+            done = 0
+            for value in select.values:
+                kind, _, sid = value.partition("|")
+                done += bool(pulse_ack.acknowledge(kind, sid, inter.user.id, inter.user.display_name))
+            await inter.response.edit_message(content=f"✅ {done} Beitrag/Beiträge als gelesen bestätigt.", view=None)
+        select.callback = confirm
+        view = discord.ui.View(timeout=300)
+        view.add_item(select)
+        lines = "\n".join(f"• {discord.utils.escape_markdown(p['title'][:90])} ({p['kind_label']})" for p in shown)
+        await interaction.response.send_message(f"📌 **Offene Bestätigungen ({len(pending)})**\n{lines}", view=view, ephemeral=True,
+                                                allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="umfrage", description="Startet eine Team-Umfrage mit Buttons in diesem Kanal (2 bis 5 Optionen).")
+    @app_commands.describe(frage="Die Frage", optionen="Optionen, getrennt mit |", dauer_stunden="Optional: Ende nach so vielen Stunden")
+    async def umfrage(self, interaction: discord.Interaction, frage: str, optionen: str, dauer_stunden: app_commands.Range[int, 1, 336] | None = None):
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
+        import pulse_poll_cards as polls
+        import webserver
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+        if not member or not (perms.get("can_promote") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True); return
+        try:
+            poll = polls.create(frage, optionen, dauer_stunden, interaction.user.id, interaction.user.display_name)
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True); return
+        view = discord.ui.View(timeout=None)
+        for index, option in enumerate(poll["options"]):
+            view.add_item(PollVoteButton(poll["id"], index, option))
+        await interaction.response.send_message(embed=_poll_card_embed(poll), view=view, allowed_mentions=discord.AllowedMentions.none())
+        webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Umfrage gestartet", poll["title"])
+
+    async def _event_autocomplete(self, interaction: discord.Interaction, current: str):
+        import pulse_ultimate
+        rows = pulse_ultimate.list_upcoming_rsvp_events(current, 25)
+        return [app_commands.Choice(name=f"{r['title'][:70]} · {str(r['start_at'])[:10]}", value=str(r["id"])) for r in rows]
+
+    @app_commands.command(name="terminkarte", description="Veröffentlicht eine Terminkarte mit Zu-/Absage-Buttons in diesem Kanal.")
+    @app_commands.describe(termin="Termin aus dem Team-Kalender")
+    @app_commands.autocomplete(termin=_event_autocomplete)
+    async def terminkarte(self, interaction: discord.Interaction, termin: str):
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
+        import pulse_event_cards as cards
+        import webserver
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+        if not member or not (perms.get("can_manage_announcements") or perms.get("can_promote") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True); return
+        event = cards.get_event(termin)
+        if not event or str(event.get("kind") or "").casefold() not in __import__("pulse_ultimate").RSVP_EVENT_KINDS:
+            await interaction.response.send_message("❌ Dieser Termin kann keine Zu-/Absagen sammeln.", ephemeral=True); return
+        view = discord.ui.View(timeout=None)
+        for response in cards.RESPONSES:
+            view.add_item(EventRsvpButton(event["id"], response))
+        await interaction.response.send_message(embed=_event_card_embed(event, cards.answers(event["id"])), view=view, allowed_mentions=discord.AllowedMentions.none())
+        webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Terminkarte veröffentlicht", event["title"])
 
     @app_commands.command(name="regelwerk", description="Sucht Stellen im Regelwerk und nennt die Quelle.")
     @app_commands.describe(suche="Stichwort oder Paragraph, z. B. Safezone oder 7.3", regelwerk="Optional nur ein Regelwerk durchsuchen")
