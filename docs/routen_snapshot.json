@@ -137,6 +137,7 @@
  "GET /team-vorstellung -> pulse_public_site.register.<locals>.add_page.<locals>.handler",
  "GET /team/capacity -> pulse_phase7.register.<locals>.capacity_page",
  "GET /team/checklists -> webserver.team_checklists_page",
+ "GET /team/intelligenz -> pulse_teamakte_pages.register.<locals>.team_intelligence",
  "GET /team/planung -> pulse_teamakte_pages.register.<locals>.team_planning",
  "GET /team/readiness -> pulse_phase7.register.<locals>.readiness_page",
  "GET /team/{user_id}/roles -> webserver.team_role_manager",

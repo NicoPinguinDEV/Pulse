@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Pulse Intelligenz – lokale Hinweise und Entwürfe (November 2026)
+
+- **`/team/intelligenz` (nur Führung):** regelbasierte Hinweise mit Begründung und Schwelle (#129, #137, #139), Tages- und Wochenberichts-Entwurf (#130, #131), Schichtübergabe-Entwurf (#136) und Führungs-Assistent für feste Fragen (#132).
+- Ohne externe KI, nur lesend: Entwürfe werden nicht verschickt, der nächste Schritt ist ein Link, es wird nichts ausgeführt.
+- Tests: `tests/test_intel.py`, `tests/test_teamakte_pages.py`.
+
 ## Teamakte und Teamplanung (November 2026)
 
 - **360°-Teamakte (#71, #73, #74):** Auf `/member/{id}` fasst ein neuer Block Dienst, Tickets, Bewertung, Schulungen, Auslastung, Warnungen (nur mit Recht), Dienstzeit-Hinweise und Abmeldung zusammen. Sichtbar für Führung und die Person selbst.

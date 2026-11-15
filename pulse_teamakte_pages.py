@@ -16,11 +16,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db
 import pulse_insights
+import pulse_intel as intel
 import pulse_teamakte as ta
 
 BERLIN = ZoneInfo("Europe/Berlin")
 VIEWS = (("auslastung", "Auslastung"), ("verfuegbarkeit", "Verfügbarkeit"), ("anomalien", "Dienstzeit-Anomalien"),
          ("leistung", "Leistung"), ("abwesenheit", "Abwesenheit"), ("bericht", "Bericht"))
+INTEL_VIEWS = (("hinweise", "Hinweise"), ("tagesbericht", "Tagesbericht"), ("wochenbericht", "Wochenbericht"),
+               ("uebergabe", "Schichtübergabe"), ("fragen", "Fragen"))
 DAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
 
@@ -40,7 +43,7 @@ def collect(ws, ctx, now: datetime | None = None) -> dict:
     members = [(str(m.id), getattr(m, "display_name", str(m.id))) for m in pulse_access.team_members(ctx.guild, ctx.config)][:300]
     return {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
             "tasks": pulse_db.list_tasks(limit=1000, include_archived=True), "tickets": pulse_db.list_tickets(limit=2000),
-            "loas": ws.get_loas()}
+            "loas": ws.get_loas(), "apps": ws.load_json(ws.APPS_FILE, {})}
 
 
 def _absent_days(loas: dict, uid: str, now: datetime, days: int = 30) -> int:
@@ -136,6 +139,33 @@ def view_html(view: str, data: dict) -> str:
                       f'<span class="pulse-pill {badge[r["level"]]}">{_e(r["level"])}</span></div>' for r in rows))
 
 
+def intel_html(view: str, data: dict, question: str = "") -> str:
+    """Local rule-based leadership intelligence (#129-#132, #136, #137, #139): drafts and hints, never actions."""
+    now = data["now"]
+    if view in ("tagesbericht", "wochenbericht", "uebergabe"):
+        draft = {"tagesbericht": intel.daily_draft, "wochenbericht": intel.weekly_draft, "uebergabe": intel.handover_draft}[view](data, now)
+        return (f'<p class="text-xs text-slate-400 mb-2">Entwurf aus den Daten von Pulse – bitte prüfen und bei Bedarf ergänzen. Es wird nichts automatisch verschickt.</p>'
+                f'<pre class="text-xs whitespace-pre-wrap p-3 rounded-xl border border-slate-200 dark:border-slate-700">{_e(chr(10).join(draft["lines"]))}</pre>'
+                f'<p class="text-[11px] text-slate-400 mt-2">Quellen: {_e("; ".join(draft["sources"]))}</p>')
+    if view == "fragen":
+        form = ('<form method="get" action="/team/intelligenz" class="flex flex-wrap gap-2 mb-3"><input type="hidden" name="ansicht" value="fragen">'
+                f'<input class="pulse-input flex-1 min-w-[240px]" name="q" maxlength="200" value="{_e(question)}" placeholder="z. B. Welche Tickets sind überfällig?">'
+                '<button class="pulse-btn primary">Fragen</button></form>')
+        if not question.strip():
+            return form + '<p class="text-xs text-slate-400">Unterstützte Fragen: ' + _e(" · ".join(intel.EXAMPLES)) + "</p>"
+        result = intel.ask(question, data, now)
+        rows = "".join((f'<li><a class="underline" href="{_e(url)}">{_e(text)}</a></li>' if url else f"<li>{_e(text)}</li>") for text, url in result["rows"])
+        src = f'<p class="text-[11px] text-slate-400 mt-2">Quellen: {_e("; ".join(result["sources"]))}</p>' if result["sources"] else ""
+        return f'{form}<p class="font-semibold">{_e(result["answer"])}</p><ul class="text-xs list-disc pl-5 mt-2 space-y-1">{rows}</ul>{src}'
+    found = intel.findings(data, now)
+    if not found:
+        return '<div class="pulse-empty">Aktuell keine auffälligen Hinweise.</div>'
+    kind = {"hoch": "bad", "mittel": "warn", "info": "good"}
+    return ('<p class="text-xs text-slate-400 mb-2">Regelbasierte Hinweise mit Begründung. Der nächste Schritt ist nur ein Link – Pulse führt nichts selbst aus.</p>'
+            + "".join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{_e(f["title"])}</div><div class="pulse-row-meta">{_e(f["area"])} · {_e(f["why"])}</div>'
+                      f'<a class="underline text-xs" href="{_e(f["next"]["url"])}">{_e(f["next"]["label"])} →</a></div><span class="pulse-pill {kind[f["severity"]]}">{_e(f["severity"])}</span></div>' for f in found))
+
+
 def member_section(ws, c, target, entry: dict, active_warns: list) -> str:
     """360° block for ``/member/{id}``; leadership sees everything, the person themself sees their own overview and
     goals, everybody else gets nothing. Never raises into the profile page."""
@@ -227,10 +257,21 @@ def register(app) -> None:
         view = request.query_params.get("ansicht", "auslastung")
         if view not in {k for k, _ in VIEWS}:
             view = "auslastung"
-        tabs = " ".join(f'<a href="/team/planung?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in VIEWS)
+        tabs = " ".join(f'<a href="/team/planung?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in VIEWS) + ' <a href="/team/intelligenz" class="pulse-btn ghost">🧠 Intelligenz</a>'
         body = (f'<div class="pulse-crumb"><a href="/team">Team</a> › Teamplanung</div><div class="flex flex-wrap gap-2 mb-3">{tabs}</div>'
                 f'<section class="pulse-card"><div class="pulse-card-b">{view_html(view, collect(ws, ctx))}</div></section>')
         return HTMLResponse(render_pro_page(ws, "Teamplanung", ctx, "team", body))
+
+    @app.get("/team/intelligenz", response_class=HTMLResponse)
+    async def team_intelligence(request: Request, user_session: str = Cookie(None)):
+        ctx = lead_ctx(request, user_session)
+        view = request.query_params.get("ansicht", "hinweise")
+        if view not in {k for k, _ in INTEL_VIEWS}:
+            view = "hinweise"
+        tabs = " ".join(f'<a href="/team/intelligenz?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in INTEL_VIEWS)
+        body = (f'<div class="pulse-crumb"><a href="/team">Team</a> › Intelligenz</div><div class="flex flex-wrap gap-2 mb-3">{tabs}</div>'
+                f'<section class="pulse-card"><div class="pulse-card-b">{intel_html(view, collect(ws, ctx), request.query_params.get("q", "")[:200])}</div></section>')
+        return HTMLResponse(render_pro_page(ws, "Pulse Intelligenz", ctx, "team", body))
 
     def target_member(ctx, user_id: str):
         member = ctx.guild.get_member(int(user_id)) if str(user_id).isdigit() else None

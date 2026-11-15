@@ -150,3 +150,21 @@ class GoalRouteTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IntelligencePageTests(Base):
+    def test_every_view_renders_for_leadership_and_escapes_input(self):
+        import pulse_teamakte_pages as pg
+        with self.as_user(LEAD):
+            for key, _label in pg.INTEL_VIEWS:
+                self.assertEqual(self.client.get(f"/team/intelligenz?ansicht={key}").status_code, 200, key)
+            resp = self.client.get("/team/intelligenz?ansicht=fragen&q=<script>alert(1)</script>")
+            self.assertEqual(resp.status_code, 200)
+            self.assertNotIn("<script>alert(1)</script>", resp.text)
+            self.assertIn("kann ich nicht beantworten", resp.text)
+            self.assertIn("Entwurf", self.client.get("/team/intelligenz?ansicht=tagesbericht").text)
+            self.assertEqual(self.client.get("/team/intelligenz?ansicht=nope").status_code, 200)
+
+    def test_normal_member_is_denied(self):
+        with self.as_user(TEAM):
+            self.assertEqual(self.client.get("/team/intelligenz").status_code, 403)

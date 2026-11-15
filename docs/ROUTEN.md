@@ -3,10 +3,10 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 450
+- **Effektive Routen (Methode × Pfad):** 451
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 5
-- **Ohne erkennbare Prüfung:** 54 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
+- **Ohne erkennbare Prüfung:** 55 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
 
 > Achtung `remove_and_add` (`pulse_pro.py`): ersetzt nur die angegebenen HTTP-Methoden; andere Methoden desselben Pfads bleiben erhalten.
 
@@ -621,7 +621,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/tasks/distribute` | `pulse_features.register.<locals>.tasks_distribute` | pulse_features.py:23 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
 | POST | `/tasks/update` | `pulse_pro.register.<locals>.update_task_v5` | pulse_pro.py:2090 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
 
-### `/team` (13)
+### `/team` (14)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
@@ -630,12 +630,13 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/team/checklists` | `webserver.team_checklists_page` | webserver.py:6616 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/team/checklists/mentor` | `webserver.team_checklists_mentor` | webserver.py:6677 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/team/checklists/toggle` | `webserver.team_checklists_toggle` | webserver.py:6661 | — (öffentlich/keine erkennbare Prüfung) |
-| GET | `/team/planung` | `pulse_teamakte_pages.register.<locals>.team_planning` | pulse_teamakte_pages.py:224 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/team/intelligenz` | `pulse_teamakte_pages.register.<locals>.team_intelligence` | pulse_teamakte_pages.py:265 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/team/planung` | `pulse_teamakte_pages.register.<locals>.team_planning` | pulse_teamakte_pages.py:254 | — (öffentlich/keine erkennbare Prüfung) |
 | GET | `/team/readiness` | `pulse_phase7.register.<locals>.readiness_page` | pulse_phase7.py:325 | angemeldet (+ can_promote, can_warn, is_admin) |
 | POST | `/team/readiness/criteria` | `pulse_phase7.register.<locals>.readiness_criteria` | pulse_phase7.py:372 | angemeldet (+ can_promote, is_admin) |
 | POST | `/team/voice-support/audio` | `webserver.manage_voice_support_audio` | webserver.py:7715 | can_promote |
-| POST | `/team/{user_id}/entwicklung/neu` | `pulse_teamakte_pages.register.<locals>.goal_create` | pulse_teamakte_pages.py:241 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/team/{user_id}/entwicklung/{goal_id}/status` | `pulse_teamakte_pages.register.<locals>.goal_status` | pulse_teamakte_pages.py:253 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/team/{user_id}/entwicklung/neu` | `pulse_teamakte_pages.register.<locals>.goal_create` | pulse_teamakte_pages.py:282 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/team/{user_id}/entwicklung/{goal_id}/status` | `pulse_teamakte_pages.register.<locals>.goal_status` | pulse_teamakte_pages.py:294 | — (öffentlich/keine erkennbare Prüfung) |
 | GET | `/team/{user_id}/roles` | `webserver.team_role_manager` | webserver.py:7832 | can_promote (+ is_admin) |
 | POST | `/team/{user_id}/roles` | `webserver.team_role_manager_save` | webserver.py:7863 | can_promote (+ is_admin) |
 

@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 111 |
-| Teilweise | 66 |
+| Fertig | 115 |
+| Teilweise | 62 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -38,7 +38,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bewerbungen und Recruiting | 6 | 5 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
-| Pulse Intelligence | 7 | 8 | 0 |
+| Pulse Intelligence | 11 | 4 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
@@ -227,17 +227,17 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 126 | Team-Ausfall-Simulation | **Fertig** | Pulse Intelligence bietet eine begrenzte, lesende Team-Ausfall-Simulation; `tests/test_pulse_intelligence.py`. |
 | 127 | Ticketlast-Prognose | **Fertig** | `pulse_staffing_forecast.build_load_forecast`: erwartete Tickets je Tag aus gleichen Wochentagen der letzten 8 Wochen mit 80 %-Bereich, Verlässlichkeitsstufe, Datenbasis und 4-Wochen-Trend; ohne Daten keine Zahlen. Anzeige in `/suite/forecast`. `tests/test_staffing_forecast.py`. |
 | 128 | Personalbedarfsprognose | **Fertig** | `/suite/forecast` vergleicht stündliche Ticket-Eingänge der letzten acht abgeschlossenen Wochen mit geplanter Personalabdeckung; begrenzt, transparent und managergeschützt (PR #210). |
-| 129 | Anomalieerkennung | **Teilweise** | Rule-based Findings zu SLA, Systemzustand und Volumen existieren; keine umfassende Anomalieerkennung über alle Datenbereiche. |
-| 130 | Automatische Tagesberichte | **Teilweise** | Team-Report-Automationsschritte und Copilot-Zusammenfassungen existieren; kein fertig vorkonfigurierter, täglicher geprüfter Berichtslauf. |
-| 131 | Automatische Wochenberichte | **Teilweise** | Wochenkennzahlen und Reports existieren; automatischer Wochenbericht mit Trendvergleich und Datenquellen fehlt. |
-| 132 | Führungskräfte-Assistent | **Teilweise** | `/ultimate/copilot` beantwortet begrenzte Fragen auf Basis lokaler Kennzahlen; keine vollständige Abfrage über alle autorisierten Pulse-Daten. |
+| 129 | Anomalieerkennung | **Teilweise** | `pulse_intel.findings`: Ticket-Spitzen (Wochentags-Baseline, 3σ), überfällige/unzugewiesene Tickets, Überlast, Dienstzeit-Rückgang, überfällige Aufgaben, Schichtauffälligkeiten, wartende Bewerbungen – alle mit Schwelle; Moderation und weitere Bereiche fehlen. |
+| 130 | Automatische Tagesberichte | **Fertig** | `/team/intelligenz?ansicht=tagesbericht`: Entwurf für den Vortag (Tickets, Dienst, Aufgaben, offene Last, Hinweise) mit Quellen; wird nur auf Abruf erzeugt und nie automatisch verschickt (`pulse_intel.daily_draft`). |
+| 131 | Automatische Wochenberichte | **Fertig** | `ansicht=wochenbericht`: letzte volle Woche gegen die Vorwoche mit Differenzen, Hinweisen, Kennzahl-Definitionen und Quellen (`pulse_intel.weekly_draft`). |
+| 132 | Führungskräfte-Assistent | **Fertig** | `ansicht=fragen`: lokale Fragen (überfällige Tickets, ohne Bearbeiter, überlastet, auffällige Schichten, Hinweise, wartende Bewerbungen, offene Tickets) mit Quellen und Links; unbekannte Fragen werden ehrlich abgelehnt. Begrenzter Fragenkatalog, keine freie Abfrage. |
 | 133 | Wissensassistent mit Quellenangaben | **Teilweise** | Support Assistant nutzt freigegebene Wissensdateien; Quellzitate/Versionen je Antwort fehlen. |
 | 134 | Ticket-Zusammenfassungen | **Fertig** | Eine gemeinsame lokale Funktion (`pulse_summaries.summarize_ticket`) für Discord und Dashboard (`GET /ticket/{id}/summary`, offene Tickets aus dem Kanal, geschlossene aus dem Transkript); rein extraktiv, jede Aussage mit Quelle. `pulse_summaries.py`, `pulse_pro.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. |
 | 135 | Bewerbungs-Zusammenfassungen | **Fertig** | Strukturierte Übersicht je Bewerbung nur für Recruiting-Berechtigte (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit) – ohne Bewertung, Rangfolge oder Empfehlung. `pulse_summaries.py`, `webserver.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: nur im Dashboard. |
-| 136 | Automatischer Schichtübergabe-Entwurf | **Teilweise** | Manuelle Übergaben sind vorhanden; automatische Entwürfe aus offenen Tickets, Aufgaben und Ereignissen fehlen. |
-| 137 | Datenbasierte Warnhinweise | **Teilweise** | Pulse Intelligence erzeugt erklärbare Findings; Abdeckung und Schwellwerte sind noch begrenzt. |
+| 136 | Automatischer Schichtübergabe-Entwurf | **Fertig** | `ansicht=uebergabe`: Übergabe-Entwurf aus offenen Tickets (älteste zuerst), offenen Aufgaben nach Priorität und aktuellen Hinweisen; rein lesend (`pulse_intel.handover_draft`). |
+| 137 | Datenbasierte Warnhinweise | **Teilweise** | Hinweise in `/team/intelligenz` nennen Daten und Schwelle; Abdeckung der Bereiche bleibt begrenzt. |
 | 138 | Was-wäre-wenn-Simulation | **Fertig** | Read-only Simulatoren und Workflow-Sandbox ohne Ausführung; `tests/test_pulse_intelligence.py`. |
-| 139 | Regelbasierte Empfehlungen | **Teilweise** | Findings geben Hinweise aus Regeln/Metriken; ein vollständiger nächster-Schritt-Katalog mit bestätigbarer Aktion fehlt. |
+| 139 | Regelbasierte Empfehlungen | **Teilweise** | Jeder Hinweis nennt einen nächsten Schritt als Link; eine bestätigbare Aktion (Ausführung nach Freigabe) gibt es bewusst nicht. |
 | 140 | Lokale Intelligence ohne KI-Abhängigkeit | **Fertig** | Copilot/Simulatoren besitzen lokalen Regelmodus ohne externe KI-API; `tests/test_pulse_intelligence.py` prüft `local_rules_no_external_ai`. |
 
 ### 12. Automatisierungen und Workflow-System (141–152)
