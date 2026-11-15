@@ -3458,6 +3458,8 @@ async def _automation_cycle(bot):
         import pulse_server_control
         import pulse_version
         pulse_ops.record_release(pulse_version.PULSE_VERSION, (pulse_server_control.installed_commit(webserver.BASE_DIR) or {}).get("sha", ""))  # #169
+        import pulse_report_schedule  # #88: weekly/monthly report into the leadership inbox (feature flag, off by default)
+        pulse_report_schedule.run(webserver, bot.get_guild(webserver.GUILD_ID) if bot else None, webserver.load_config())
     except Exception as exc:
         print(f"⚠️ Ressourcenverlauf konnte nicht gespeichert werden: {type(exc).__name__}")
     # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren

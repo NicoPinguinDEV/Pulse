@@ -41,9 +41,15 @@ def collect(ws, ctx, now: datetime | None = None) -> dict:
     import pulse_access
     now = now or datetime.now(timezone.utc)
     members = [(str(m.id), getattr(m, "display_name", str(m.id))) for m in pulse_access.team_members(ctx.guild, ctx.config)][:300]
-    return {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
+    data = {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
             "tasks": pulse_db.list_tasks(limit=1000, include_archived=True), "tickets": pulse_db.list_tickets(limit=2000),
             "loas": ws.get_loas(), "apps": ws.load_json(ws.APPS_FILE, {})}
+    try:  # #129/#137: moderation and case sources for the hints (each source tolerates its own failure)
+        import pulse_intel
+        data.update(pulse_intel.moderation_sources(getattr(getattr(ctx, "guild", None), "id", None)))
+    except Exception:  # noqa: BLE001
+        pass
+    return data
 
 
 def _absent_days(loas: dict, uid: str, now: datetime, days: int = 30) -> int:

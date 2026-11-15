@@ -28,6 +28,7 @@ FEATURES: dict[str, tuple[str, str, str]] = {
     "application_board": ("F-07", "Bewerbungs-Board", "Bewerbungen als Spalten mit Fristen."),
     "public_status": ("F-08", "Öffentliche Statusseite", "/status ohne Login: Support offen, Warteschlange, RP-Status. Keine Personendaten."),
     "game_status": ("F-09", "Spiel-Anbindung", "Roblox-Serverstatus über die offizielle öffentliche API (PULSE_ROBLOX_UNIVERSE_ID)."),
+    "report_delivery": ("A-88", "Berichte automatisch zustellen", "Wochen- und Monatsbericht einmal je Zeitraum in die Pulse-Inbox der Führung (kein DM, kein Kanal)."),
     "my_month": ("F-10", "Mein Monat", "Persönlicher Monatsrückblick in Mein Pulse, DM am Monatsanfang nur mit Opt-in."),
 }
 

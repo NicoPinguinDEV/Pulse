@@ -101,7 +101,9 @@ def build(data: dict, now: datetime | None = None, tz=None) -> dict:
             created = ta._dt(r.get("created_at"))
             if created and (now - created) >= timedelta(hours=STALE_REPORT_HOURS):
                 stale_reports.append(r)
-    findings = [f for f in intel.findings(cleaned | {"apps": data.get("apps")}, now) if f["severity"] in ("hoch", "mittel")][:6]
+    # cases and stale reports have their own blocks on this page; do not list them twice
+    findings = [f for f in intel.findings(cleaned | {"apps": data.get("apps")}, now)
+                if f["severity"] in ("hoch", "mittel") and f["id"] not in ("cases-urgent", "reports-stale")][:6]
     horizon = now + timedelta(days=7)
     upcoming = []
     for e in (data.get("events") or ()):
@@ -135,7 +137,8 @@ def collect(ws, ctx, now: datetime | None = None) -> dict:
                         ("events", lambda: pulse_db.list_calendar_events(now.isoformat(), (now + timedelta(days=7)).isoformat(), 100)),
                         ("apps", lambda: ws.load_json(ws.APPS_FILE, {})),
                         ("cases", _cases), ("reports", lambda: _reports(guild_id)), ("departments", _departments_data),
-                        ("dev_goals", _dev_goals), ("certificates", _certificates)):
+                        ("dev_goals", _dev_goals), ("certificates", _certificates),
+                        ("mod_cases", lambda: _mod_cases(guild_id)), ("appeals", lambda: _appeals(guild_id))):
         try:
             data[key] = loader()
         except Exception:  # noqa: BLE001
@@ -159,6 +162,16 @@ def _cases() -> list[dict]:
 def _reports(guild_id) -> list[dict]:
     import pulse_player_reports
     return pulse_player_reports.list_reports(guild_id, limit=200)
+
+
+def _mod_cases(guild_id) -> list[dict]:
+    import pulse_mod_cases
+    return [c for c in pulse_mod_cases.list_cases(limit=2000) if guild_id is None or str(c.get("guild_id")) == str(guild_id)]
+
+
+def _appeals(guild_id) -> list[dict]:
+    import pulse_mod_cases
+    return pulse_mod_cases.list_appeals(guild_id, "pending", 100) if guild_id is not None else []
 
 
 def _dev_goals() -> list[dict]:

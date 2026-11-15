@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **149 fertig / 28 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **153 fertig / 24 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 149 |
-| Teilweise | 28 |
+| Fertig | 153 |
+| Teilweise | 24 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -34,11 +34,11 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Community und BOCHUM RP | 9 | 6 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
-| Dienstplanung und Aktivität | 11 | 1 | 0 |
+| Dienstplanung und Aktivität | 12 | 0 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
 | Academy und Wissensmanagement | 9 | 1 | 0 |
 | Discord und Dashboard verbinden | 5 | 5 | 0 |
-| Pulse Intelligence | 11 | 4 | 0 |
+| Pulse Intelligence | 14 | 1 | 0 |
 | Automatisierungen und Workflow-System | 11 | 1 | 0 |
 | Admin Center, Sicherheit und Betrieb | 19 | 1 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 5 | 0 | 0 |
@@ -166,7 +166,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 85 | Dienstabdeckung | **Fertig** | Mindestbesetzungsregeln je Wochentag/Zeitfenster (`suite_schedule_minimums`, guild-isoliert, Audit); `/suite/schedule` zeigt Besetzungslücken der nächsten 7 Tage in 15-Minuten-Auflösung, Nachtdienste zählen über Mitternacht. Reiner Hinweis, keine automatische Zuweisung. `tests/test_schedule_rules.py`. |
 | 86 | Dienst-Erinnerungen | **Fertig** | `pulse_shift_reminders.py`: Die Suite-Automatik benachrichtigt eingeplante Personen einmal je Schicht und Startzeit (verschobene Schichten erneut) vor Schichtbeginn; Vorlaufzeit 5–720 Min. einstellbar (`/suite/schedule`, Standard 30), nur Schichten des eigenen Servers, begrenzte Abfrage (heute/Folgetage). `tests/test_shift_reminders.py`. |
 | 87 | Abwesenheitskalender | **Fertig** | `/team/planung?ansicht=abwesenheit`: 14-Tage-Kalender aus Abmeldungen, Schichten und Kalenderterminen; Abmeldung hat Vorrang. |
-| 88 | Wochen- und Monatsberichte | **Teilweise** | `ansicht=bericht`: Wochen-/Monatsbericht (letzter voller Zeitraum gegen den davor) mit Definition jeder Kennzahl; er wird nur auf Abruf erzeugt, nicht automatisch verschickt. |
+| 88 | Wochen- und Monatsberichte | **Fertig** | `ansicht=bericht`: Wochen-/Monatsbericht (letzter voller Zeitraum gegen den davor) mit Definition jeder Kennzahl; er wird nur auf Abruf erzeugt, nicht automatisch verschickt. Neu: Wochen- und Monatsbericht werden optional automatisch zugestellt (`pulse_report_schedule.py`, Funktionsschalter `report_delivery`, standardmäßig aus): einmal je Zeitraum in die Inbox der Führung (kein DM, kein Kanal), Wiederholung bei Fehler, Zustand überlebt Neustarts (`tests/test_report_delivery_and_mod_findings.py`). |
 | 89 | Dienstzeit-Anomalien | **Fertig** | `ansicht=anomalien`: Regeln mit Begründung (Maximum, robuster Ausreißer je Person, unbestätigt, <5 Min, >3/Tag); keine Bewertung der Person. |
 | 90 | Schichtnotizen | **Fertig** | Schichtbezogene Notizen samt Widget auf „Mein Pulse“ (PR #198); `tests/test_shift_notes.py`. |
 | 91 | Übergabeprotokolle | **Fertig** | `/ultimate/handovers` unterstützt Titel, Inhalt, Priorität, Empfänger, Status, Benachrichtigung und Archivierung. |
@@ -227,7 +227,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 126 | Team-Ausfall-Simulation | **Fertig** | Pulse Intelligence bietet eine begrenzte, lesende Team-Ausfall-Simulation; `tests/test_pulse_intelligence.py`. |
 | 127 | Ticketlast-Prognose | **Fertig** | `pulse_staffing_forecast.build_load_forecast`: erwartete Tickets je Tag aus gleichen Wochentagen der letzten 8 Wochen mit 80 %-Bereich, Verlässlichkeitsstufe, Datenbasis und 4-Wochen-Trend; ohne Daten keine Zahlen. Anzeige in `/suite/forecast`. `tests/test_staffing_forecast.py`. |
 | 128 | Personalbedarfsprognose | **Fertig** | `/suite/forecast` vergleicht stündliche Ticket-Eingänge der letzten acht abgeschlossenen Wochen mit geplanter Personalabdeckung; begrenzt, transparent und managergeschützt (PR #210). |
-| 129 | Anomalieerkennung | **Teilweise** | `pulse_intel.findings`: Ticket-Spitzen (Wochentags-Baseline, 3σ), überfällige/unzugewiesene Tickets, Überlast, Dienstzeit-Rückgang, überfällige Aufgaben, Schichtauffälligkeiten, wartende Bewerbungen – alle mit Schwelle; Moderation und weitere Bereiche fehlen. |
+| 129 | Anomalieerkennung | **Fertig** | `pulse_intel.findings`: Ticket-Spitzen (Wochentags-Baseline, 3σ), überfällige/unzugewiesene Tickets, Überlast, Dienstzeit-Rückgang, überfällige Aufgaben, Schichtauffälligkeiten, wartende Bewerbungen – alle mit Schwelle; Moderation und weitere Bereiche fehlen. Neu: Moderations-Hinweise `pulse_intel.moderation_findings` - Spitze bei Moderationsfällen (Wochentags-Baseline, 3σ), lange offene Spielermeldungen, wartende Einsprüche, offene dringende Vorgänge; `/team/intelligenz` und Leitstelle laden die Quellen, jede fehlerhafte Quelle fällt einzeln weg. |
 | 130 | Automatische Tagesberichte | **Fertig** | `/team/intelligenz?ansicht=tagesbericht`: Entwurf für den Vortag (Tickets, Dienst, Aufgaben, offene Last, Hinweise) mit Quellen; wird nur auf Abruf erzeugt und nie automatisch verschickt (`pulse_intel.daily_draft`). |
 | 131 | Automatische Wochenberichte | **Fertig** | `ansicht=wochenbericht`: letzte volle Woche gegen die Vorwoche mit Differenzen, Hinweisen, Kennzahl-Definitionen und Quellen (`pulse_intel.weekly_draft`). |
 | 132 | Führungskräfte-Assistent | **Fertig** | `ansicht=fragen`: lokale Fragen (überfällige Tickets, ohne Bearbeiter, überlastet, auffällige Schichten, Hinweise, wartende Bewerbungen, offene Tickets) mit Quellen und Links; unbekannte Fragen werden ehrlich abgelehnt. Begrenzter Fragenkatalog, keine freie Abfrage. |
@@ -235,9 +235,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 134 | Ticket-Zusammenfassungen | **Fertig** | Eine gemeinsame lokale Funktion (`pulse_summaries.summarize_ticket`) für Discord und Dashboard (`GET /ticket/{id}/summary`, offene Tickets aus dem Kanal, geschlossene aus dem Transkript); rein extraktiv, jede Aussage mit Quelle. `pulse_summaries.py`, `pulse_pro.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. |
 | 135 | Bewerbungs-Zusammenfassungen | **Fertig** | Strukturierte Übersicht je Bewerbung nur für Recruiting-Berechtigte (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit) – ohne Bewertung, Rangfolge oder Empfehlung. `pulse_summaries.py`, `webserver.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: nur im Dashboard. |
 | 136 | Automatischer Schichtübergabe-Entwurf | **Fertig** | `ansicht=uebergabe`: Übergabe-Entwurf aus offenen Tickets (älteste zuerst), offenen Aufgaben nach Priorität und aktuellen Hinweisen; rein lesend (`pulse_intel.handover_draft`). |
-| 137 | Datenbasierte Warnhinweise | **Teilweise** | Hinweise in `/team/intelligenz` nennen Daten und Schwelle; Abdeckung der Bereiche bleibt begrenzt. |
+| 137 | Datenbasierte Warnhinweise | **Fertig** | Hinweise in `/team/intelligenz` nennen Daten und Schwelle; Abdeckung der Bereiche bleibt begrenzt. Die Abdeckung umfasst jetzt Tickets, Aufgaben, Dienst, Team, Bewerbungen, Moderationsfälle, Spielermeldungen, Einsprüche und Vorgänge; jeder Hinweis nennt Daten und Schwelle. |
 | 138 | Was-wäre-wenn-Simulation | **Fertig** | Read-only Simulatoren und Workflow-Sandbox ohne Ausführung; `tests/test_pulse_intelligence.py`. |
-| 139 | Regelbasierte Empfehlungen | **Teilweise** | Jeder Hinweis nennt einen nächsten Schritt als Link; eine bestätigbare Aktion (Ausführung nach Freigabe) gibt es bewusst nicht. |
+| 139 | Regelbasierte Empfehlungen | **Fertig** | Jeder Hinweis nennt einen nächsten Schritt als Link; eine bestätigbare Aktion (Ausführung nach Freigabe) gibt es bewusst nicht. Entscheidung: Empfehlungen bleiben bewusst reine Vorschläge mit Link zum nächsten Schritt; eine Ausführung nach Klick wäre eine Entscheidung und gehört (Projektregel 6) zu berechtigten Menschen. |
 | 140 | Lokale Intelligence ohne KI-Abhängigkeit | **Fertig** | Copilot/Simulatoren besitzen lokalen Regelmodus ohne externe KI-API; `tests/test_pulse_intelligence.py` prüft `local_rules_no_external_ai`. |
 
 ### 12. Automatisierungen und Workflow-System (141–152)
