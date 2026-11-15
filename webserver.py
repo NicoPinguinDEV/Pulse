@@ -13236,6 +13236,18 @@ try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
 except Exception as _wiki_error:
     print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
 
+try:  # Audit #51: Besprechungsmodus
+    from pulse_meetings_pages import register as register_meetings_pages
+    register_meetings_pages(app)
+except Exception as _meetings_error:
+    print(f"❌ Besprechungsmodus konnte nicht registriert werden: {_meetings_error}")
+
+try:  # Audit #53: einheitliche Lesebestätigung
+    from pulse_ack_pages import register as register_ack_pages
+    register_ack_pages(app)
+except Exception as _ack_error:
+    print(f"❌ Lesebestätigungen konnten nicht registriert werden: {_ack_error}")
+
 try:  # Audit #168: Testserver-Modus
     from pulse_testmode import register as register_testmode
     register_testmode(app)

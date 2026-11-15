@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **153 fertig / 24 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **157 fertig / 20 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 153 |
-| Teilweise | 24 |
+| Fertig | 157 |
+| Teilweise | 20 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -31,7 +31,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
 | Discord-Bot – Moderation und Sicherheit | 15 | 0 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
-| Discord-Bot – Community und BOCHUM RP | 9 | 6 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 13 | 2 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 12 | 0 | 0 |
@@ -104,19 +104,19 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 41 | Discord-Eventverwaltung mit Anmeldung | **Teilweise** | Der Team-Kalender in `pulse_ultimate.py` kann Termine/Events verwalten; ein nativer Discord-Event- und RSVP-Button-Flow ist nicht vollständig nachgewiesen. |
+| 41 | Discord-Eventverwaltung mit Anmeldung | **Fertig** | Der Team-Kalender in `pulse_ultimate.py` kann Termine/Events verwalten; ein nativer Discord-Event- und RSVP-Button-Flow ist nicht vollständig nachgewiesen. Neu: `/terminkarte` veröffentlicht eine Karte mit Zu-/Absage-/Zurücknehmen-Buttons (`EventRsvpButton`, neustartfest über die ID); gespeichert wird mit derselben Regel wie im Dashboard (`set_calendar_rsvp`), nur für das Team, nur künftige Termine; die Karte zeigt Summen und begrenzte Namen (`tests/test_event_cards.py`). |
 | 42 | Teilnehmerlisten für Events | **Fertig** | Zu-/Absagen je Kalendertermin in `ultimate_calendar_rsvps` (PR #195); `tests/test_ultimate_event_rsvps.py`. |
 | 43 | Event-Erinnerungen | **Fertig** | PR #226: Teilnehmende mit Zusage erhalten im 24-h-Fenster vor Event/Meeting/Training/Schulung eine Inbox-Erinnerung (Europe/Berlin, Ort), dedupliziert je Event und RSVP-Version; optionale DMs über Opt-in, Ruhezeiten und DM-Queue; eigene stummschaltbare Kategorie; läuft im vorhandenen 60-s-Job. `pulse_ultimate.py`, `pulse_notify_prefs.py`; `tests/test_ultimate_event_rsvps.py`, `tests/test_notify_prefs.py`. Fester Vorlauf (24 h), nicht je Event einstellbar. |
-| 44 | Umfragen | **Teilweise** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. |
+| 44 | Umfragen | **Fertig** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. Neu: `/umfrage` startet eine Team-Umfrage als Karte mit Buttons (2-5 Optionen, optionales Ende); Abstimmung läuft über dieselbe Funktion wie das Dashboard (`cast_poll_vote`, eine Stimme je Person), die Karte zeigt nur Summen (`tests/test_poll_cards.py`). |
 | 45 | Community-Vorschlagsbox | **Fertig** | PR #217 ergänzt Discord-Modal-Einreichung, servergebundene Speicherung, Dashboard-Prüfung/Freigabe und Community-Abstimmung mit Ein-Stimme-pro-Mitglied-Regel sowie Ergebnisübersicht. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
 | 46 | Feedbacksystem | **Fertig** | PR #217 ergänzt /feedback für anonyme oder namentliche Einreichungen, trennt allgemeines Feedback sauber von abstimmbaren Vorschlägen und zeigt beide Typen im Dashboard. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
 | 47 | Regelwerk-Assistent mit Quellen | **Fertig** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. Neu: `pulse_rules_lookup.py` zerlegt die Wissensbasis in zitierbare Stellen (Regelwerk, §, Stand, Fassungs-Hash); Dashboard `/regelwerk-suche` und Bot-Befehl `/regelwerk` liefern wörtliche Stellen mit Quelle, ohne KI und ohne Auslegung (`tests/test_rules_lookup.py`). |
 | 48 | Freigegebene Fraktionsübersicht | **Fertig** | Fraktionsverwaltung mit offiziellen Fraktionen und öffentlicher, freigabegesteuerter Darstellung; `tests/test_factions.py`, `tests/test_public_site.py`. |
 | 49 | Spieler-Meldesystem | **Fertig** | PR #219 ergänzt /spieler-meldung und /meine-meldungen, strukturierte Kategorien/Prioritäten, optionale Belege, servergebundene Fall-IDs, Team-Benachrichtigungen, Dashboard-Bearbeitung und personenbezogenen Export für Melder, Bearbeiter und Prüfer. Regression, Datenschutztests und Pflicht-CI sind grün. |
 | 50 | Strikte IC-/OOC-Falltrennung | **Teilweise** | Fallkategorien und IC-/OOC-Angaben existieren in Bewerbungs-/Moderationsabläufen; ein einheitliches, validiertes IC-/OOC-Vorgangsmodell fehlt. |
-| 51 | Team-Besprechungsmodus | **Teilweise** | Kalender und Besprechungseinträge existieren; Agenda, Teilnehmer, Beschlüsse und daraus erzeugte Aufgaben sind nicht als vollständiger Meeting-Workflow verbunden. |
+| 51 | Team-Besprechungsmodus | **Fertig** | Kalender und Besprechungseinträge existieren; Agenda, Teilnehmer, Beschlüsse und daraus erzeugte Aufgaben sind nicht als vollständiger Meeting-Workflow verbunden. Neu: Besprechungsmodus (`pulse_meetings.py`, `/besprechungen`): Agenda, Einladungen, Anwesenheit, Beschlüsse und daraus erzeugte Aufgaben über die gemeinsame Aufgabenregel; Abschluss sperrt das Protokoll und legt eine Kopie in `meetings_history` ab; Führung leitet, das Team liest (`tests/test_meetings.py`). |
 | 52 | Ankündigungsplaner | **Fertig** | PR #228: `/teamankuendigung planen|freigeben|liste|abbrechen` mit Entwurf, Vier-Augen-Freigabe (Ersteller darf nicht freigeben), Planung in Europe/Berlin (10 min–90 Tage, DST-Lücken abgelehnt), 30-s-Job, Veröffentlichung im Team-Updates-Kanal plus Inbox, `failed`-Status ohne Doppelversand. Tabelle `scheduled_announcements` im DB-Backup und Personenexport. `cogs/scheduled_announcements.py`; `tests/test_scheduled_announcements.py`. Planung nur über Discord, nicht im Dashboard. |
-| 53 | Lesebestätigungen für Ankündigungen | **Teilweise** | Team-News besitzen Lesestatus/Bestätigungen; eine einheitliche Bestätigung für alle Arten von Dienstanweisungen und Discord-Ankündigungen ist nicht vorhanden. |
+| 53 | Lesebestätigungen für Ankündigungen | **Fertig** | Team-News besitzen Lesestatus/Bestätigungen; eine einheitliche Bestätigung für alle Arten von Dienstanweisungen und Discord-Ankündigungen ist nicht vorhanden. Neu: einheitliche Lesebestätigung (`pulse_ack.py`, `/bestaetigungen`, Discord `/bestaetigungen`): jede Discord-Ankündigung, Team-News und freie Dienstanweisung kann „Bestätigung erforderlich“ tragen (Checkbox, `/teamannounce bestaetigung`); jede Person bestätigt nur selbst, Führung sieht, wer fehlt, Frist und Erinnerung über die Inbox (`tests/test_ack.py`). |
 | 54 | Social-Media-Monitor | **Teilweise** | YouTube-/TikTok-Quellen, RSS-/Feedabruf, automatische Ankündigungen und SSRF-Schutz existieren; Filter- und Reportingumfang ist noch nicht vollständig. |
 | 55 | Spieler-Selbstservice | **Fertig** | Private Discord-Ansichten `/meine-tickets`, `/meine-events`, `/meine-benachrichtigungen` (PR #222). Neu: gebündelte Übersicht `/selbstservice` und Selbstservice-Aktion `/event-rueckmeldung` (Zusage/Absage/Zurückziehen mit Autovervollständigung). Sie nutzt dieselbe Funktion `pulse_ultimate.set_calendar_rsvp` wie der Dashboard-Kalender, erfordert Dashboard-Zugang und gilt nur für kommende Termine; mit Audit-Eintrag. Ticket-Ersteller schließen ihr eigenes Ticket über den bestehenden Schließen-Button (Prüfung von `user_id`). `cogs/pulse_pro.py`, `pulse_ultimate.py`; `tests/test_player_self_service.py`, `tests/test_ultimate_event_rsvps.py`. |
 

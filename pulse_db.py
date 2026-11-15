@@ -451,6 +451,57 @@ def init_db():
                 decided_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (page_id, version)
             );
+            CREATE TABLE IF NOT EXISTS meeting_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                scheduled_at TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'planned',
+                facilitator_id TEXT NOT NULL DEFAULT '',
+                facilitator_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                closed_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS meeting_agenda (
+                meeting_id TEXT NOT NULL,
+                pos INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                PRIMARY KEY (meeting_id, pos)
+            );
+            CREATE TABLE IF NOT EXISTS meeting_participants (
+                meeting_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                attendance TEXT NOT NULL DEFAULT 'invited',
+                PRIMARY KEY (meeting_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS meeting_decisions (
+                id TEXT PRIMARY KEY,
+                meeting_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                task_id TEXT NOT NULL DEFAULT '',
+                actor_id TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                decided_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ack_requirements (
+                kind TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL DEFAULT '/bestaetigungen',
+                required_by_id TEXT NOT NULL DEFAULT '',
+                required_by_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                due_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (kind, subject_id)
+            );
+            CREATE TABLE IF NOT EXISTS ack_receipts (
+                kind TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL,
+                PRIMARY KEY (kind, subject_id, user_id)
+            );
             CREATE TABLE IF NOT EXISTS wiki_read_acks (
                 page_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -2574,7 +2625,7 @@ TABLES = [
     "team_dev_goals",
     "message_templates", "message_template_versions",
     "ops_error_groups",
-    "wiki_required_reads", "wiki_read_acks", "wiki_version_reviews",
+    "wiki_required_reads", "wiki_read_acks", "wiki_version_reviews", "ack_requirements", "ack_receipts", "meeting_sessions", "meeting_agenda", "meeting_participants", "meeting_decisions",
     "case_closing_reports",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
