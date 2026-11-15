@@ -209,6 +209,25 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mod_reason_templates_guild_action
                 ON mod_reason_templates(guild_id, action, archived_at);
 
+            CREATE TABLE IF NOT EXISTS application_comm_journal (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                actor_id TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                template_ref TEXT NOT NULL DEFAULT '',
+                text TEXT,
+                text_sha256 TEXT NOT NULL,
+                prev_hash TEXT NOT NULL,
+                entry_hash TEXT NOT NULL,
+                UNIQUE (app_id, seq)
+            );
+
             CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
                 template_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -2426,6 +2445,7 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
+    "application_comm_journal",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

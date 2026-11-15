@@ -306,6 +306,11 @@ def run(ws, now: datetime | None = None, force: bool = False) -> dict:
                 gone = expired_applications(apps, settings["applications_days"], now)
                 if gone:
                     ws.save_json(ws.APPS_FILE, {k: v for k, v in apps.items() if k not in set(gone)})
+                    try:  # #100: the communication journal leaves together with the application
+                        import pulse_app_journal
+                        report["journal_entries"] = pulse_app_journal.purge(gone)
+                    except Exception:  # noqa: BLE001 - a journal problem must not undo the retention run
+                        report["journal_entries"] = -1
                 report["applications"] = len(gone)
             audit = ws.load_json(ws.AUDIT_FILE, [])
             if isinstance(audit, list):
@@ -451,6 +456,15 @@ def _application_audit_references(applications: dict, team_entry: dict | None) -
     return references
 
 
+def _journal_export(own_apps: dict) -> dict:
+    """#100: messages sent to the applicant, per application (read-only; empty if the journal is unavailable)."""
+    try:
+        import pulse_app_journal
+        return pulse_app_journal.export_for(list(own_apps))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def export_person(ws, discord_id: str) -> dict:
     """Read-only personal-data export with explicit recruiting cross-reference resolution."""
     import pulse_backup
@@ -478,6 +492,7 @@ def export_person(ws, discord_id: str) -> dict:
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "team_file": team_entry,
         "applications": own_apps,
+        "application_communication_journal": _journal_export(own_apps),
         "shifts": {
             "active": (shifts.get("active_shifts", {}) or {}).get(uid) if isinstance(shifts, dict) else None,
             "history": [

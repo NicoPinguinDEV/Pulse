@@ -41,6 +41,7 @@
  "GET /applications -> webserver.applications_page",
  "GET /applications/board -> pulse_phase7.register.<locals>.board_page",
  "GET /applications/config -> webserver.application_modules_config_page",
+ "GET /applications/journal/{app_id} -> webserver.application_comm_journal_page",
  "GET /apply -> webserver.public_apply_page",
  "GET /apply/callback -> webserver.apply_callback",
  "GET /apply/login -> webserver.apply_login",
