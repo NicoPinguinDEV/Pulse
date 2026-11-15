@@ -34,6 +34,8 @@
  "GET /admin/website/preview -> pulse_public_site.register.<locals>.website_preview",
  "GET /admin/website/team -> pulse_public_site.register.<locals>.website_team_admin",
  "GET /announcements -> pulse_pro.register.<locals>.announcements_page",
+ "GET /api/events/poll -> pulse_live.register.<locals>.events_poll",
+ "GET /api/events/stream -> pulse_live.register.<locals>.events_stream",
  "GET /api/live/feed -> pulse_live.register.<locals>.live_feed",
  "GET /api/live/status -> pulse_live.register.<locals>.live_status",
  "GET /api/pulse/live -> pulse_pro.register.<locals>.api_live",
