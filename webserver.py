@@ -12847,6 +12847,12 @@ try:
 except Exception as _feature_error:
     print(f"❌ Pulse-v4 Module konnten nicht registriert werden: {_feature_error}")
 
+try:  # Audit #58/#70: Live-Status und Aktivitätsfeed (Polling)
+    from pulse_live import register as register_pulse_live
+    register_pulse_live(app)
+except Exception as _live_error:
+    print(f"❌ Live-Modul konnte nicht registriert werden: {_live_error}")
+
 
 try:
     from pulse_pro import register as register_pulse_pro

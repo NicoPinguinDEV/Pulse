@@ -8,7 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_flags
+import pulse_help
 import pulse_home_layouts as home_layouts
+import pulse_live
 from pulse_home_utils import (
     WEEKDAY_SHORT,
     daily_seconds,
@@ -35,6 +37,7 @@ HOME_WIDGETS = (
     ("meeting", "Nächste Besprechung"),
     ("inbox", "Neu für mich"),
     ("shift_notes", "Schichtnotizen"),
+    ("live", "Live-Status"),
 )
 DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
 HOME_WIDGETS_KEY = "home_widgets"
@@ -341,7 +344,7 @@ def register(app) -> None:
             f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
             f'<button class="pulse-btn ghost" type="submit">Speichern</button></div>'
             f'<p class="text-[11px] text-slate-400">Diese Seite öffnet sich nach dem Login.</p>'
-            f'<fieldset class="space-y-2"><legend class="text-xs font-semibold mb-2">Widgets auf „Mein Pulse“</legend>'
+            f'<fieldset class="space-y-2"><legend class="text-xs font-semibold mb-2">Widgets auf „Mein Pulse“{pulse_help.tip("widgets")}</legend>'
             f'<input type="hidden" name="widgets_present" value="1">{widget_checks}'
             f'<p class="text-[11px] text-slate-400">Wähle die Karten aus, die du auf deiner persönlichen Startseite sehen möchtest.</p></fieldset>'
             f'</form>'
@@ -357,7 +360,7 @@ def register(app) -> None:
             "tasks": card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'),
             "status": card("🛡 Mein Status", warn_rows + loa_html),
             "meeting": card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'),
-            "inbox": card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'),
+            "inbox": card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'),            "live": card("📡 Live-Status", pulse_live.widget_html(e, pulse_live.is_lead(ctx.perms))),
         }
         if waiting_card:
             widget_cards["waiting"] = waiting_card
@@ -409,7 +412,7 @@ def register(app) -> None:
                 left_widgets.append(widget_cards["tasks"])
             if waiting_card and "waiting" in selected_widgets:
                 right_widgets.append(widget_cards["waiting"])
-            for key in ("status", "meeting", "inbox", "shift_notes"):
+            for key in ("status", "meeting", "inbox", "shift_notes", "live"):
                 if key in selected_widgets and key in widget_cards:
                     right_widgets.append(widget_cards[key])
 
