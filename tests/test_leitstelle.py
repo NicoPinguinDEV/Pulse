@@ -1,5 +1,6 @@
 """Audit #173/#174/#177: control room aggregation, rendering and the leadership-only page (synthetic data, no Discord)."""
 import unittest
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -90,6 +91,14 @@ class BuildCase(unittest.TestCase):
 
 
 class RenderAndRouteCase(Base):
+    def setUp(self):
+        super().setUp()
+        import pulse_player_reports
+        # Die Leitstelle liest Spielermeldungen; die Suite-DB darf nicht im Checkout entstehen.
+        patcher = patch.object(pulse_player_reports, "DB_PATH", str(Path(self.tmp.name) / "pulse_suite.db"))
+        patcher.start()
+        self.patches.append(patcher)
+
     def test_render_escapes_everything(self):
         evil = dict(DATA, members=[("1", "<script>alert(1)</script>")], cases=[{"id": "x", "case_no": "<b>", "title": "<i>t</i>", "priority": "urgent", "status": "open"}])
         html = ls.render(ls.build(evil, NOW), ws.esc)
