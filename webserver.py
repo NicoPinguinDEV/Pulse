@@ -13165,6 +13165,12 @@ try:
 except Exception as _feature_error:
     print(f"❌ Pulse-v4 Module konnten nicht registriert werden: {_feature_error}")
 
+try:  # Audit #71-#94: Teamplanung, 360°-Teamakte, Entwicklungsziele
+    from pulse_teamakte_pages import register as register_teamakte_pages
+    register_teamakte_pages(app)
+except Exception as _teamakte_error:
+    print(f"❌ Teamakte-Module konnten nicht registriert werden: {_teamakte_error}")
+
 
 try:
     from pulse_pro import register as register_pulse_pro

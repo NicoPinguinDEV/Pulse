@@ -8,17 +8,17 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 
 | Ablage | Module (lesen/schreiben) | Schreibstellen (Auszug) | JSON-Backup `/backups` | ZIP-Backup `/ultimate/backup` |
 |---|---|---|---|---|
-| `pulse.db` | `cogs/advanced_logs.py`, `cogs/pulse_suite.py`, `pulse_application_snapshot_store.py`, `pulse_backup.py`, `pulse_case_registry.py`, `pulse_certificates.py`, `pulse_command_sync.py`, `pulse_community_feedback.py`, `pulse_db.py`, `pulse_factions.py`, `pulse_flags.py`, `pulse_health_api.py`, `pulse_home.py`, `pulse_lockdown_policy.py`, `pulse_melonly_migration.py`, `pulse_melonly_repository.py`, `pulse_migrations.py`, `pulse_mod_cases.py`, `pulse_next.py`, `pulse_panels.py`, `pulse_paths.py`, `pulse_player_reports.py`, `pulse_privacy_requests.py`, `pulse_pro.py`, `pulse_retention.py`, `pulse_server_control.py`, `pulse_shift_history.py`, `pulse_system_checks.py`, `pulse_ticket_extras.py`, `pulse_ultimate.py`, `pulse_voice_queue.py`, `scripts/migrate_melonly.py`, `scripts/pulse_migrate_data.py`, `scripts/shift_history.py`, `webserver.py` | cogs/pulse_suite.py:73; pulse_next.py:667; pulse_player_reports.py:31 | ⚠️ nur 43 Tabellen über `export_state` | ✅ ganze Datei |
+| `pulse.db` | `cogs/advanced_logs.py`, `cogs/pulse_suite.py`, `pulse_application_snapshot_store.py`, `pulse_backup.py`, `pulse_case_registry.py`, `pulse_certificates.py`, `pulse_command_sync.py`, `pulse_community_feedback.py`, `pulse_db.py`, `pulse_factions.py`, `pulse_flags.py`, `pulse_health_api.py`, `pulse_home.py`, `pulse_lockdown_policy.py`, `pulse_melonly_migration.py`, `pulse_melonly_repository.py`, `pulse_migrations.py`, `pulse_mod_cases.py`, `pulse_next.py`, `pulse_panels.py`, `pulse_paths.py`, `pulse_player_reports.py`, `pulse_privacy_requests.py`, `pulse_pro.py`, `pulse_retention.py`, `pulse_server_control.py`, `pulse_shift_history.py`, `pulse_system_checks.py`, `pulse_ticket_extras.py`, `pulse_ultimate.py`, `pulse_voice_queue.py`, `scripts/migrate_melonly.py`, `scripts/pulse_migrate_data.py`, `scripts/shift_history.py`, `webserver.py` | cogs/pulse_suite.py:73; pulse_next.py:667; pulse_player_reports.py:31 | ⚠️ nur 44 Tabellen über `export_state` | ✅ ganze Datei |
 | `abmeldungen.db` | `cogs/abmeldung.py`, `cogs/activity_check.py`, `cogs/buero_system.py`, `cogs/flaggenquiz.py`, `cogs/role_nickname_prefixes.py`, `cogs/rp_verwaltung.py`, `cogs/teamliste.py`, `cogs/tickets.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/abmeldung.py:141,199,211,221,417,507; cogs/activity_check.py:35,83,91,99,114,167; cogs/buero_system.py:39,68,76,109,120,130; cogs/flaggenquiz.py:175,205,218,230,243,259; cogs/rp_verwaltung.py:22,35,43; cogs/teamliste.py:50,77,88,99,111,120; webserver.py:328,11041,12688,12709 | ❌ | ❌ |
 | `activity_check.db` | `cogs/activity_check.py`, `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/pulse_suite.py:647 | ❌ | ❌ |
 | `pulse_suite.db` | `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_player_reports.py`, `pulse_retention.py`, `scripts/pulse_migrate_data.py` | — | ❌ | ❌ |
 | `teamliste.db` | `cogs/teamliste.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py` | — | ❌ | ❌ |
 | `buero_system.db` | `cogs/buero_system.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py` | — | ❌ | ❌ |
 | `rp_verwaltung.db` | `cogs/rp_verwaltung.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py` | — | ❌ | ❌ |
-| `flaggenquiz.db` | `cogs/flaggenquiz.py`, `pulse_backup.py`, `pulse_panels.py`, `pulse_pro.py`, `scripts/pulse_migrate_data.py` | pulse_pro.py:3103 | ❌ | ❌ |
-| `config.json` | `cogs/activity_check.py`, `cogs/ai_moderation.py`, `cogs/antinuke.py`, `cogs/automod.py`, `cogs/backups.py`, `cogs/pulse_next.py`, `pulse_antinuke_admin.py`, `pulse_backup.py`, `pulse_guard_admin.py`, `pulse_next.py`, `pulse_phase7.py`, `pulse_pro.py`, `pulse_settings_history.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/backups.py:48; pulse_antinuke_admin.py:151; pulse_guard_admin.py:240; pulse_phase7.py:283; pulse_pro.py:1116,1152,3152,3401,3421,3450; webserver.py:9745,11509,13109,13122,13137,13145 | ❌ | ✅ |
+| `flaggenquiz.db` | `cogs/flaggenquiz.py`, `pulse_backup.py`, `pulse_panels.py`, `pulse_pro.py`, `scripts/pulse_migrate_data.py` | pulse_pro.py:3105 | ❌ | ❌ |
+| `config.json` | `cogs/activity_check.py`, `cogs/ai_moderation.py`, `cogs/antinuke.py`, `cogs/automod.py`, `cogs/backups.py`, `cogs/pulse_next.py`, `pulse_antinuke_admin.py`, `pulse_backup.py`, `pulse_guard_admin.py`, `pulse_next.py`, `pulse_phase7.py`, `pulse_pro.py`, `pulse_settings_history.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/backups.py:48; pulse_antinuke_admin.py:151; pulse_guard_admin.py:240; pulse_phase7.py:283; pulse_pro.py:1116,1152,3154,3403,3423,3452; webserver.py:9745,11509,13109,13122,13137,13145 | ❌ | ✅ |
 | `team_data.json` | `cogs/activity_check.py`, `cogs/ai_moderation.py`, `cogs/pulse_next.py`, `cogs/pulse_suite.py`, `cogs/social_promo.py`, `pulse_backup.py`, `pulse_case_registry.py`, `pulse_cockpit.py`, `pulse_consistency.py`, `pulse_home.py`, `pulse_next.py`, `pulse_phase7.py`, `pulse_pro.py`, `pulse_retention.py`, `pulse_store.py`, `pulse_ultimate.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/pulse_next.py:162; webserver.py:2701,2783,2822,2971,7969,8007 | ❌ | ✅ |
-| `applications.json` | `cogs/pulse_pro.py`, `cogs/pulse_suite.py`, `pulse_application_duplicates.py`, `pulse_application_review.py`, `pulse_application_snapshot_store.py`, `pulse_backup.py`, `pulse_cockpit.py`, `pulse_consistency.py`, `pulse_home.py`, `pulse_interviews.py`, `pulse_next.py`, `pulse_phase7.py`, `pulse_pro.py`, `pulse_recruiting_stats.py`, `pulse_retention.py`, `pulse_ultimate.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | pulse_retention.py:308; webserver.py:9308,9345,9385,9451,9463,9539 | ❌ | ✅ |
+| `applications.json` | `cogs/pulse_pro.py`, `cogs/pulse_suite.py`, `pulse_application_duplicates.py`, `pulse_application_review.py`, `pulse_application_snapshot_store.py`, `pulse_backup.py`, `pulse_cockpit.py`, `pulse_consistency.py`, `pulse_home.py`, `pulse_intel.py`, `pulse_interviews.py`, `pulse_next.py`, `pulse_phase7.py`, `pulse_pro.py`, `pulse_recruiting_stats.py`, `pulse_retention.py`, `pulse_teamakte_pages.py`, `pulse_ultimate.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | pulse_retention.py:308; webserver.py:9308,9345,9385,9451,9463,9539 | ❌ | ✅ |
 | `shifts.json` | `cogs/pulse_suite.py`, `cogs/teamliste.py`, `pulse_backup.py`, `pulse_consistency.py`, `pulse_next.py`, `pulse_pro.py`, `pulse_retention.py`, `pulse_shift_history.py`, `scripts/pulse_migrate_data.py`, `scripts/shift_history.py`, `webserver.py` | cogs/pulse_suite.py:2708; pulse_pro.py:1477,1517; pulse_shift_history.py:12,303; webserver.py:1539,4997,11787 | ❌ | ✅ |
 | `logs.json` | `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_consistency.py`, `pulse_melonly_migration.py`, `pulse_melonly_repository.py`, `pulse_melonly_store.py`, `pulse_next.py`, `pulse_retention.py`, `scripts/migrate_melonly.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | — | ❌ | ✅ |
 | `audit_logs.json` | `cogs/pulse_suite.py`, `pulse_antinuke_admin.py`, `pulse_backup.py`, `pulse_consistency.py`, `pulse_next.py`, `pulse_pro.py`, `pulse_retention.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | pulse_retention.py:319; webserver.py:674 | ❌ | ✅ |
@@ -35,7 +35,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 
 ## Tabellen (CREATE TABLE im Code) und JSON-Backup-Abdeckung von `pulse.db`
 
-`pulse_db.export_state()` exportiert 43 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
+`pulse_db.export_state()` exportiert 44 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
 
 | Tabelle | angelegt in | im JSON-Backup (`export_state`) |
 |---|---|---|
@@ -128,6 +128,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `task_history` | `pulse_db.py` | ✅ |
 | `tasks` | `pulse_db.py` | ✅ |
 | `team_checklists` | `pulse_checklists.py` | ❌ |
+| `team_dev_goals` | `pulse_db.py` | ✅ |
 | `team_safety_actor_state` | `pulse_db.py` | ✅ |
 | `team_safety_warn_events` | `pulse_db.py` | ✅ |
 | `team_status` | `pulse_db.py` | ✅ |
@@ -172,7 +173,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `wiki_page_versions` | `pulse_db.py` | ✅ |
 | `wiki_pages` | `pulse_db.py` | ✅ |
 
-**Nicht im JSON-Backup:** 89 von 132 Tabellen.
+**Nicht im JSON-Backup:** 89 von 133 Tabellen.
 
 ## Speicherort (Phase 13, `pulse_paths`)
 

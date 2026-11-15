@@ -22,6 +22,18 @@
 - Datenschutz: Normale Teammitglieder sehen im Kalender keine Bewerberdaten (auch alte Einträge mit Namen im Titel werden bereinigt). Alle Änderungen werden auditiert.
 - Daten: nur optionale Felder in `applications.json` (`interview_end`, `interview_lead_id`, `interview_state`, `interview_revision`, `interview_delivery` …); keine neue Tabelle, keine Migration.
 - Tests: `tests/test_interview_calendar.py` und Browser-Tests (Desktop/Mobil/Rechte) in `tests/test_e2e_dashboard.py`; `tools/audit_counts.py` zählt die Audit-Zeilen automatisch.
+## Pulse Intelligenz – lokale Hinweise und Entwürfe (November 2026)
+
+- **`/team/intelligenz` (nur Führung):** regelbasierte Hinweise mit Begründung und Schwelle (#129, #137, #139), Tages- und Wochenberichts-Entwurf (#130, #131), Schichtübergabe-Entwurf (#136) und Führungs-Assistent für feste Fragen (#132).
+- Ohne externe KI, nur lesend: Entwürfe werden nicht verschickt, der nächste Schritt ist ein Link, es wird nichts ausgeführt.
+- Tests: `tests/test_intel.py`, `tests/test_teamakte_pages.py`.
+
+## Teamakte und Teamplanung (November 2026)
+
+- **360°-Teamakte (#71, #73, #74):** Auf `/member/{id}` fasst ein neuer Block Dienst, Tickets, Bewertung, Schulungen, Auslastung, Warnungen (nur mit Recht), Dienstzeit-Hinweise und Abmeldung zusammen. Sichtbar für Führung und die Person selbst.
+- **Entwicklung und Beförderungspaket (#75, #76):** Entwicklungsziele je Person (Tabelle `team_dev_goals`, im Backup); Beförderungspaket mit Kriterien, Trend, Zielen und Datenlücken – nur Entscheidungsgrundlage, der Antrag bleibt im 4-Augen-Ablauf.
+- **Teamplanung `/team/planung` (nur Führung):** Auslastung (#81), Verfügbarkeitsmatrix (#92), Dienstzeit-Anomalien mit Regelbegründung (#89), Leistungsübersicht mit offengelegter Gewichtung (#94), Abwesenheitskalender (#87), Wochen-/Monatsbericht mit Kennzahl-Definitionen (#88, nur auf Abruf).
+- Tests: `tests/test_teamakte.py`, `tests/test_teamakte_pages.py`.
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
