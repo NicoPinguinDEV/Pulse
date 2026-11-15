@@ -668,7 +668,7 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     async def fall(self, interaction: discord.Interaction, referenz: str):
         import pulse_case_registry as reg
         perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
-        if not reg.allowed_kinds(perms):
+        if not reg.allowed_kinds(perms, include_reference_only=True):
             await interaction.response.send_message("❌ Kein Zugriff auf Fallakten.", ephemeral=True)
             return
         entry = reg.resolve(referenz, perms, guild_id=interaction.guild.id)

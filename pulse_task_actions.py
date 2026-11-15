@@ -39,6 +39,45 @@ def _result(ok, code, message, task=None, changes=None):
     return {"ok": ok, "code": code, "message": message, "task": task, "changes": changes or {}}
 
 
+MAX_TITLE = 160
+MAX_DESCRIPTION = 2500
+
+
+def create(perms, actor_id, actor_name, title, *, description="", assignee_id=None, assignee_name="", priority="normal",
+           due_at=None, source="web", db=None, notifier=None) -> dict:
+    """Create a task with the shared rule (``task.manage``), one contract event and a notification to the assignee
+    (never to the creator). Same result shape as :func:`update`: ``{ok, code, message, task, changes}``
+    (``code``: ``forbidden``, ``invalid``, ``ok``)."""
+    if db is None:
+        import pulse_db as db
+    if not may_manage(perms):
+        return _result(False, "forbidden", "Dafür fehlt dir die Berechtigung.")
+    clean_title = str(title or "").strip()[:MAX_TITLE]
+    if not clean_title:
+        return _result(False, "invalid", "Der Titel fehlt.")
+    if priority not in PRIORITIES:
+        priority = "normal"
+    if due_at is not None and len(str(due_at)) > MAX_DUE:
+        return _result(False, "invalid", "Ungültige Deadline.")
+    assignee = str(assignee_id) if assignee_id not in (None, "") else None
+    if assignee is not None and not assignee.isdigit():
+        return _result(False, "invalid", "Ungültige Zuständigkeit.")
+    actor = str(actor_id)
+    tid = db.create_task(clean_title, str(description or "").strip()[:MAX_DESCRIPTION], assignee, assignee_name or "", actor,
+                         actor_name, priority, due_at or None)
+    task = db.get_task(tid)
+    events.emit_safe("task", "created", target_type="task", target_id=tid, actor_id=actor, actor_name=actor_name,
+                     payload={"title": clean_title[:160], "source": source, "priority": priority, "assigned": bool(assignee)},
+                     correlation_id=f"task:{tid}")
+    if assignee and assignee != actor:
+        try:
+            inbox.deliver([assignee], "task", "created", "📋 Neue Aufgabe", f"{clean_title[:120]} wurde dir von {actor_name} zugewiesen.",
+                          correlation_id=f"task:{tid}", target_id=tid, kind="warning" if priority == "urgent" else "info", notifier=notifier)
+        except Exception:  # noqa: BLE001 - a notification problem must not undo the task
+            log.warning("Aufgaben-Benachrichtigung fehlgeschlagen", exc_info=True)
+    return _result(True, "ok", "Aufgabe erstellt.", task, {"created": (None, tid)})
+
+
 def update(perms, actor_id, actor_name, task_id, *, status=None, priority=None, due_at=None, assignee_id=None,
            assignee_name=None, note="", source="web", db=None, notifier=None) -> dict:
     """Apply a task change with the shared rule. Returns ``{ok, code, message, task, changes}``; never raises

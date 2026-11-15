@@ -97,6 +97,8 @@ def _legacy_items(entry: dict) -> list[dict]:
 
 def _case_entry(ref, perms, guild_id):
     parsed = reg.parse_ref(ref)
+    if parsed and parsed[0] not in reg.KIND_ORDER:  # #116: ticket/report references carry no moderation evidence
+        return None, None
     entry = reg.resolve(ref, perms, guild_id=guild_id) if parsed else None
     if not entry:
         return None, None

@@ -60,12 +60,14 @@ def register(app):
 
     @app.post("/tasks/create")
     async def task_create(request: Request, title: str=Form(...), description: str=Form(""), assignee_id: str=Form(""), priority: str=Form("normal"), due_at: str=Form(""), user_session: str=Cookie(None)):
-        c=ctx(request,user_session,perm=None); manager=c.perms.get("can_manage_tasks") or c.perms.get("can_promote") or c.perms.get("is_admin")
-        if not manager: raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+        import pulse_task_actions  # #124: one creation path for dashboard and bot
+        c=ctx(request,user_session,perm=None)
+        if not pulse_task_actions.may_manage(c.perms): raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
         m=c.guild.get_member(int(assignee_id)) if assignee_id.isdigit() else None
-        tid=db.create_task(title.strip()[:120],description.strip()[:600],m.id if m else None,m.display_name if m else "",c.user["id"],c.user.get("global_name") or "Team",priority,due_at or None)
-        if m: db.notify(m.id,"📋 Neue Aufgabe",f"{c.user.get('global_name')}: {title.strip()[:120]}","task","/tasks")
-        ws.log_audit(c.user.get("global_name"),c.user["id"],"Aufgabe Erstellt",f"{title.strip()[:120]} · {tid}")
+        res=pulse_task_actions.create(c.perms,c.user["id"],c.user.get("global_name") or "Team",title,description=description,
+            assignee_id=m.id if m else None,assignee_name=m.display_name if m else "",priority=priority,due_at=due_at or None,source="web")
+        if not res["ok"]: raise HTTPException(400,res["message"])
+        ws.log_audit(c.user.get("global_name"),c.user["id"],"Aufgabe Erstellt",f"{title.strip()[:120]} · {res['task']['id']}")
         return ws.back("/tasks","Aufgabe erstellt.")
 
     @app.get("/ticket/transcript/{filename}")

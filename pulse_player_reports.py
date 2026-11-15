@@ -194,6 +194,17 @@ def list_reports(guild_id, limit: int = 200) -> list[dict]:
     return [_decode(row) for row in rows]
 
 
+def get_report(report_id) -> dict | None:
+    """One report by its ``RPT-…`` ID (callers check the guild); ``None`` for unknown or malformed IDs."""
+    text = str(report_id or "").strip().upper()
+    if not text.startswith("RPT-") or len(text) > 30:
+        return None
+    with _connect() as connection:
+        _ensure_table(connection)
+        row = connection.execute("SELECT * FROM discord_player_reports WHERE id=?", (text,)).fetchone()
+    return _decode(row) if row else None
+
+
 def list_user_reports(guild_id, reporter_id, limit: int = 10) -> list[dict]:
     if guild_id is None or reporter_id is None:
         return []

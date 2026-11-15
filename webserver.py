@@ -6654,7 +6654,7 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
         raise HTTPException(status_code=404, detail="Für dieses Ticket ist kein Transkript gespeichert.")
     text = path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
     body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">📄 Transkript {esc(ticket_id)}</div>'
-            f'<div class="pulse-section-sub">{esc(ticket.get("user_name"))} · {esc(ticket.get("category"))} · geschlossen {esc(str(ticket.get("closed_at") or "")[:16])}</div></div>'
+            f'<div class="pulse-section-sub">Referenz <code>TK:{esc(ticket_id)}</code> · {esc(ticket.get("user_name"))} · {esc(ticket.get("category"))} · geschlossen {esc(str(ticket.get("closed_at") or "")[:16])}</div></div>'
             f'<div class="flex gap-2"><a class="pulse-btn ghost" href="/tickets?status=closed">← Tickets</a>'
             f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(ticket_id)}">⬇ Download</a></div></div>'
             '<style>.tr-msg{padding:8px 10px;border-radius:10px;background:var(--surface2);margin-bottom:6px}.tr-meta{font-size:11px;color:var(--muted)}'
@@ -6837,7 +6837,7 @@ async def mod_cases_history_page(request: Request, user_session: str = Cookie(No
     from pulse_pro import render_pro_page
     ctx = auth(request, user_session, perm=None)
     kinds = reg.allowed_kinds(ctx.perms)
-    if not kinds:
+    if not reg.allowed_kinds(ctx.perms, include_reference_only=True):  # #116: ticket/report managers may open their references
         raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderations-, Warn- oder Leitungsrecht.")
     guild_id = getattr(getattr(ctx, "guild", None), "id", None)
     ref_q = str(request.query_params.get("ref") or "").strip()[:60]
