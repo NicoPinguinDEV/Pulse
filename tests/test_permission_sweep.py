@@ -33,6 +33,7 @@ ALLOWED = {
     "/team-status/set",
     "/handover/create", "/ultimate/handovers/create",
     "/ultimate/announcements/{announcement_id}/read",
+    "/wissen/{page_id}/gelesen",  # a person confirms reading a must-read wiki page (only writes their own confirmation)
     "/ultimate/ideas/create", "/ultimate/ideas/{idea_id}/vote",
     "/ultimate/copilot", "/ultimate/feedback/create",
     "/me/month/optin",
