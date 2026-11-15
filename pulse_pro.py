@@ -2101,15 +2101,23 @@ def register(app):
         return render_pro_page(ws,'Aufgaben',c,'tasks',body)
 
     async def update_task_v5(request: Request, task_id: str=Form(...), status: str=Form(...), priority: str=Form(None), due_at: str=Form(None), assignee_id: str=Form(None), user_session: str=Cookie(None)):
-        c=cctx(request,user_session); t=db.get_task(task_id)
-        if not t: return ws.back('/tasks','Aufgabe nicht gefunden.',False)
-        manager=c.perms.get('can_manage_tasks') or c.perms.get('can_promote') or c.perms.get('is_admin')
-        if not (manager or str(t.get('assignee_id'))==str(c.user['id'])): raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
-        if status not in ('open','in_progress','done','archived'): raise HTTPException(400,'Ungültiger Status.')
+        # #124: one rule for web and bot (pulse_task_actions) - same permission, event and notification.
+        import pulse_task_actions
+        c=cctx(request,user_session)
+        if not db.get_task(task_id): return ws.back('/tasks','Aufgabe nicht gefunden.',False)
+        manager=pulse_task_actions.may_manage(c.perms)
+        if status not in pulse_task_actions.STATUSES: raise HTTPException(400,'Ungültiger Status.')
         assign_name=None
         if manager and assignee_id is not None:
-            m=c.guild.get_member(int(assignee_id)) if assignee_id.isdigit() else None; assignee_id=m.id if m else ''; assign_name=m.display_name if m else ''
-        db.update_task(task_id,status=status,priority=priority if priority in ('low','normal','high','urgent') else None,due_at=due_at if due_at is not None else None,assignee_id=assignee_id if manager and assignee_id is not None else None,assignee_name=assign_name,actor_id=c.user['id'],actor_name=c.user.get('global_name') or 'Team')
+            m=c.guild.get_member(int(assignee_id)) if assignee_id.isdigit() else None; assignee_id=str(m.id) if m else ''; assign_name=m.display_name if m else ''
+        name=c.user.get('global_name') or 'Team'
+        res=pulse_task_actions.update(c.perms,c.user['id'],name,task_id,status=status,
+            priority=priority if manager and priority in pulse_task_actions.PRIORITIES else None,
+            due_at=due_at if manager and due_at is not None else None,
+            assignee_id=assignee_id if manager and assignee_id is not None else None,assignee_name=assign_name,source='web')
+        if res['code']=='forbidden': raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
+        if res['code']=='invalid': raise HTTPException(400,res['message'])
+        if res['code']=='not_found': return ws.back('/tasks','Aufgabe nicht gefunden.',False)
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Aufgabe Aktualisiert',f'{task_id} → {status}')
         return ws.back('/tasks','Aufgabe aktualisiert.')
 
