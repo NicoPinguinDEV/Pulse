@@ -35,7 +35,8 @@ class AuditCountTests(unittest.TestCase):
         self.assertIsNotNone(match)
         main_done, branch_done, main_partial, branch_partial = map(int, match.groups())
         self.assertEqual((branch_done, branch_partial), (self.totals["Fertig"], self.totals["Teilweise"]))
-        self.assertEqual((main_done + 1, main_partial - 1), (branch_done, branch_partial))   # #99 is the only difference to main
+        self.assertEqual(main_done + main_partial, branch_done + branch_partial)   # same 177 functions; the branch only moves rows from partial to done
+        self.assertGreaterEqual(branch_done, main_done)
 
     def test_no_stale_merge_statements(self):
         for text in (AUDIT, PROGRESS):

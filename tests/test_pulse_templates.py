@@ -210,7 +210,7 @@ class LegacyImportAndBackupTests(LibraryCase):
         pulse_db.set_setting("ticket_quick_replies", {"*": [{"title": "Gruß", "text": "Hi {user}"},
                                                             {"title": "Kaputt", "text": "Hi {user.name}"}]})
         first = tpl.import_legacy(BOTH, G, A1, "Anna")
-        self.assertEqual(first["created"], 7 + 1)  # 7 application texts (defaults + custom) + 1 valid reply
+        self.assertEqual(first["created"], len(pulse_app_comms.DEFAULTS) + 1)  # every application text (defaults + custom) + 1 valid reply
         self.assertEqual(len(first["skipped"]), 1)
         self.assertIn("Kaputt", first["skipped"][0])
         again = tpl.import_legacy(BOTH, G, A1, "Anna")
