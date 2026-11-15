@@ -1,5 +1,6 @@
 [
  "GET / -> webserver.home",
+ "GET /academy -> pulse_academy.register.<locals>.academy_page",
  "GET /achievements -> pulse_pro.register.<locals>.achievements_v5",
  "GET /activity-check -> pulse_pro.register.<locals>.activity_check_page",
  "GET /admin -> pulse_admin.register.<locals>.admin_hub",
@@ -71,6 +72,7 @@
  "GET /health -> pulse_pro.register.<locals>.api_health",
  "GET /healthz -> pulse_health_api.healthz",
  "GET /impressum -> pulse_public_site.register.<locals>.add_page.<locals>.handler",
+ "GET /leitstelle -> pulse_teamakte_pages.register.<locals>.control_room",
  "GET /loa -> webserver.loa_page",
  "GET /login -> webserver.login",
  "GET /logout -> webserver.logout_confirm",
@@ -182,6 +184,7 @@
  "GET /ultimate/calendar/{event_id}/delete -> pulse_ultimate.register.<locals>.ultimate_calendar_delete_link",
  "GET /ultimate/cases -> pulse_ultimate.register.<locals>.ultimate_cases",
  "GET /ultimate/cases/{case_id} -> pulse_ultimate.register.<locals>.ultimate_case_detail",
+ "GET /ultimate/cases/{case_id}/abschluss -> pulse_case_report.register.<locals>.closing_form",
  "GET /ultimate/cases/{case_id}/attachments/{attachment_id} -> pulse_ultimate.register.<locals>.ultimate_attachment_download",
  "GET /ultimate/cases/{case_id}/upload -> pulse_ultimate.register.<locals>.ultimate_upload_page",
  "GET /ultimate/copilot -> pulse_intelligence.register.<locals>.pulse_copilot_page",
@@ -224,6 +227,7 @@
  "GET /warns.csv -> pulse_pro.register.<locals>.warns_csv",
  "GET /wiki -> pulse_features.register.<locals>.wiki_page",
  "GET /wiki/{page_id} -> pulse_features.register.<locals>.wiki_detail",
+ "GET /wissen -> pulse_wiki_pages.register.<locals>.wiki_search_page",
  "POST /action -> webserver.handle_action",
  "POST /activity-check/setup -> pulse_pro.register.<locals>.activity_check_setup",
  "POST /admin/commands/sync -> pulse_admin.register.<locals>.admin_commands_sync",
@@ -426,6 +430,8 @@
  "POST /ultimate/calendar/{event_id}/delete -> pulse_ultimate.register.<locals>.ultimate_calendar_delete",
  "POST /ultimate/calendar/{event_id}/rsvp -> pulse_ultimate.register.<locals>.ultimate_calendar_rsvp",
  "POST /ultimate/cases/create -> pulse_ultimate.register.<locals>.ultimate_case_create",
+ "POST /ultimate/cases/{case_id}/abschluss -> pulse_case_report.register.<locals>.closing_save",
+ "POST /ultimate/cases/{case_id}/notiz -> pulse_case_report.register.<locals>.internal_note",
  "POST /ultimate/cases/{case_id}/players/add -> pulse_ultimate.register.<locals>.ultimate_case_player_add",
  "POST /ultimate/cases/{case_id}/update -> pulse_ultimate.register.<locals>.ultimate_case_update",
  "POST /ultimate/cases/{case_id}/upload -> pulse_ultimate.register.<locals>.ultimate_upload",
@@ -456,5 +462,7 @@
  "POST /ultimate/workflows/create -> pulse_next.register.<locals>.workflows_create",
  "POST /voice-support/save -> pulse_pro.register.<locals>.voice_support_save",
  "POST /wiki/save -> pulse_features.register.<locals>.wiki_save",
- "POST /wiki/{page_id}/restore/{version_number} -> pulse_features.register.<locals>.wiki_restore_version"
+ "POST /wiki/{page_id}/restore/{version_number} -> pulse_features.register.<locals>.wiki_restore_version",
+ "POST /wissen/{page_id}/gelesen -> pulse_wiki_pages.register.<locals>.wiki_acknowledge",
+ "POST /wissen/{page_id}/pflicht -> pulse_wiki_pages.register.<locals>.wiki_set_required"
 ]

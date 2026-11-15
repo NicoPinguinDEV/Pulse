@@ -273,6 +273,16 @@ def register(app) -> None:
                 f'<section class="pulse-card"><div class="pulse-card-b">{intel_html(view, collect(ws, ctx), request.query_params.get("q", "")[:200])}</div></section>')
         return HTMLResponse(render_pro_page(ws, "Pulse Intelligenz", ctx, "team", body))
 
+    @app.get("/leitstelle", response_class=HTMLResponse)
+    async def control_room(request: Request, user_session: str = Cookie(None)):
+        """#173/#177: control room for leadership (read-only aggregation)."""
+        import pulse_leitstelle
+        ctx = lead_ctx(request, user_session)
+        snap = pulse_leitstelle.build(pulse_leitstelle.collect(ws, ctx), tz=BERLIN)
+        body = ('<div class="pulse-crumb"><a href="/team">Team</a> › Leitstelle</div>'
+                f'<h1 class="text-2xl font-bold mb-3">BOCHUM RP Leitstelle</h1>{pulse_leitstelle.render(snap, _e)}')
+        return HTMLResponse(render_pro_page(ws, "Leitstelle", ctx, "team", body))
+
     def target_member(ctx, user_id: str):
         member = ctx.guild.get_member(int(user_id)) if str(user_id).isdigit() else None
         if member is None:

@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Leitstelle, Academy und Wissen (November 2026)
+
+- **Leitstelle `/leitstelle` (#173, #174, #177, nur Führung, lesend):** im Dienst, Besetzung gegen das Übliche, Support-Warteschlange, Aufgaben, Eskalationen, Auslastung, Termine und Abteilungs-Kennzahlen auf einer Seite.
+- **Academy `/academy` (#106, #176):** Lernfortschritt je Lernpfad, Zertifikate mit Auffrischungsstatus, Pflichtlektüre; Führung sieht die Team-Tabelle.
+- **Wiki (#111, #113):** Volltextsuche `/wissen`; Pflichtlektüre mit Bestätigung je Version, Meldung ans Team und Abdeckungsansicht. Neue Tabellen `wiki_required_reads` und `wiki_read_acks` (im Backup).
+- **Vorgänge (#175):** Abschlussbericht schließt den Fall in einem Schritt; interne Notizen nur für die Leitung. Neue Tabelle `case_closing_reports` (im Backup).
+- Tests: `test_leitstelle`, `test_academy`, `test_wiki_plus`, `test_case_report` und Browser-Tests `ControlRoomAndAcademyE2ETests`.
+
 ## Abmeldungen: automatische Bereinigung bei Offboarding und Serveraustritt (November 2026)
 
 - **Team-Kick / Verlust der letzten Teamrolle:** Nach einem tatsächlich erfolgreichen Team-Kick (Dashboard, Discord-Zweitfreigabe, automatischer Warn-Team-Kick) oder dem Verlust der letzten konfigurierten Teamrolle werden aktive und zukünftige Abmeldungen beendet: Eintrag gelöscht, Abmeldungsrolle entfernt, Nickname-Suffix mit der bestehenden Schutzlogik zurückgesetzt, Abmeldungs- und Teamliste aktualisiert. Ein fehlgeschlagener Team-Kick lässt die Abmeldung unverändert.

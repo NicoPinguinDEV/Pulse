@@ -432,6 +432,33 @@ def init_db():
                 threads INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS wiki_required_reads (
+                page_id TEXT PRIMARY KEY,
+                set_by_id TEXT NOT NULL DEFAULT '',
+                set_by_name TEXT NOT NULL DEFAULT '',
+                set_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS wiki_read_acks (
+                page_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL,
+                PRIMARY KEY (page_id, version, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS case_closing_reports (
+                case_id TEXT PRIMARY KEY,
+                outcome TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                measures TEXT NOT NULL DEFAULT '',
+                lessons TEXT NOT NULL DEFAULT '',
+                participants TEXT NOT NULL DEFAULT '',
+                author_id TEXT NOT NULL DEFAULT '',
+                author_name TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS privacy_requests (
                 id TEXT PRIMARY KEY,
                 guild_id TEXT NOT NULL,
@@ -2509,6 +2536,8 @@ TABLES = [
     "team_dev_goals",
     "message_templates", "message_template_versions",
     "ops_error_groups",
+    "wiki_required_reads", "wiki_read_acks",
+    "case_closing_reports",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

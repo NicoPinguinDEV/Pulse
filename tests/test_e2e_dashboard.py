@@ -1185,3 +1185,40 @@ class OperationsConsoleMemberE2ETests(_PreviewE2EBase):
     def test_console_is_forbidden_for_normal_team_members(self):
         page, _ = self._page()
         self.assertEqual(page.goto(self._url("/admin/betrieb")).status, 403)
+
+
+class ControlRoomAndAcademyE2ETests(_PreviewE2EBase):
+    """Audit #173/#175/#176/#111/#113 im Browser: Leitstelle, Academy, Wiki-Suche und Pflichtlektüre; Desktop und Mobil."""
+
+    def test_pages_render_without_javascript_errors(self):
+        page, errors = self._page()
+        for path, text in (("/leitstelle", "Leitstelle"), ("/academy", "Academy"), ("/wissen", "Wiki-Suche")):
+            with self.subTest(path=path):
+                self.assertEqual(page.goto(self._url(path)).status, 200)
+                self.assertIn(text, page.locator("main").inner_text())
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_must_read_flow_search_and_confirm(self):
+        page, errors = self._page()
+        origin = {"Origin": f"http://127.0.0.1:{self.port}"}
+        saved = page.request.post(self._url("/wiki/save"), form={"title": "Funkregeln E2E", "category": "Regeln", "content": "Nur kurze Meldungen mit Rufzeichen."},
+                                  headers=origin, max_redirects=0)
+        self.assertIn(saved.status, (200, 303), saved.status)
+        page.goto(self._url("/wissen?q=rufzeichen"))
+        self.assertIn("Funkregeln E2E", page.locator("main").inner_text())
+        page.locator("main a", has_text="Funkregeln E2E").first.click()
+        page.get_by_role("button", name="Als Pflichtlektüre festlegen").click()
+        self.assertIn("Pflichtlektüre aufheben", page.locator("main").inner_text())
+        page.get_by_role("button", name="Gelesen und verstanden").click()
+        self.assertIn("hast du bestätigt", page.locator("main").inner_text())
+        page.goto(self._url("/wiki"))
+        self.assertEqual(page.locator("form[action='/wissen']").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_mobile_without_horizontal_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for path in ("/leitstelle", "/academy", "/wissen?q=test", "/wiki"):
+            with self.subTest(path=path):
+                page.goto(self._url(path))
+                self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")

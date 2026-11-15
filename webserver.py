@@ -13181,6 +13181,24 @@ try:
 except Exception as _feature_error:
     print(f"❌ Pulse-v4 Module konnten nicht registriert werden: {_feature_error}")
 
+try:  # Audit #175: Abschlussbericht und interne Notizen für Teamfälle
+    from pulse_case_report import register as register_case_report
+    register_case_report(app)
+except Exception as _case_report_error:
+    print(f"❌ Fall-Abschlussbericht konnte nicht registriert werden: {_case_report_error}")
+
+try:  # Audit #106/#176: Academy-Übersicht
+    from pulse_academy import register as register_academy
+    register_academy(app)
+except Exception as _academy_error:
+    print(f"❌ Academy konnte nicht registriert werden: {_academy_error}")
+
+try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
+    from pulse_wiki_pages import register as register_wiki_pages
+    register_wiki_pages(app)
+except Exception as _wiki_error:
+    print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
+
 try:  # Audit #71-#94: Teamplanung, 360°-Teamakte, Entwicklungsziele
     from pulse_teamakte_pages import register as register_teamakte_pages
     register_teamakte_pages(app)

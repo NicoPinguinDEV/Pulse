@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **125 fertig / 52 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **131 fertig / 46 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 125 |
-| Teilweise | 52 |
+| Fertig | 131 |
+| Teilweise | 46 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -36,12 +36,12 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
-| Academy und Wissensmanagement | 6 | 4 | 0 |
+| Academy und Wissensmanagement | 8 | 2 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 11 | 4 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 13 | 7 | 0 |
-| BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
+| BOCHUM-RP-spezifische Funktionen | 4 | 1 | 0 |
 
 ## Einzelbewertung
 
@@ -194,14 +194,14 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 106 | Interne Lernplattform | **Teilweise** | `/training` und Wiki existieren; die vollständige Academy mit Lernpfaden, Zertifikaten, Feedback und Versionskontrolle fehlt. |
+| 106 | Interne Lernplattform | **Fertig** | `/academy` bündelt Lernpfade, Quiz-Ergebnisse, Zertifikate, Auffrischung und Pflichtlektüre in einem Bereich für die Ausbildung. |
 | 107 | Lernpfade je Rolle | **Fertig** | Rollenbezogene Lernpfade mit Fortschritt (PR #201); `tests/test_training_learning_paths.py`. |
 | 108 | Quizsystem | **Teilweise** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. |
 | 109 | Zertifikate | **Fertig** | Nach jedem bestandenen Test wird automatisch ein Zertifikat mit Prüfcode ausgestellt (`pulse_certificates.py`, aus dem gespeicherten Versuch, idempotent je Versuch); Anzeige unter `/training`, Prüfseite `/training/certificate/{code}` nur für Inhaber und Leitung. `tests/test_training_certificates.py`. |
 | 110 | Auffrischungsschulungen | **Fertig** | Je Schulung konfigurierbare Gültigkeit und Vorwarnzeit (`POST /training/{id}/refresher`, nur Schulungsverwaltung); Housekeeping benachrichtigt Inhaber genau einmal vor Ablauf und bei Ablauf, ein neues Zertifikat ersetzt das alte, Leitung sieht fällige Auffrischungen. `tests/test_training_certificates.py`. |
-| 111 | Wissensdatenbank/Wiki | **Teilweise** | `/wiki` unterstützt Listen-, Detail- und Speicherfunktionen; Suche, redaktionelle Freigaben und vollständige Versionskontrolle fehlen. |
+| 111 | Wissensdatenbank/Wiki | **Teilweise** | Volltextsuche `/wissen` (alle Begriffe, Titel gewichtet, Ausschnitt) und Versionsverlauf mit Wiederherstellung; redaktionelle Freigaben fehlen. |
 | 112 | Artikel-Versionierung | **Fertig** | Unveränderliche Wiki-Versionen und Wiederherstellung (PR #196); `tests/test_wiki_versioning.py`. |
-| 113 | Lesebestätigung für Dienstanweisungen | **Teilweise** | Team-News haben Lesestatus; versionierte Dienstanweisungen mit gesonderter Kenntnisnahme fehlen. |
+| 113 | Lesebestätigung für Dienstanweisungen | **Fertig** | Pflichtlektüre je Wiki-Seite: Bestätigung gilt für die aktuelle Version, jede neue Version macht die Seite wieder offen; Meldung ans Team, Abdeckung (bestätigt/offen) für die Verwaltung (`pulse_wiki_plus.py`, `tests/test_wiki_plus.py`). |
 | 114 | Schulungsfortschritt | **Fertig** | Trainingsversuche und Zuweisungen werden gespeichert; bestandene Prüfungen setzen passende Zuweisungen auf `passed`; `tests/test_training_assignments.py`. |
 | 115 | Schulungsfeedback | **Fertig** | Anonymes Feedback je Schulung (PR #197); `tests/test_training_feedback.py`. |
 
@@ -286,11 +286,11 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 173 | BOCHUM-RP-Leitstelle | **Teilweise** | `/cockpit` und `/ultimate` zeigen Teamstatus, Tickets, Voice-Support, Fälle, Kalender und Betrieb; eine durchgängige Leitstelle mit allen Eskalationen/Community-Meldungen fehlt. |
-| 174 | Abteilungsverwaltung | **Teilweise** | `/ultimate/departments` unterstützt Abteilungserstellung und Mitglieder hinzufügen/entfernen; Aufgaben, Schulungen, Ziele und Abteilungsstatistiken sind nicht vollständig integriert. |
-| 175 | Vorgangsverwaltung | **Teilweise** | `/ultimate/cases` besitzt Fallnummern, Kategorien, Prioritäten, Zuständigkeit, Anhänge, Roblox-Spieler und Ereignisverlauf; interne Kommunikation und strukturierter Abschlussbericht fehlen. |
-| 176 | BOCHUM-RP Academy | **Teilweise** | Training, Quiz, Wiki, Zuweisungen und manuell vergebbare Zertifikate existieren; Lernpfade, automatische Zertifizierung, Auffrischung und Wissensversionierung fehlen. |
-| 177 | Team-Leitstand | **Teilweise** | Führungscockpit zeigt aktive Teammitglieder, Schichten, Tickets und Voice-Fälle; Verfügbarkeitsplanung, Arbeitslastverteilung und vollständiger Aufgabenleitstand fehlen. |
+| 173 | BOCHUM-RP-Leitstelle | **Fertig** | `/leitstelle` (Führung): im Dienst mit Dauer, Besetzung gegen das Übliche, Support-Warteschlange (älteste zuerst, Voice-Warteraum), Aufgaben, Eskalationen (Hinweise, dringende Vorgänge, alte Spielermeldungen), Auslastung, Termine, Abteilungen; rein lesend, aktualisiert sich jede Minute (`pulse_leitstelle.py`, `tests/test_leitstelle.py`, Browser-Test). |
+| 174 | Abteilungsverwaltung | **Teilweise** | Abteilungsübersicht in der Leitstelle: Mitglieder, im Dienst, offene Aufgaben und Tickets, Stunden 30 Tage je Abteilung; Ziele und Schulungen je Abteilung fehlen. |
+| 175 | Vorgangsverwaltung | **Fertig** | Strukturierter Abschlussbericht (Ergebnis, Zusammenfassung, Maßnahmen, Erkenntnisse, Beteiligte) schließt den Fall in einem Schritt, interne Notizen nur für die Leitung, beides in Timeline und Audit (`pulse_case_report.py`, `tests/test_case_report.py`). |
+| 176 | BOCHUM-RP Academy | **Fertig** | `/academy`: eigener Lernfortschritt je Lernpfad mit nächster Schulung, Zertifikate mit Auffrischungsstatus, Pflichtlektüre; Führung sieht die Team-Tabelle (`pulse_academy.py`, `tests/test_academy.py`); Lernpfade, Zertifikate, Auffrischung und Wiki-Versionen kommen aus den vorhandenen Modulen. |
+| 177 | Team-Leitstand | **Fertig** | Die Leitstelle zeigt, wer im Dienst ist, die Support-Warteschlange und Auslastung je Person sowie offene und überfällige Aufgaben; Verfügbarkeit (üblich vs. aktuell) und Last stammen aus der Teamplanung. |
 
 ## Wichtige Befunde
 
