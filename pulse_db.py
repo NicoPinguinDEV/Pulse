@@ -353,6 +353,25 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_saved_views_name
                 ON dashboard_saved_views(user_id, page, name COLLATE NOCASE);
 
+            CREATE TABLE IF NOT EXISTS ops_error_groups (
+                sig TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                sample TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_ops_error_groups_last ON ops_error_groups(last_seen DESC);
+
+            CREATE TABLE IF NOT EXISTS ops_resource_samples (
+                at TEXT PRIMARY KEY,
+                container_mb REAL,
+                process_mb REAL,
+                cpu_pct REAL,
+                disk_free_mb REAL,
+                threads INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS privacy_requests (
                 id TEXT PRIMARY KEY,
                 guild_id TEXT NOT NULL,
@@ -2426,6 +2445,7 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
+    "ops_error_groups",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

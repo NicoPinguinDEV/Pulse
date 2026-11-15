@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Betriebskonsole (November 2026)
+
+- **`/admin/betrieb` (nur Administratoren, lesend):** Übersicht (Bot, Speicher, Datenträger, Fehlergruppen, langsamste Route, Release), Fehlergruppen (#155), Latenz je Route (#157), Ressourcenverlauf über 14 Tage (#158), Admin-Aktionen aus Audit und Einstellungs-Historie (#165), Aufbewahrungsmatrix (#172) und Rechte-Abgleich Discord/Pulse (#160).
+- Neue Tabellen `ops_error_groups` (im Backup) und `ops_resource_samples`; die Latenzmessung läuft in der vorhandenen Middleware, die Ressourcenmessung im vorhandenen Automations-Loop (höchstens alle 5 Minuten).
+- Tests: `tests/test_ops.py`, Browser-Tests `OperationsConsole*E2ETests`.
+
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.

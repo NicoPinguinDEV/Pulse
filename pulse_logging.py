@@ -36,6 +36,11 @@ def setup(base_dir: str | None = None, level: int = logging.INFO) -> logging.Log
         logger.addHandler(handler)
     except OSError as exc:
         print(f"⚠️ Log-Datei nicht verfügbar ({type(exc).__name__}) – nur Konsole.")
+    try:  # Audit #155: every ERROR record also feeds the error groups (grouped by signature)
+        import pulse_ops
+        pulse_ops.install_error_handler(LOGGER_NAME)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ Fehlergruppen nicht verfügbar ({type(exc).__name__}).")
     _CONFIGURED = True
     return logger
 

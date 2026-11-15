@@ -3354,6 +3354,13 @@ async def _automation_cycle(bot):
             await webserver.send_interview_reminders(bot)
     except Exception as exc:
         print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
+    # Audit #158: resource history sample (at most every five minutes, bounded, same loop - no new worker).
+    try:
+        import pulse_ops
+        import webserver
+        pulse_ops.sample_resources(webserver.DATA_DIR)
+    except Exception as exc:
+        print(f"⚠️ Ressourcenverlauf konnte nicht gespeichert werden: {type(exc).__name__}")
     # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
     # auch nach einem Neustart zuverlässig automatisch enden.
     try:
