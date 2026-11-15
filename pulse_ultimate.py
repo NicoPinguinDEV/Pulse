@@ -694,6 +694,7 @@ def init_db() -> None:
                                       ("test_mode", "INTEGER DEFAULT 0"), ("updated_at", "TEXT"), ("updated_by_name", "TEXT"))),
             ("ultimate_automation_runs", (("trigger_info", "TEXT DEFAULT ''"), ("steps_json", "TEXT DEFAULT ''"),
                                           ("duration_ms", "INTEGER DEFAULT 0"), ("actor_name", "TEXT DEFAULT ''"))),
+            ("ultimate_cases", (("realm", "TEXT NOT NULL DEFAULT ''"),)),  # #50: IC/OOC (additive)
         ):
             columns = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
             for column, kind in additions:
@@ -1307,16 +1308,23 @@ def register(app) -> None:
     @app.get("/ultimate/cases", response_class=HTMLResponse)
     async def ultimate_cases(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
+        import pulse_realm
         rows = case_rows(200)
+        realm_counts = pulse_realm.counts(rows)
+        flt = request.query_params.get("bereich", "")
+        rows = [r for r in rows if pulse_realm.matches(r.get("realm"), flt)]
         cards = []
         for x in rows:
             cards.append(
-                card(f"""<div class="row"><div><b>{esc(x['case_no'])} · {esc(x['title'])}</b><div class="tiny">{esc(x['subject_name'])} · {esc(x['category'])}</div></div>{status_badge(x['status'])}</div>
+                card(f"""<div class="row"><div><b>{esc(x['case_no'])} · {esc(x['title'])}</b><div class="tiny">{esc(x['subject_name'])} · {esc(x['category'])} · <b>{esc(pulse_realm.label(x.get('realm')))}</b></div></div>{status_badge(x['status'])}</div>
                 <div class="tiny">Priorität: {esc(x['priority'])} · Verantwortlich: {esc(x['assignee_name'] or 'Niemand')}</div>
                 <p class="tiny">{esc(x['description'][:400])}</p>
                 <a class="btn primary" href="/ultimate/cases/{esc(x['id'])}">Fall öffnen</a>""")
             )
-        body = f"""<div class="card"><h3>🚨 Neuen Fall anlegen</h3><form class="form" method="post" action="/ultimate/cases/create">
+        realm_bar = " · ".join(f"<a href='/ultimate/cases{'' if k == 'alle' else '?bereich=' + k}'>{esc(label)} ({n})</a>" for k, label, n in (
+            ("alle", "Alle", sum(realm_counts.values())), ("ic", "IC", realm_counts["ic"]), ("ooc", "OOC", realm_counts["ooc"]), ("offen", "Nicht zugeordnet", realm_counts["offen"])))
+        body = f"""<div class="tiny" style="margin-bottom:8px">Bereich: {realm_bar}</div><div class="card"><h3>🚨 Neuen Fall anlegen</h3><form class="form" method="post" action="/ultimate/cases/create">
+            <select class="select" name="realm" required aria-label="Bereich"><option value="">IC oder OOC wählen …</option><option value="ic">IC (im Spiel)</option><option value="ooc">OOC (Discord / außerhalb des Spiels)</option></select>
             <input class="input" name="title" placeholder="Falltitel" maxlength="160" required>
             <select class="select" name="category"><option>general</option><option>moderation</option><option>team</option><option>support</option><option>recruiting</option><option>security</option><option>roblox</option></select>
             <select class="select" name="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select>
@@ -1332,29 +1340,52 @@ def register(app) -> None:
         request: Request,
         title: str = Form(...), category: str = Form("general"),
         priority: str = Form("normal"), subject_name: str = Form(""),
-        subject_id: str = Form(""), description: str = Form(""),
+        subject_id: str = Form(""), description: str = Form(""), realm: str = Form(""),
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
         if priority not in _PRIORITY or not title.strip():
             raise HTTPException(400, "Ungültige Falldaten.")
+        import pulse_realm
+        try:
+            realm = pulse_realm.normalize(realm)  # leer bleibt für ältere Aufrufer erlaubt, ein ungültiger Wert nicht
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         now_s = iso()
         case_id = uid("case")
         number = case_number()
         with cx() as c:
             c.execute(
                 """INSERT INTO ultimate_cases(id,case_no,title,category,priority,status,subject_type,subject_id,
-                subject_name,description,assignee_id,assignee_name,created_by_id,created_by_name,created_at,updated_at,closed_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                subject_name,description,assignee_id,assignee_name,created_by_id,created_by_name,created_at,updated_at,closed_at,realm)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (case_id, number, title.strip()[:160], category[:40], priority, "open",
                  "player" if category == "roblox" else "team", subject_id[:100],
                  subject_name[:160], description[:5000], None, "", str(ctx.user["id"]),
                  ctx.user.get("global_name") or ctx.user.get("username") or "Team",
-                 now_s, now_s, None),
+                 now_s, now_s, None, realm),
             )
         add_case_event(case_id, ctx, "created", description[:1000] or "Fall erstellt")
         audit(ctx, "Fall erstellt", case_id, number, f"{category}/{priority}")
         return RedirectResponse("/ultimate/cases", status_code=303)
+
+    @app.post("/ultimate/cases/{case_id}/realm")
+    async def ultimate_case_realm(request: Request, case_id: str, realm: str = Form(...), user_session: str = Cookie(None)):
+        """#50: assign or correct the IC/OOC area of one case (leadership)."""
+        ctx = ctx_auth(request, user_session, manager=True)
+        import pulse_realm
+        try:
+            value = pulse_realm.normalize(realm, allow_empty=False)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        with cx() as c:
+            row = c.execute("SELECT case_no FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Fall nicht gefunden.")
+            c.execute("UPDATE ultimate_cases SET realm=?, updated_at=? WHERE id=?", (value, iso(), case_id))
+        add_case_event(case_id, ctx, "updated", f"Bereich: {pulse_realm.label(value)}")
+        audit(ctx, "Fall-Bereich gesetzt", case_id, row["case_no"], value)
+        return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
 
     @app.get("/ultimate/cases/{case_id}", response_class=HTMLResponse)
     async def ultimate_case_detail(request: Request, case_id: str, user_session: str = Cookie(None)):

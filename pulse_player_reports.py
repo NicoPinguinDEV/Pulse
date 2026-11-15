@@ -57,6 +57,9 @@ def _ensure_table(connection) -> None:
         )
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(discord_player_reports)").fetchall()}
+    if "realm" not in columns:  # #50: IC/OOC, additive; older reports stay "" (nicht zugeordnet)
+        connection.execute("ALTER TABLE discord_player_reports ADD COLUMN realm TEXT NOT NULL DEFAULT ''")
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_discord_player_reports_guild "
         "ON discord_player_reports(guild_id, status, created_at DESC)"
@@ -108,6 +111,7 @@ def create_report(
     description: str,
     priority: str = "normal",
     evidence=None,
+    realm: str = "",
 ) -> dict:
     """Create a player report visible only to the originating Discord guild and its staff."""
     if guild_id is None or reporter_id is None:
@@ -128,6 +132,8 @@ def create_report(
         raise ValueError("Ungültige Priorität.")
     if len(description) < 20 or len(description) > MAX_DESCRIPTION_LENGTH:
         raise ValueError(f"Die Beschreibung muss 20 bis {MAX_DESCRIPTION_LENGTH} Zeichen enthalten.")
+    import pulse_realm
+    realm = pulse_realm.normalize(realm)
     evidence_rows = normalize_evidence(evidence)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row = {
@@ -147,6 +153,7 @@ def create_report(
         "reviewed_by_name": "",
         "created_at": now,
         "updated_at": now,
+        "realm": realm,
     }
     with _connect() as connection:
         _ensure_table(connection)
@@ -155,11 +162,11 @@ def create_report(
             INSERT INTO discord_player_reports(
                 id, guild_id, reporter_id, reporter_name, target_name, category, description,
                 priority, status, assignee_id, assignee_name, evidence_json,
-                reviewed_by_id, reviewed_by_name, created_at, updated_at
+                reviewed_by_id, reviewed_by_name, created_at, updated_at, realm
             ) VALUES (
                 :id, :guild_id, :reporter_id, :reporter_name, :target_name, :category, :description,
                 :priority, :status, :assignee_id, :assignee_name, :evidence_json,
-                :reviewed_by_id, :reviewed_by_name, :created_at, :updated_at
+                :reviewed_by_id, :reviewed_by_name, :created_at, :updated_at, :realm
             )
             """,
             row,
@@ -192,6 +199,17 @@ def list_reports(guild_id, limit: int = 200) -> list[dict]:
             (str(guild_id), bounded),
         ).fetchall()
     return [_decode(row) for row in rows]
+
+
+def set_realm(report_id, realm) -> bool:
+    """#50: assign (or correct) the IC/OOC area of one report. ``False`` for an unknown report; ``ValueError`` for an invalid area."""
+    import pulse_realm
+    value = pulse_realm.normalize(realm, allow_empty=False)
+    text = str(report_id or "").strip().upper()
+    with _connect() as connection:
+        _ensure_table(connection)
+        return connection.execute("UPDATE discord_player_reports SET realm=?, updated_at=? WHERE id=?",
+                                  (value, datetime.now(timezone.utc).isoformat(timespec="seconds"), text)).rowcount > 0
 
 
 def get_report(report_id) -> dict | None:

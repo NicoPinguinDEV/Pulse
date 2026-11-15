@@ -26,8 +26,8 @@ Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist g
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 157 (157 mit #99-Branch) |
-| Teilweise | 20 (20 mit #99-Branch) |
+| Fertig | 160 (160 mit #99-Branch) |
+| Teilweise | 17 (17 mit #99-Branch) |
 | Offen | 0 |
 
 | Schritt | Fertig | Teilweise | Auditänderung | PR |

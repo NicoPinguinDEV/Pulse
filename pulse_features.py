@@ -592,7 +592,8 @@ def register(app):
         training_id_safe=esc(t["id"])
         body=(
             f'<div class="max-w-3xl"><h1 class="text-2xl font-bold">🎓 {esc(t["title"])}</h1>'
-            f'<p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten</p>'
+            f'<p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten'
+            + (f' · <a class="underline" href="/training/{esc(t["id"])}/verwaltung">⚙ Quizverwaltung</a>' if __import__("pulse_quiz_admin").can_manage(c.perms) else '') + '</p>'
             f'<form action="/training/{training_id_safe}/submit" method="post" class="space-y-3">{qs}'
             f'<button class="{ws.BTN} px-5 py-3">Test abgeben</button></form>'
         )
@@ -695,6 +696,7 @@ def register(app):
             except Exception: pass
         score=round(correct/max(1,len(t['questions']))*100); passed=score>=t['passing_score']
         attempt_id=db.save_attempt(training_id,c.user['id'],c.user.get('global_name') or 'Team',score,passed)
+        __import__('pulse_quiz_admin').record_answers(attempt_id,t['questions'],{q['id']:form.get(f'q_{q["id"]}') for q in t['questions']})  # #108: Auswertung je Frage
         certificate=None
         if passed:
             try:

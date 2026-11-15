@@ -2544,6 +2544,7 @@ class PulseSuite(commands.Cog):
         beschreibung="Was ist passiert? Bitte sachlich und nachvollziehbar beschreiben.",
         prioritaet="Wie dringend ist eine Prüfung?",
         beleg="Optionaler Screenshot, PDF oder MP4-Beleg (maximal 10 MB)",
+        bereich="IC = im Spiel, OOC = Discord/außerhalb des Spiels (optional, wird sonst vom Team zugeordnet)",
     )
     @app_commands.choices(kategorie=[
         app_commands.Choice(name="Regelverstoß", value="rule_violation"),
@@ -2557,6 +2558,10 @@ class PulseSuite(commands.Cog):
         app_commands.Choice(name="Hoch", value="high"),
         app_commands.Choice(name="Dringend", value="urgent"),
     ])
+    @app_commands.choices(bereich=[
+        app_commands.Choice(name="IC (im Spiel)", value="ic"),
+        app_commands.Choice(name="OOC (Discord / außerhalb des Spiels)", value="ooc"),
+    ])
     async def spieler_meldung(
         self,
         i: discord.Interaction,
@@ -2565,6 +2570,7 @@ class PulseSuite(commands.Cog):
         beschreibung: str,
         prioritaet: app_commands.Choice[str],
         beleg: discord.Attachment | None = None,
+        bereich: app_commands.Choice[str] | None = None,
     ):
         if i.guild is None:
             await i.response.send_message(
@@ -2584,7 +2590,7 @@ class PulseSuite(commands.Cog):
             import pulse_player_reports
             row = pulse_player_reports.create_report(
                 i.guild.id, i.user.id, i.user.display_name, ziel,
-                kategorie.value, beschreibung, prioritaet.value, evidence,
+                kategorie.value, beschreibung, prioritaet.value, evidence, bereich.value if bereich else "",
             )
         except ValueError as exc:
             await i.response.send_message(f"❌ {exc}", ephemeral=True)

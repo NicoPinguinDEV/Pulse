@@ -228,7 +228,7 @@ def load_bm(user_id, guild_id=None) -> list[dict]:
 
 # --------------------------------------------------------------------------- TF: team/player cases
 
-_TF_COLUMNS = "id,case_no,title,category,priority,status,subject_id,created_by_name,created_at,closed_at"
+_TF_COLUMNS = "id,case_no,title,category,priority,status,subject_id,created_by_name,created_at,closed_at,realm"
 
 
 def _tf_case(row: dict) -> dict:
@@ -237,7 +237,7 @@ def _tf_case(row: dict) -> dict:
         title=row.get("title"), status=row.get("status"), detail=row.get("category"),
         actor=row.get("created_by_name"), created_at=row.get("created_at"),
         url=f"/ultimate/cases/{row['id']}", person_id=row.get("subject_id"),
-        extra={"priority": str(row.get("priority") or "")},
+        extra={"priority": str(row.get("priority") or ""), "realm": str(row.get("realm") or "")},
     )
 
 
@@ -436,7 +436,7 @@ def _resolve(kind: str, native: str, guild_id) -> dict | None:
         # The reported person is only a name; the reporter is deliberately not linked as "the person" of the case.
         return _case("SM", row["id"], title=f"Meldung · {row.get('category') or ''}", status=row.get("status"),
                      detail=row.get("priority") or "", actor=row.get("assignee_name") or "", created_at=row.get("created_at"),
-                     url="/ultimate/reports")
+                     url="/ultimate/reports", extra={"realm": str(row.get("realm") or "")})
     if kind == "TW":
         matches = [
             (member_id, warn) for member_id, entry in _team_data().items()

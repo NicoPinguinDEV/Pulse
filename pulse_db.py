@@ -451,6 +451,24 @@ def init_db():
                 decided_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (page_id, version)
             );
+            CREATE TABLE IF NOT EXISTS social_publications (
+                id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL DEFAULT '',
+                source_name TEXT NOT NULL DEFAULT '',
+                platform TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL DEFAULT '',
+                announced_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_social_publications_at ON social_publications(announced_at DESC);
+            CREATE TABLE IF NOT EXISTS training_answers (
+                attempt_id TEXT NOT NULL,
+                question_id TEXT NOT NULL,
+                chosen_index INTEGER NOT NULL,
+                correct INTEGER NOT NULL,
+                PRIMARY KEY (attempt_id, question_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_training_answers_question ON training_answers(question_id);
             CREATE TABLE IF NOT EXISTS meeting_sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -2625,7 +2643,7 @@ TABLES = [
     "team_dev_goals",
     "message_templates", "message_template_versions",
     "ops_error_groups",
-    "wiki_required_reads", "wiki_read_acks", "wiki_version_reviews", "ack_requirements", "ack_receipts", "meeting_sessions", "meeting_agenda", "meeting_participants", "meeting_decisions",
+    "wiki_required_reads", "wiki_read_acks", "wiki_version_reviews", "ack_requirements", "ack_receipts", "social_publications", "training_answers", "meeting_sessions", "meeting_agenda", "meeting_participants", "meeting_decisions",
     "case_closing_reports",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",

@@ -13236,6 +13236,12 @@ try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
 except Exception as _wiki_error:
     print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
 
+try:  # Audit #108: Quizverwaltung
+    from pulse_quiz_admin import register as register_quiz_admin
+    register_quiz_admin(app)
+except Exception as _quiz_error:
+    print(f"❌ Quizverwaltung konnte nicht registriert werden: {_quiz_error}")
+
 try:  # Audit #51: Besprechungsmodus
     from pulse_meetings_pages import register as register_meetings_pages
     register_meetings_pages(app)
