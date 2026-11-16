@@ -1161,6 +1161,11 @@ def register_routes():
         # ctx.user ist die Session (dict); die Rollenhierarchie kommt vom Discord-Mitglied ctx.member.
         actor=ctx.member
         if not actor or not m or not r or r.id not in ids or str(m.id)==str(ctx.user["id"]) or r.position>=actor.top_role.position:raise HTTPException(403,"Ungültige Zielposition oder Hierarchie.")
+        # AUTHZ-4: only existing team members can be promoted here (hiring has its own flow) and the shared
+        # actor-rank rules apply already when the request is created.
+        if not any(x.id in ids for x in m.roles):raise HTTPException(403,"Nur Teammitglieder können befördert werden.")
+        _problem=actor_rank_change_problem(actor=actor,actor_is_admin=bool(ctx.perms.get("is_admin")),target=m,role=r,ordered_team_role_ids=web.ordered_team_role_ids(ctx.guild,ids),action="promote")
+        if _problem:raise HTTPException(403,_problem)
         pid="prom_"+uuid.uuid4().hex[:10];required=2 if r.position>=actor.top_role.position-1 else 1
         with cx() as c:c.execute("INSERT INTO suite_promotions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(pid,str(m.id),m.display_name,m.top_role.name,str(m.top_role.id),r.name,str(r.id),reason[:2000],performance[:1000],activity[:1000],str(len(warns(m,web))),team_score(m,web)["score"],"pending",required,"[]",str(ctx.user["id"]),ctx.user.get("global_name",""),"",iso(),iso()))
         audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promotion_created",f"{m.top_role.name} → {r.name} · {reason}");return RedirectResponse("/suite/promotions",303)
@@ -1177,16 +1182,34 @@ def register_routes():
         elif decision=="reject":
             with cx() as c:c.execute("UPDATE suite_promotions SET status='rejected',decision_note=?,updated_at=? WHERE id=?",(f"Abgelehnt von {ctx.user.get('global_name','')}",iso(),pid));audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),p["target_id"],p["target_name"],"promotion_rejected","Antrag abgelehnt")
         else:
+            # AUTHZ-4: four-eyes (the requester never approves), permissions/hierarchy/lockouts are re-checked
+            # at approval time and the state change is a compare-and-set, so parallel or repeated requests
+            # cannot approve twice or overwrite each other's approvals.
+            web=webserver
+            if str(p.get("created_by_id"))==str(ctx.user["id"]):raise HTTPException(403,"Vier-Augen-Prinzip: Den eigenen Antrag muss jemand anderes freigeben.")
             if any(str(x.get("id"))==str(ctx.user["id"]) for x in a):raise HTTPException(400,"Du hast bereits freigegeben")
+            if locked():raise HTTPException(423,"Pulse Emergency Lock ist aktiv.")
+            m=ctx.guild.get_member(int(p["target_id"]));role=ctx.guild.get_role(int(p["target_role_id"]))
+            _ids={int(x) for x in web.load_config().get("team_role_ids",[])}
+            if not ctx.member or not m or not role or role.position>=ctx.member.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
+            _problem=actor_rank_change_problem(actor=ctx.member,actor_is_admin=bool(ctx.perms.get("is_admin")),target=m,role=role,ordered_team_role_ids=web.ordered_team_role_ids(ctx.guild,_ids),action="promote")
+            if _problem:raise HTTPException(403,_problem)
+            _safe_ok,_safe_msg=await web.enforce_team_safety_action_lockout(ctx.guild,ctx.member,m,"promote",source="Suite-Freigabe")
+            if not _safe_ok:raise HTTPException(403,_safe_msg)
             a.append({"id":ctx.user["id"],"name":ctx.user.get("global_name",""),"at":iso()})
+            _new=json.dumps(a,ensure_ascii=False)
             if len(a)>=int(p["required_approvals"]):
-                m=ctx.guild.get_member(int(p["target_id"]));role=ctx.guild.get_role(int(p["target_role_id"]))
-                if not ctx.member or not m or not role or role.position>=ctx.member.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
-                await m.add_roles(role,reason="Pulse Promotion "+pid)
-                with cx() as c:c.execute("UPDATE suite_promotions SET approvals_json=?,status='approved',updated_at=? WHERE id=?",(json.dumps(a,ensure_ascii=False),iso(),pid))
+                with cx() as c:_claimed=c.execute("UPDATE suite_promotions SET status='executing',approvals_json=?,updated_at=? WHERE id=? AND status IN ('pending','revision') AND approvals_json=?",(_new,iso(),pid,p["approvals_json"])).rowcount
+                if _claimed!=1:raise HTTPException(409,"Der Antrag wurde gleichzeitig geändert – bitte Seite neu laden.")
+                try:await m.add_roles(role,reason="Pulse Promotion "+pid)
+                except Exception:
+                    with cx() as c:c.execute("UPDATE suite_promotions SET status=?,approvals_json=?,updated_at=? WHERE id=? AND status='executing'",(p["status"],p["approvals_json"],iso(),pid))
+                    raise HTTPException(502,"Discord hat die Rollenvergabe abgelehnt – der Antrag bleibt offen.")
+                with cx() as c:c.execute("UPDATE suite_promotions SET status='approved',updated_at=? WHERE id=? AND status='executing'",(iso(),pid))
                 audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promote",f'{p["current_role"]} → {role.name} · Antrag {pid}')
             else:
-                with cx() as c:c.execute("UPDATE suite_promotions SET approvals_json=?,updated_at=? WHERE id=?",(json.dumps(a,ensure_ascii=False),iso(),pid))
+                with cx() as c:_stored=c.execute("UPDATE suite_promotions SET approvals_json=?,updated_at=? WHERE id=? AND status IN ('pending','revision') AND approvals_json=?",(_new,iso(),pid,p["approvals_json"])).rowcount
+                if _stored!=1:raise HTTPException(409,"Der Antrag wurde gleichzeitig geändert – bitte Seite neu laden.")
                 audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),p["target_id"],p["target_name"],"promotion_approval",f'{len(a)}/{p["required_approvals"]}')
         return RedirectResponse("/suite/promotions",303)
 

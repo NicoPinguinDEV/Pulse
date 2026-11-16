@@ -2042,6 +2042,11 @@ def register(app):
         if status not in ('approved','rejected'): return ws.back('/approvals','Ungültige Entscheidung.',False)
         if status=='approved' and str(req.get('created_by_id'))==str(c.user['id']) and not c.perms.get('is_admin'):
             return ws.back('/approvals','Vier-Augen-Prinzip: Den eigenen Antrag muss jemand anderes freigeben.',False)
+        if status=='approved':
+            # AUTHZ-5: an active Teamler-Schutz lockout also blocks this promotion path.
+            _tid=str(req.get('target_user_id') or '')
+            _ok,_msg=await ws.enforce_team_safety_action_lockout(c.guild,c.member,c.guild.get_member(int(_tid)) if _tid.isdigit() else None,'promote',source='Freigaben')
+            if not _ok: return ws.back('/approvals',_msg,False)
         # SEC-01: parallel clicks on "Freigeben" must not run the role change twice (single process).
         if promotion_id in _promotion_decisions_running: return ws.back('/approvals','Dieser Antrag wird gerade entschieden.',False)
         _promotion_decisions_running.add(promotion_id)

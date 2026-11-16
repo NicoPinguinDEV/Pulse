@@ -16,6 +16,7 @@ class FakeRole:
 
     def __init__(self, rid, position, admin, managed, default):
         self.id, self.position, self.managed, self._default = rid, position, managed, default
+        self.name = f"Rolle{rid}"
         self.permissions = NS(administrator=admin)
 
     def is_default(self):

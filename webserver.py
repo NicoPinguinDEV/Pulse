@@ -7957,6 +7957,13 @@ async def team_role_manager_save(
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         return back(f"/team/{user_id}/roles", "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
+    # AUTHZ-5: the role manager is an alternative rank-change path – an active Teamler-Schutz lockout applies here too.
+    safety_ok, safety_message = await enforce_team_safety_action_lockout(
+        guild, ctx.member, member, "promote", config, source="Rollenmanager",
+    )
+    if not safety_ok:
+        return back(f"/team/{user_id}/roles", safety_message, False)
+
     action_reason = (action_reason or "").strip()[:500]
     if not action_reason:
         return back(f"/team/{user_id}/roles", "Bitte einen Grund für die Rollenänderung angeben.", False)

@@ -536,21 +536,38 @@ async def promote_now(ctx, row):
     if role.id not in team_ids:
         return "Zielrolle ist keine Teamrolle – nichts vergeben."
     approver = getattr(ctx, "member", None)
-    if not ctx.perms.get("is_admin") and (approver is None or role >= approver.top_role):
-        return "Du kannst nicht auf deinen eigenen Rang oder höher befördern – nichts vergeben."
+    # AUTHZ-3: same actor-side rules as /promote and the Dashboard (target rank below the approver, no admin
+    # targets/roles, no self-change) – shared in pulse_rank_guard.
+    from pulse_rank_guard import actor_rank_change_problem, team_rank_index
+    ordered_ids = webserver.ordered_team_role_ids(guild, list(team_ids))
+    problem = actor_rank_change_problem(
+        actor=approver, actor_is_admin=bool(ctx.perms.get("is_admin")), target=member, role=role,
+        ordered_team_role_ids=ordered_ids, action="promote",
+    )
+    if problem:
+        return problem + " – nichts vergeben."
+    old_role_to_remove = None
+    if old_role_id.isdigit() and old_role_id != role_id:
+        old = guild.get_role(int(old_role_id))
+        # The old role comes from the request form: only remove it when the target really holds it, it is a
+        # team role below the bot and (non-admin) strictly below the approver's own rank.
+        if old and old.id in team_ids and any(r.id == old.id for r in member.roles) and (not me or old < me.top_role):
+            if ctx.perms.get("is_admin") or (
+                approver is not None and old < approver.top_role
+                and ordered_ids.index(old.id) < team_rank_index(approver, ordered_ids)
+            ):
+                old_role_to_remove = old
     try:
         await member.add_roles(role, reason=f"Pulse Beförderung {row['id']}")
     except discord.Forbidden:
         return "Discord hat die Rollenvergabe abgelehnt (Bot-Rolle/Berechtigung prüfen) – nichts geändert."
     except discord.HTTPException as exc:
         return f"Rolle konnte nicht vergeben werden (HTTP {exc.status}) – nichts geändert."
-    if old_role_id.isdigit() and old_role_id != role_id:
-        old = guild.get_role(int(old_role_id))
-        if old and old.id in team_ids and (not me or old < me.top_role):
-            try:
-                await member.remove_roles(old, reason=f"Pulse Beförderung {row['id']}")
-            except discord.HTTPException as exc:
-                print(f"⚠️ Alte Rolle nach Beförderung {row['id']} nicht entfernt: HTTP {exc.status}")
+    if old_role_to_remove is not None:
+        try:
+            await member.remove_roles(old_role_to_remove, reason=f"Pulse Beförderung {row['id']}")
+        except discord.HTTPException as exc:
+            print(f"⚠️ Alte Rolle nach Beförderung {row['id']} nicht entfernt: HTTP {exc.status}")
     event(str(member.id),"promotion","Beförderung abgeschlossen",f"{row['from_rank']} → {row['to_rank']}",actor_id(ctx),actor_name(ctx))
     db.notify(member.id,"🏆 Beförderung",f"Du wurdest zu {row['to_rank']} befördert.","success","/ultimate/person/"+str(member.id))
     return "Beförderung angewendet."
@@ -890,6 +907,13 @@ def register(app):
             with cx() as c:
                 target_row=c.execute("SELECT * FROM next_promotions WHERE id=?",(appr["object_id"],)).fetchone()
             if not target_row: raise HTTPException(404,"Beförderung nicht gefunden.")
+        if final=="approved" and target_row:
+            # AUTHZ-5: an active Teamler-Schutz lockout must also block this alternative promotion path.
+            import webserver as _ws
+            _ok,_msg=await _ws.enforce_team_safety_action_lockout(
+                ctx.guild,getattr(ctx,"member",None),ctx.guild.get_member(int(target_row["user_id"])) if str(target_row["user_id"]).isdigit() else None,
+                "promote",source="Freigaben")
+            if not _ok: raise HTTPException(403,_msg)
         with cx() as c:
             c.execute("UPDATE next_approvals SET status=?,approver_id=?,approver_name=?,note=?,decided_at=? WHERE id=?",
                       (final,actor_id(ctx),actor_name(ctx),note[:2000],iso(),approval_id))
