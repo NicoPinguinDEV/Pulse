@@ -17,9 +17,14 @@ LIVE_DOMAINS = ("ticket", "moderation", "task", "handover", "announcement", "pro
 _SCRIPT = """<style>#pulseLiveBanner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;background:#4338ca;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);font-size:13px;max-width:92vw}#pulseLiveBanner[hidden]{display:none}#pulseLiveBanner button{margin-left:8px;background:#fff;color:#4338ca;border:0;border-radius:8px;padding:4px 10px;font-weight:600;cursor:pointer}</style>
 <div id="pulseLiveBanner" role="status" aria-live="polite" hidden><span id="pulseLiveText"></span> <button type="button" id="pulseLiveReload">Aktualisieren</button></div>
 <script>(function(){var domains=__DOMAINS__,es=null,timer=null,cursor=null,errors=0,busy=false,n=0;
-var banner=document.getElementById('pulseLiveBanner'),text=document.getElementById('pulseLiveText');
+var banner=document.getElementById('pulseLiveBanner'),text=document.getElementById('pulseLiveText'),dirty=false,refreshTimer=null;
+var scrollKey='pulse-live-scroll:'+location.pathname;
+try{var savedScroll=sessionStorage.getItem(scrollKey);if(savedScroll!==null){sessionStorage.removeItem(scrollKey);window.addEventListener('load',function(){window.scrollTo(0,Math.max(0,Number(savedScroll)||0));},{once:true});}}catch(e){}
+document.addEventListener('input',function(ev){if(ev.target&&ev.target.matches('input:not([type=hidden]),textarea,select'))dirty=true;},true);
+document.addEventListener('change',function(ev){if(ev.target&&ev.target.matches('input:not([type=hidden]),textarea,select'))dirty=true;},true);
 function remember(value){var seq=Number(value);if(Number.isFinite(seq)&&seq>=0)cursor=cursor===null?seq:Math.max(cursor,seq);}
-function notice(){n++;text.textContent='Neue Änderungen ('+n+')';banner.hidden=false;}
+function safeRefresh(){if(dirty||document.hidden||refreshTimer!==null)return;refreshTimer=window.setTimeout(function(){refreshTimer=null;if(dirty||document.hidden)return;try{sessionStorage.setItem(scrollKey,String(window.scrollY||0));}catch(e){}location.reload();},1200);}
+function notice(){n++;text.textContent='Neue Änderungen ('+n+')';banner.hidden=false;safeRefresh();}
 function accept(item){if(!item||typeof item!=='object')return;if(item.seq!==undefined)remember(item.seq);if(domains.indexOf(item.domain)>=0)notice();}
 function acceptJSON(raw){try{var data=JSON.parse(raw);if(data&&data.cursor!==undefined)remember(data.cursor);return data;}catch(e){return null;}}
 function closeStream(){if(es){es.close();es=null;}}
