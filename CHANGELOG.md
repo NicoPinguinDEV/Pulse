@@ -3,6 +3,7 @@
 ## Re-Audit 177 und ergänzte Funktionslücken (16.11.2026)
 
 - **Live-Änderungshinweis (#70/#117):** Der gemeinsame Dashboard-Shell-Hook bindet den Event-Stream an allen internen Shell-Seiten ein, nicht nur an ausgewählten Seiten. Ein 15-Sekunden-Cursor-Polling dient als Rückfall, wenn SSE nicht verfügbar ist oder wiederholt ausfällt. Der Hinweis lädt die Seite nur nach bewusster Nutzeraktion neu, damit ungespeicherte Formulare nicht überschrieben werden.
+- **Bewerber-Kommunikation (#123):** Bewerber-DMs, Gesprächserinnerungen und Entscheidungsnachrichten verwenden aktive zentrale Bibliotheksversionen; das Kommunikationsjournal speichert die konkrete Vorlagenversion. Der bestehende Editor synchronisiert weiterhin Legacy-Versionen in die Bibliothek und behält einen sicheren Rückfall bei.
 - **Leistungsübersicht (#94):** Die 30-Tage-Bewertung zählt jetzt unterschiedliche erfolgreich absolvierte Trainings je Teammitglied. Wiederholte Versuche am selben Training zählen nicht mehrfach; nicht lesbare Trainingsdaten werden nicht als null gewertet.
 - **Tests:** `tests/test_live_refresh.py` prüft globale Shell-Einbindung, Rechte-Domänen, SSE/Polling-Rückfall und manuelles Refresh. `tests/test_teamakte_pages.py` prüft Trainingszählung, Zeitfenster, doppelte Versuche und fehlende Daten.
 - **Re-Audit:** 172 Funktionen fertig, 5 teilweise (#4, #10, #70, #117, #123), 0 offen. Die fünf Restpunkte sind in `docs/PULSE_FEATURE_AUDIT_177.md` ausdrücklich benannt; der frühere pauschale 177/177-Status war zu optimistisch.
