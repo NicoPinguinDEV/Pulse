@@ -34,9 +34,15 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("credentials:'same-origin'", html)
         self.assertIn("errors>=2", html)
 
-    def test_refresh_is_never_automatic(self):
+    def test_clean_views_refresh_automatically_but_dirty_forms_are_preserved(self):
         html = lr.script_for("tickets")
-        self.assertEqual(html.count("location.reload()"), 1)
+        self.assertEqual(html.count("location.reload()"), 2)  # guarded automatic refresh plus explicit button
+        self.assertIn("function safeRefresh()", html)
+        self.assertIn("if(dirty||document.hidden)return", html)
+        self.assertIn("setTimeout(function(){refreshTimer=null", html)
+        self.assertIn("sessionStorage.setItem(scrollKey", html)
+        self.assertIn("addEventListener('input'", html)
+        self.assertIn("addEventListener('change'", html)
         self.assertIn("addEventListener('click'", html)
 
     def test_global_listener_is_injected_by_the_shared_shell_hook(self):
