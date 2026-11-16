@@ -31,6 +31,7 @@ import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
+from pulse_rank_guard import actor_rank_change_problem
 
 BASE = str(pulse_paths.DATA_DIR)  # Phase 13: data directory (pulse_suite.db, activity_check.db)
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
@@ -1912,6 +1913,19 @@ class PulseSuite(commands.Cog):
             return "Zielmitglied ist nicht in deiner zulässigen Rollen-Hierarchie."
         if role.id not in role_ids or role.is_default() or role.managed:
             return "Bitte wähle eine verwaltbare Team-Rangrolle aus."
+        # DISC-1: actor-side hierarchy (same rules as the Dashboard) before anything else.
+        web = __import__("webserver")
+        perms, _ = web.compute_perms(interaction.guild, interaction.user.id, web.load_config())
+        actor_problem = actor_rank_change_problem(
+            actor=interaction.user,
+            actor_is_admin=bool(perms.get("is_admin")),
+            target=member,
+            role=role,
+            ordered_team_role_ids=web.ordered_team_role_ids(interaction.guild, role_ids),
+            action=action,
+        )
+        if actor_problem:
+            return actor_problem
         bot_member = interaction.guild.me
         if not bot_member or not bot_member.guild_permissions.manage_roles:
             return "Dem Bot fehlt die Berechtigung „Rollen verwalten“."
