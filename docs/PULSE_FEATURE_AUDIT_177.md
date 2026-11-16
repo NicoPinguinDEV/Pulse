@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-16):** Baseline `main` @ `1fd65fc`; überprüfter Arbeitsbranch `fix/global-live-sync-177`: **172 fertig / 5 teilweise / 0 offen**. Die 177 Einzelzeilen werden mit `python tools/audit_counts.py` gezählt und durch `tests/test_feature_audit_counts.py` gegen Kopf- und Bereichstabellen geprüft. Die fünf verbleibenden Abdeckungs-/Integrationspunkte sind #4, #10, #70, #117 und #123. Dieses Audit bewertet Repository-Code und Verhaltenstests, nicht die manuelle Abnahme auf dem Live-Discord-Server oder optionale VPS-Diensteinrichtungen.
+**Aktueller Abgleich (2026-11-16):** Baseline `main` @ `1fd65fc`; überprüfter Arbeitsbranch `fix/global-live-sync-177`; Stand mit #99: **172 fertig / 5 teilweise / 0 offen**. Die 177 Einzelzeilen werden mit `python tools/audit_counts.py` gezählt und durch `tests/test_feature_audit_counts.py` gegen Kopf- und Bereichstabellen geprüft. Die fünf verbleibenden Abdeckungs-/Integrationspunkte sind #4, #10, #70, #117 und #123. Dieses Audit bewertet Repository-Code und Verhaltenstests, nicht die manuelle Abnahme auf dem Live-Discord-Server oder optionale VPS-Diensteinrichtungen.
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
