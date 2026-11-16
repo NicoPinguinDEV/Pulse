@@ -21,6 +21,7 @@ from fastapi import Cookie, Request
 from fastapi.responses import HTMLResponse
 
 import pulse_moderation as pm
+import pulse_profanity as pp
 
 INCIDENT_TYPES = (
     "AutoMod-Maßnahme", "AutoMod-Testtreffer", "AutoMod-Fehlalarm bestätigt", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
@@ -71,10 +72,10 @@ def _parse_int(form, field: str, label: str, lo: int, hi: int) -> int:
     return value
 
 
-def _parse_lines(form, field: str, label: str, *, domains: bool = False) -> list[str]:
+def _parse_lines(form, field: str, label: str, *, domains: bool = False, limit: int = pm.MAX_LIST_ITEMS) -> list[str]:
     values = list(dict.fromkeys(line.strip().casefold() for line in str(form.get(field) or "").splitlines() if line.strip()))
-    if len(values) > pm.MAX_LIST_ITEMS or any(len(value) > 100 for value in values):
-        raise ValueError(f"{label}: Maximal {pm.MAX_LIST_ITEMS} Einträge mit höchstens 100 Zeichen sind erlaubt.")
+    if len(values) > limit or any(len(value) > 100 for value in values):
+        raise ValueError(f"{label}: Maximal {limit} Einträge mit höchstens 100 Zeichen sind erlaubt.")
     if domains:
         values = [value.removeprefix("www.") for value in values]
         bad = [value for value in values if not pm.valid_domain(value)]
@@ -344,6 +345,7 @@ def register(app) -> None:
             "domains": "Links zu Domains aus der Sperrliste (inkl. Subdomains).",
             "links": "Jeder Link, der nicht auf der Freigabeliste steht.",
             "caps": "Nachrichten fast nur in GROSSBUCHSTABEN.",
+            "profanity": "Schimpfwortfilter mit eigener, dauerhafter Verwarnungszählung (Einstellungen im Abschnitt „Schimpfwortfilter“).",
         }
         rules = "".join(
             f'<label class="guard-check"><input type="checkbox" name="automod_rules" value="{key}"{" checked" if key in automod["rules"] else ""}>'
@@ -422,6 +424,51 @@ def register(app) -> None:
  <label class="guard-field">Alarmkanal AutoMod{alert_select(guild, "alert_channel_id", automod["alert_channel_id"])}</label>
  <div class="guard-hint">Datenschutz: Nachrichteninhalte werden nur kurzzeitig im begrenzten Arbeitsspeicher als Prüfsumme gehalten, nicht gespeichert. Im Protokoll stehen nur Regel, Kanal, Maßnahme und Fallnummer.</div>
  <div><button class="pulse-btn primary" type="submit">💾 AutoMod speichern</button></div>
+</form></div></section>'''
+
+        # ---- Profanity filter (rule "profanity"; own persistent strike counter)
+        prof = automod["profanity"]
+        prof_on = "profanity" in automod["rules"]
+        try:
+            import pulse_profanity_strikes
+            prof_stats = pulse_profanity_strikes.summary(guild.id)
+        except Exception:  # the dashboard must still render if the table cannot be read
+            prof_stats = {"total": 0, "users": 0, "timeouts": 0}
+        counts = pp.default_word_counts()
+        cat_boxes = "".join(
+            f'<label class="guard-check"><input type="checkbox" name="profanity_cat_{key}" value="1"{" checked" if prof["categories"][key] else ""}>'
+            f'<span><strong>{e(pp.CATEGORY_LABELS[key])}</strong><small>{counts[key]} Standardeinträge</small></span></label>'
+            for key in pp.CATEGORIES)
+        default_lists = "".join(
+            f'<details class="pulse-card" style="padding:10px;margin:8px 0"><summary style="cursor:pointer;font-weight:700">{e(pp.CATEGORY_LABELS[key])} · Standardliste ({counts[key]})</summary>'
+            f'<div class="guard-hint" style="margin-top:8px;word-break:break-word">{e(", ".join(pp.default_words(key)))}</div></details>'
+            for key in pp.CATEGORIES)
+        prof_steps = "".join(f'<span class="pulse-pill">{e(step)}</span>' for step in pp.escalation_overview())
+        global_state = ("AutoMod ist global aus – der Schimpfwortfilter wirkt erst, wenn AutoMod oben aktiviert wird." if not automod["enabled"]
+                        else "Modus „Nur beobachten“: Treffer werden nur protokolliert, nichts wird gelöscht oder bestraft." if automod["mode"] == "observe"
+                        else "Testmodus: Treffer werden nur als Simulation protokolliert (keine Löschung, keine DM, kein Timeout)." if automod["mode"] == "test"
+                        else "AutoMod ist im Modus „Durchsetzen“: Nachrichten werden gelöscht, Verwarnungen und Timeouts ausgeführt.")
+        profanity_form = f'''
+<section id="profanity" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🚫 Schimpfwortfilter</div>
+<div class="pulse-section-sub">Löscht Schimpfwörter und Beleidigungen (ganze Wörter, auch bei Umgehungen wie „f.u.c.k“ oder „H3ure“), verwarnt per DM und vergibt ab dem 3. Verstoß 60 Minuten Timeout. Die Verstöße werden dauerhaft gezählt; Nachrichteninhalte werden nie gespeichert.</div></div>
+<span class="pulse-pill {"good" if prof_on else ""}">{"aktiv" if prof_on else "aus"}</span></div>
+<div class="pulse-card-b"><form method="post" action="/admin/security/profanity" class="guard-form">
+ <label class="guard-check"><input type="checkbox" name="profanity_enabled" value="1"{" checked" if prof_on else ""}><span><strong>Schimpfwortfilter aktivieren</strong><small>Ändert weder die globale AutoMod-Aktivierung noch den Betriebsmodus.</small></span></label>
+ <div class="guard-hint">ℹ️ {e(global_state)}</div>
+ <div class="pulse-section-title" style="margin-top:6px">Wortlisten</div>
+ <div class="guard-grid">{cat_boxes}</div>
+ <div class="guard-grid">
+  <label class="guard-field">Eigene Wörter (zusätzlich zur Standardliste)<textarea class="pulse-input pulse-textarea" name="custom_terms" rows="5" maxlength="12000" placeholder="Ein Wort oder eine Wortgruppe pro Zeile">{e(chr(10).join(prof["custom_terms"]))}</textarea><span class="guard-hint">Nur ganze Wörter. Mit „stamm*“ am Ende zählt der Wortanfang, mit „*ende“ das Wortende (sparsam einsetzen).</span></label>
+  <label class="guard-field">Standardwörter deaktivieren (ein Wort pro Zeile)<textarea class="pulse-input pulse-textarea" name="removed_terms" rows="5" maxlength="24000" placeholder="Wort aus der Standardliste, das nicht gefiltert werden soll">{e(chr(10).join(prof["removed_terms"]))}</textarea><span class="guard-hint">Die Standardliste wird dadurch nie verändert; dein Eintrag schaltet das Wort nur ab.</span></label>
+ </div>
+ <details class="pulse-card" style="padding:12px"><summary style="cursor:pointer;font-weight:750">Standardlisten ansehen (enthalten Schimpfwörter)</summary>{default_lists}</details>
+ <div class="pulse-section-title" style="margin-top:6px">Eskalation (fest)</div>
+ <div class="guard-kv"><span>Verwarnungszeitfenster</span><span><strong>{automod["strike_window_minutes"]} Minuten</strong> · einstellbar im AutoMod-Formular unter „Verstöße zählen für“</span></div>
+ <div class="guard-kv"><span>Timeout ab Verstoß Nr. {pp.PROFANITY_TIMEOUT_AFTER}</span><span><strong>{pp.PROFANITY_TIMEOUT_MINUTES} Minuten</strong> (nicht verdoppelt)</span></div>
+ <div class="guard-hint">Stufen: <span class="guard-steps">{prof_steps}</span></div>
+ <div class="guard-kv"><span>Verstöße (7 Tage)</span><span>{prof_stats["total"]} von {prof_stats["users"]} Personen · {prof_stats["timeouts"]} Timeouts</span></div>
+ <div class="guard-hint">Die Zählung erfolgt je Server und Person dauerhaft in der Pulse-Datenbank. Spam, Massen-Erwähnungen, Links und andere Regeln fließen nicht ein. Serverinhaber, Personen mit „Nachrichten verwalten“, ausgenommene Rollen/Kanäle (Ausnahmen je Regel „Schimpfwort / Beleidigung“) werden nie geprüft.</div>
+ <div><button class="pulse-btn primary" type="submit">💾 Schimpfwortfilter speichern</button></div>
 </form></div></section>'''
 
         # ---- Anti-Nuke: global settings (the rest of the Control Center comes from pulse_antinuke_admin)
@@ -514,7 +561,7 @@ def register(app) -> None:
 <div class="pulse-card-b space-y-2">{"".join(inc_rows) or '<div class="pulse-empty">Noch keine Vorfälle.</div>'}</div></section>'''
 
         nav = "".join(f'<a class="pulse-btn ghost" href="#{a}">{l}</a>' for a, l in (
-            ("overview", "🧭 Status"), ("automod", "💬 AutoMod"), ("antinuke-center", "🛡️ Anti-Nuke"), ("rules", "📐 Regeln"),
+            ("overview", "🧭 Status"), ("automod", "💬 AutoMod"), ("profanity", "🚫 Schimpfwörter"), ("antinuke-center", "🛡️ Anti-Nuke"), ("rules", "📐 Regeln"),
             ("trusted", "🤝 Ausnahmen"), ("lockdown", "🔒 Lockdown"), ("antinuke", "⚙️ Global"), ("tester", "🧪 Tester"),
             ("quarantine", f"🔒 Quarantäne ({len(quarantine)})"), ("incidents", "📜 Vorfälle")))
         status_line = (f'AutoMod: {"aktiv" if automod["enabled"] else "inaktiv"} · Regeln: '
@@ -528,7 +575,7 @@ def register(app) -> None:
 <div class="pulse-sub">Schutz vor Spam, Werbung, Massen-Pings und vor dem Zerstören des Servers durch übernommene oder böswillige Konten. Alles lokal, ohne KI-Kosten; jede Änderung steht im Audit-Log.</div></div>
 <div class="pulse-hero-box"><div class="label">Aktueller Stand</div><div class="text-xs mt-2" style="line-height:1.7">{status_line}</div></div></div></div>
 <nav class="guard-nav" aria-label="Abschnitte">{nav}</nav>
-{overview}{automod_form}{antinuke_form}{tester}{quarantine_html}{incidents_html}'''
+{overview}{automod_form}{profanity_form}{antinuke_form}{tester}{quarantine_html}{incidents_html}'''
 
     def render_page(ctx, **antinuke_kwargs):
         return HTMLResponse(render_pro_page(ws, "Sicherheit", ctx, "admin-security", page(ctx, **antinuke_kwargs)))
@@ -595,6 +642,7 @@ def register(app) -> None:
                 "timeout_max_minutes": _parse_int(form, "timeout_max_minutes", "Längster Timeout", 1, 10080),
                 "strike_window_minutes": _parse_int(form, "strike_window_minutes", "Zählzeitraum", 5, 1440),
                 "alert_channel_id": _channel_id(form, "alert_channel_id", guild, {old["alert_channel_id"]} - {0}),
+                "profanity": old["profanity"],  # edited in its own section; this form must not reset it
             }
             if raw["timeout_max_minutes"] < raw["timeout_minutes"]:
                 raise ValueError("Der längste Timeout darf nicht kürzer als der erste sein.")
@@ -612,6 +660,45 @@ def register(app) -> None:
                      f"{'aktiv' if value['enabled'] else 'aus'} · Modus {value['mode']} · Regeln {', '.join(value['rules']) or 'keine'}"
                      f" · geändert: {', '.join(changed) or 'nichts'}")
         return ws.back("/admin/security#automod", "AutoMod-Einstellungen gespeichert – gelten ab der nächsten Nachricht.", True)
+
+    @app.post("/admin/security/profanity")
+    async def admin_security_profanity(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)  # administrators only, like every other security route
+        form = await request.form()
+        old, _ = current()
+        try:
+            categories = {key: form.get(f"profanity_cat_{key}") in ("1", "on") for key in pp.CATEGORIES}
+            custom = _parse_lines(form, "custom_terms", "Eigene Wörter", limit=pp.MAX_CUSTOM_TERMS)
+            removed = _parse_lines(form, "removed_terms", "Deaktivierte Standardwörter", limit=pp.MAX_REMOVED_TERMS)
+            for label, values in (("Eigene Wörter", custom), ("Deaktivierte Standardwörter", removed)):
+                bad = [v for v in values if len(v) > pp.MAX_TERM_LENGTH or not pp.valid_term(v)]
+                if bad:
+                    raise ValueError(f"{label}: „{bad[0][:40]}“ ist ungültig (nur Buchstaben/Ziffern, höchstens {pp.MAX_TERM_LENGTH} Zeichen).")
+            enabled = form.get("profanity_enabled") in ("1", "on")
+            if enabled and not any(categories.values()) and not custom:
+                raise ValueError("Aktiviere mindestens eine Wortliste oder füge eigene Wörter hinzu – oder schalte den Filter aus.")
+        except ValueError as exc:
+            return ws.back("/admin/security#profanity", str(exc), False)
+        rules = set(old["rules"])
+        rules.add("profanity") if enabled else rules.discard("profanity")
+        # Only the rule list and the profanity settings change: global enable and operating mode stay as they are.
+        value = pm.normalize_automod({**old, "rules": sorted(rules),
+                                      "profanity": {"categories": categories, "custom_terms": custom, "removed_terms": removed}})
+        try:
+            before = save_section("pulse_automod", value)
+        except ws.JsonWriteBlocked as exc:
+            return ws.back("/admin/security#profanity", f"Nicht gespeichert: {exc}", False)
+        changed = _changed(pm.normalize_automod(before), value)
+        ws.log_audit(_name(ctx.user), ctx.user["id"], "Schimpfwortfilter-Konfiguration geändert",
+                     f"{'aktiv' if enabled else 'aus'} · Kategorien {', '.join(k for k, v in categories.items() if v) or 'keine'}"
+                     f" · {len(custom)} eigene Wörter · {len(removed)} deaktivierte Standardwörter"
+                     f" · geändert: {', '.join(changed) or 'nichts'}")
+        note = ""
+        if enabled and not value["enabled"]:
+            note = " AutoMod ist global noch aus – der Filter wirkt erst nach dessen Aktivierung."
+        elif enabled and value["mode"] != "enforce":
+            note = " AutoMod läuft nicht im Modus „Durchsetzen“ – es werden keine Sanktionen ausgeführt."
+        return ws.back("/admin/security#profanity", "Schimpfwortfilter gespeichert – gilt ab der nächsten Nachricht." + note, True)
 
     @app.post("/admin/security/antinuke")
     async def admin_security_antinuke(request: Request, user_session: str = Cookie(None)):
@@ -695,7 +782,7 @@ def register(app) -> None:
             blocked_terms=automod["blocked_terms"], blocked_domains=automod["blocked_domains"],
             allowed_domains=automod["allowed_domains"], caps_percent=automod["caps_percent"],
             caps_min_letters=automod["caps_min_letters"], duplicate_limit=automod["duplicate_limit"],
-            flood_messages=automod["flood_messages"],
+            flood_messages=automod["flood_messages"], profanity=automod["profanity"],
         )
         notes = []
         if not automod["enabled"]:

@@ -275,6 +275,7 @@
  "POST /admin/security/lockdown/lift -> pulse_antinuke_admin.register.<locals>.antinuke_lockdown_lift",
  "POST /admin/security/lockdown/policy -> pulse_antinuke_admin.register.<locals>.antinuke_lockdown_policy",
  "POST /admin/security/lockdown/start -> pulse_antinuke_admin.register.<locals>.antinuke_lockdown_start",
+ "POST /admin/security/profanity -> pulse_guard_admin.register.<locals>.admin_security_profanity",
  "POST /admin/security/quarantine/dismiss -> pulse_guard_admin.register.<locals>.admin_security_quarantine_dismiss",
  "POST /admin/security/quarantine/restore -> pulse_guard_admin.register.<locals>.admin_security_quarantine_restore",
  "POST /admin/security/test -> pulse_guard_admin.register.<locals>.admin_security_test",

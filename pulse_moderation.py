@@ -10,9 +10,13 @@ import re
 from collections import deque
 from typing import Iterable
 
-AUTOMOD_RULES = frozenset({"spam", "mentions", "invites", "keywords", "domains", "caps", "links"})
+from pulse_profanity import detect_category as _profanity_category, normalize_profanity
+from pulse_profanity import category_label as _profanity_label
+
+AUTOMOD_RULES = frozenset({"spam", "mentions", "invites", "keywords", "domains", "caps", "links", "profanity"})
 # Order in which rules are checked (first match decides the action).
-AUTOMOD_RULE_ORDER = ("mentions", "invites", "keywords", "domains", "links", "caps", "spam")
+# "profanity" (Schimpfwortfilter) is opt-in, has its own persistent strike counter and is checked first.
+AUTOMOD_RULE_ORDER = ("profanity", "mentions", "invites", "keywords", "domains", "links", "caps", "spam")
 DEFAULT_AUTOMOD_RULES = frozenset({"spam", "mentions", "invites"})
 AUTOMOD_RULE_LABELS = {
     "spam": "Spam / Nachrichtenflut",
@@ -22,6 +26,7 @@ AUTOMOD_RULE_LABELS = {
     "domains": "Gesperrter Link",
     "links": "Link außerhalb der Freigabeliste",
     "caps": "Übermäßige Großschreibung",
+    "profanity": "Schimpfwort / Beleidigung",
 }
 AUTOMOD_MODES = ("enforce", "observe", "test")
 
@@ -199,11 +204,16 @@ def match_rules(
     caps_min_letters: int = 12,
     duplicate_limit: int = 3,
     flood_messages: int = 6,
+    profanity: dict | None = None,
 ) -> list[tuple[str, str]]:
     """Every enabled rule that matches, in check order, as (rule, human readable reason)."""
     enabled = set(rules) & AUTOMOD_RULES
     text = str(content or "")
     hits: list[tuple[str, str]] = []
+    if "profanity" in enabled:
+        category = _profanity_category(text, profanity)
+        if category:  # the reason names the category only – never the word, never the message
+            hits.append(("profanity", f"Schimpfwortfilter ({_profanity_label(category)})"))
     if "mentions" in enabled and mention_count > max(0, int(mention_limit)):
         hits.append(("mentions", f"{mention_count} Erwähnungen (erlaubt: {int(mention_limit)})"))
     if "invites" in enabled and _INVITE_RE.search(text):
@@ -299,6 +309,7 @@ def normalize_automod(raw) -> dict:
         "timeout_max_minutes": max(timeout_minutes, _bounded_int(raw.get("timeout_max_minutes"), 60, 1, 10080)),
         "strike_window_minutes": _bounded_int(raw.get("strike_window_minutes"), 60, 5, 1440),
         "alert_channel_id": _ids([raw.get("alert_channel_id")], 1)[0] if _ids([raw.get("alert_channel_id")], 1) else 0,
+        "profanity": normalize_profanity(raw.get("profanity")),
     }
 
 

@@ -7,6 +7,10 @@ normalised by pulse_moderation.normalize_automod, so the dashboard and the bot u
 * mode "test": live messages are evaluated in an isolated detector state and recorded as simulations; no message is deleted, no DM is sent and no timeout is applied.
 * mode "enforce": the message is deleted; the n-th violation inside the strike window escalates
   (warning → timeout, doubling up to a maximum, see pulse_moderation.automod_step).
+* rule "profanity" (Schimpfwortfilter, opt-in): the message is deleted and the violation is counted in the
+  persistent table profanity_strikes (pulse_profanity_strikes.py, per server and user, inside the strike window).
+  1st/2nd violation: warning DM; from the 3rd on: warning DM + timeout of exactly 60 minutes (never doubled).
+  Other rules never touch this counter. Edited messages are re-checked; the (guild, message) pair is counted once.
 * Message contents are never stored: the flood detector keeps only a hash per recent message,
   and the case log only rule, channel, action and strike number.
 """
@@ -95,6 +99,7 @@ class PulseAutoMod(commands.Cog):
             caps_min_letters=config["caps_min_letters"],
             duplicate_limit=config["duplicate_limit"],
             flood_messages=config["flood_messages"],
+            profanity=config["profanity"],
         )
 
     def _rule(self, message: discord.Message, config: dict) -> str | None:
@@ -147,11 +152,17 @@ class PulseAutoMod(commands.Cog):
         test_mode = config["mode"] == "test"
         observe = config["mode"] == "observe"
         dry_run = observe or test_mode
+        extra: dict = {}
 
         if dry_run:
             action = ("TEST: Regel würde auslösen (keine Maßnahme)" if test_mode
                       else "Nur beobachtet (keine Maßnahme)")
             strike_count = 0
+        elif rule == "profanity":
+            outcome = await self._enforce_profanity(message, config)
+            if outcome is None:
+                return  # this message was already counted (parallel or repeated event)
+            action, strike_count, extra = outcome
         else:
             try:
                 await message.delete()
@@ -221,8 +232,15 @@ class PulseAutoMod(commands.Cog):
                     "strike": strike_count,
                     "mode": config["mode"],
                     "simulation": test_mode,
+                    **extra,
                 },
             )
+            if extra.get("strike_id"):
+                import pulse_profanity_strikes
+                pulse_profanity_strikes.finalize(
+                    extra["strike_id"], action=action, timeout_minutes=extra.get("timeout_minutes", 0),
+                    outcome=extra.get("outcome", "ok"), event_id=event_id,
+                )
         except (sqlite3.Error, OSError) as exc:
             event_id = None
             print(f"⚠️ AutoMod-Maßnahme für {message.author.id} konnte nicht dauerhaft protokolliert werden: {type(exc).__name__}.")
@@ -244,6 +262,113 @@ class PulseAutoMod(commands.Cog):
                 print(f"⚠️ AutoMod konnte den Protokolleintrag in Kanal {alert_id} nicht senden.")
             except discord.HTTPException as exc:
                 print(f"⚠️ AutoMod-Protokollierung fehlgeschlagen: HTTP {exc.status}.")
+
+    @staticmethod
+    def _timeout_blocker(guild, member) -> str | None:
+        """Why Pulse cannot time this member out, checked before calling Discord (None = try it)."""
+        if getattr(getattr(member, "guild_permissions", None), "administrator", False):
+            return "Administrator"
+        me = getattr(guild, "me", None)
+        if me is None:
+            return None
+        if not getattr(getattr(me, "guild_permissions", None), "moderate_members", True):
+            return "fehlende Berechtigung"
+        try:
+            top, other = getattr(me, "top_role", None), getattr(member, "top_role", None)
+            if top is not None and other is not None and top <= other:
+                return "Rollenhierarchie"
+        except TypeError:
+            pass
+        return None
+
+    async def _enforce_profanity(self, message: discord.Message, config: dict):
+        """Delete, count persistently, warn (1st/2nd) or time out for exactly 60 minutes (3rd and later).
+
+        Returns (action text, strike number, log extras) or None when the message was already counted.
+        A failed delete is logged but never counted; a closed DM or failed timeout never undoes the count.
+        """
+        import pulse_profanity as pp
+        import pulse_profanity_strikes as strikes
+        guild, member = message.guild, message.author
+        category = pp.detect_category(message.clean_content or "", config["profanity"]) or "custom"
+        extra: dict = {"category": category, "outcome": "ok", "timeout_minutes": 0}
+
+        me = getattr(guild, "me", None)
+        try:
+            perms = message.channel.permissions_for(me) if me is not None else None
+        except Exception:
+            perms = None
+        if perms is not None and not getattr(perms, "manage_messages", True):
+            extra["outcome"] = "error"
+            print(f"⚠️ AutoMod konnte eine Nachricht nicht löschen: fehlende Berechtigung in Kanal {message.channel.id}.")
+            return "Löschen nicht möglich (fehlende Berechtigung)", 0, extra
+        try:
+            await message.delete()
+        except discord.NotFound:
+            pass  # already removed – still a violation
+        except discord.Forbidden:
+            extra["outcome"] = "error"
+            print(f"⚠️ AutoMod konnte eine Nachricht nicht löschen: fehlende Berechtigung in Kanal {message.channel.id}.")
+            return "Löschen fehlgeschlagen (Berechtigung)", 0, extra
+        except discord.HTTPException as exc:
+            extra["outcome"] = "error"
+            print(f"⚠️ AutoMod konnte eine Nachricht nicht löschen: HTTP {exc.status}.")
+            return f"Löschen fehlgeschlagen (HTTP {exc.status})", 0, extra
+
+        try:
+            registered = strikes.register_violation(
+                guild.id, member.id, getattr(member, "display_name", "") or str(member.id),
+                getattr(message, "id", None), message.channel.id, category, config["strike_window_minutes"],
+            )
+        except (sqlite3.Error, OSError) as exc:
+            print(f"⚠️ Schimpfwort-Verstoß von {member.id} konnte nicht dauerhaft gezählt werden: {type(exc).__name__}.")
+            registered = {"id": 0, "strike_number": 1}  # fail safe: warn only, never time out without a stored count
+        if registered is None:
+            return None
+        number = registered["strike_number"]
+        extra["strike_id"] = registered["id"]
+        step = pp.profanity_step(number)
+
+        timed_out = False
+        if step["action"] == "timeout":
+            minutes = step["minutes"]
+            blocker = self._timeout_blocker(guild, member)
+            if blocker is None:
+                try:
+                    await member.timeout(
+                        timedelta(minutes=minutes),
+                        reason=f"Pulse AutoMod: Schimpfwortfilter (Verstoß {number})",
+                    )
+                    timed_out = True
+                    extra["timeout_minutes"] = minutes
+                    action = f"{number}. Verwarnung + Timeout {minutes} Min."
+                except discord.Forbidden:
+                    blocker = "Berechtigung/Rollenhierarchie"
+                except discord.HTTPException as exc:
+                    blocker = f"HTTP {exc.status}"
+            if not timed_out:
+                extra["outcome"] = "error"
+                action = f"{number}. Verwarnung, Timeout fehlgeschlagen ({blocker})"
+                print(f"⚠️ AutoMod konnte {member.id} nicht timeouten: {blocker}.")
+        else:
+            action = f"{number}. Verwarnung"
+
+        title, text = pp.dm_text(number, getattr(guild, "name", ""), timeout_applied=timed_out)
+        try:
+            await member.send(embed=discord.Embed(title=title, description=text, color=discord.Color.orange()))
+        except discord.Forbidden:
+            action += " (DM geschlossen)"
+            extra["dm"] = "closed"
+            if extra["outcome"] == "ok":
+                extra["outcome"] = "partial"
+        except discord.HTTPException as exc:
+            action += " (DM fehlgeschlagen)"
+            extra["dm"] = "error"
+            if extra["outcome"] == "ok":
+                extra["outcome"] = "partial"
+            print(f"⚠️ AutoMod-Warnung für {member.id} fehlgeschlagen: HTTP {exc.status}.")
+        extra["username"] = str(getattr(member, "display_name", "") or "")[:100]
+        return action, number, extra
 
     async def _feedback_access(self, interaction: discord.Interaction) -> bool:
         """Require both the Pulse moderation right and Discord's message-management permission."""
