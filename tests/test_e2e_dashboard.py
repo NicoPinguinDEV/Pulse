@@ -717,15 +717,16 @@ class RecruitingBoardReadE2ETests(_BoardBase):
         self.assertEqual(self._card_ids(page), ALL_CARDS)
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
-    def test_board_is_server_rendered_without_loading_state_or_client_fetch(self):
-        """Ladezustand: Das Board hat keinen asynchronen Abruf – die Seite kommt komplett vom Server (kein Skeleton,
-        kein halb geladener Zustand). Geprüft: keine XHR/fetch-Anfragen beim Laden, Inhalt sofort vollständig."""
+    def test_board_is_server_rendered_without_loading_state_or_client_data_fetch(self):
+        """Das Board lädt seine Daten serverseitig; nur der gemeinsame Live-Cursor darf separat abgefragt werden."""
         page, _ = self._page()
         requests = []
         page.on("request", lambda r: requests.append(r.url) if r.resource_type in ("xhr", "fetch") else None)
         self._board(page)
         page.wait_for_load_state("networkidle")
-        self.assertEqual(requests, [])
+        self.assertTrue(requests, "Der gemeinsame Live-Shell-Hook muss seinen Cursor initialisieren.")
+        self.assertTrue(all(url.split("?", 1)[0].endswith("/api/events/poll") for url in requests),
+                        f"Das Board darf keine eigenen Client-Daten laden: {requests}")
         self.assertEqual(self._card_ids(page), ALL_CARDS)
         self.assertEqual(page.locator('[aria-busy="true"], .pulse-skeleton').count(), 0)
 
