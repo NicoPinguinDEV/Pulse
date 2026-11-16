@@ -150,6 +150,45 @@ class GoalRouteTests(Base):
         self.assertEqual(ta.goals("1")[0]["status"], "open")
 
 
+class PerformanceRowsTrainingTests(unittest.TestCase):
+    NOW = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+
+    def data(self, available=True, attempts=None):
+        return {
+            "now": self.NOW,
+            "members": [("1", "Ann"), ("2", "Bo")],
+            "history": [],
+            "tickets": [],
+            "tasks": [],
+            "loas": {},
+            "training_attempts_available": available,
+            "training_attempts": attempts or [],
+        }
+
+    def test_counts_distinct_successful_courses_in_the_last_30_days(self):
+        since = self.NOW - timedelta(days=30)
+        attempts = [
+            {"user_id": "1", "training_id": "safety", "passed": 1, "created_at": (self.NOW - timedelta(days=1)).isoformat()},
+            {"user_id": "1", "training_id": "safety", "passed": 1, "created_at": (self.NOW - timedelta(days=2)).isoformat()},
+            {"user_id": "1", "training_id": "moderation", "passed": 1, "created_at": since.isoformat()},
+            {"user_id": "1", "training_id": "failed", "passed": 0, "created_at": self.NOW.isoformat()},
+            {"user_id": "1", "training_id": "old", "passed": 1, "created_at": (since - timedelta(seconds=1)).isoformat()},
+            {"user_id": "1", "training_id": "future", "passed": 1, "created_at": (self.NOW + timedelta(seconds=1)).isoformat()},
+            {"user_id": "2", "training_id": "support", "passed": 1, "created_at": self.NOW.isoformat()},
+        ]
+        rows = {row["id"]: row for row in pages._performance_rows(self.data(attempts=attempts))}
+        self.assertEqual(rows["1"]["trainings"], 2)
+        self.assertEqual(rows["2"]["trainings"], 1)
+
+    def test_unavailable_training_data_remains_missing_not_zero(self):
+        rows = pages._performance_rows(self.data(available=False))
+        self.assertIsNone(rows[0]["trainings"])
+
+    def test_successfully_loaded_empty_history_is_a_real_zero(self):
+        rows = pages._performance_rows(self.data(available=True, attempts=[]))
+        self.assertEqual(rows[0]["trainings"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 
