@@ -11,7 +11,8 @@ import json
 
 # Matches the domains for which pulse_eventbus has an explicit viewer policy.
 # Unlisted domains remain server-side admin-only and are never exposed by this client.
-LIVE_DOMAINS = ("ticket", "moderation", "task", "handover", "announcement", "promotion", "recruiting", "team")
+LIVE_DOMAINS = ("ticket", "moderation", "task", "handover", "announcement", "promotion", "recruiting", "team",
+                "antinuke", "automation", "privacy", "panel", "system", "other")
 
 _SCRIPT = """<style>#pulseLiveBanner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;background:#4338ca;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);font-size:13px;max-width:92vw}#pulseLiveBanner[hidden]{display:none}#pulseLiveBanner button{margin-left:8px;background:#fff;color:#4338ca;border:0;border-radius:8px;padding:4px 10px;font-weight:600;cursor:pointer}</style>
 <div id="pulseLiveBanner" role="status" aria-live="polite" hidden><span id="pulseLiveText"></span> <button type="button" id="pulseLiveReload">Aktualisieren</button></div>
