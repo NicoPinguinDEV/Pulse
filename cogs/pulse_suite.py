@@ -2315,6 +2315,8 @@ class PulseSuite(commands.Cog):
                     target,
                     web.load_config(),
                     f"Pulse Team-Kick {action_id} · {reason}",
+                    actor=i.user,
+                    actor_is_admin=bool(p.get("is_admin")),
                 )
                 if not kick_result.get("ok"):
                     failure = str(kick_result.get("message") or "Rollen konnten nicht sicher zurückgesetzt werden.")

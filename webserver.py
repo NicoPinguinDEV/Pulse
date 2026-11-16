@@ -741,8 +741,13 @@ async def _cleanup_absence_after_team_exit(guild, member) -> None:
         print(f"⚠️ Abmeldungs-Bereinigung nach Team-Kick übersprungen ({type(exc).__name__}).")
 
 
-async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick") -> dict:
-    """Keep only the configured citizen/ex-team roles; never remove the member from Discord."""
+async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick",
+                                     actor=None, actor_is_admin: bool = True) -> dict:
+    """Keep only the configured citizen/ex-team roles; never remove the member from Discord.
+
+    AUTHZ-6: when a human ``actor`` who is not an administrator triggers the reset, a target holding an
+    administrator role or any role at/above the actor's own top role is refused (nothing is changed).
+    Automated callers pass no actor and keep the previous behaviour."""
     if not guild or not member:
         return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
 
@@ -777,6 +782,19 @@ async def apply_team_kick_role_reset(guild, member, config: dict | None = None, 
         role for role in member.roles
         if not role.is_default() and role.id not in keep_role_ids
     ]
+    if actor is not None and not actor_is_admin:
+        actor_top = getattr(getattr(actor, "top_role", None), "position", None)
+        protected = [
+            role for role in roles_to_remove
+            if getattr(getattr(role, "permissions", None), "administrator", False)
+            or actor_top is None or role.position >= actor_top
+        ]
+        if protected or getattr(getattr(member, "guild_permissions", None), "administrator", False):
+            return {
+                "ok": False, "changed": False,
+                "message": "Team-Kick abgebrochen: Das Zielmitglied besitzt Administrator- oder höhere Rollen, "
+                           "die du nicht verwalten darfst. Das kann nur ein Administrator durchführen.",
+            }
     blocked_roles = [
         role for role in roles_to_remove
         if role.managed or role.position >= bot_member.top_role.position
@@ -12622,7 +12640,8 @@ async def handle_action(
                 # One shared, fail-closed implementation performs every role and hierarchy check
                 # before making the single role update. It never calls Member.kick().
                 kick_result = await apply_team_kick_role_reset(
-                    guild, member, config, f"Dashboard durch {actor}: {action_reason}"
+                    guild, member, config, f"Dashboard durch {actor}: {action_reason}",
+                    actor=ctx.member, actor_is_admin=bool(ctx.perms.get("is_admin")),  # AUTHZ-6
                 )
                 if not kick_result.get("ok"):
                     return back(

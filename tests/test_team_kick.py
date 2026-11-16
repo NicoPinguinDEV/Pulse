@@ -133,3 +133,58 @@ class TeamKickRoleResetTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TeamKickActorGuardTests(unittest.IsolatedAsyncioTestCase):
+    """AUTHZ-6: a non-administrator actor cannot strip administrator/higher roles; no write on refusal."""
+
+    def _setup(self, extra_role):
+        everyone = FakeRole(1, "@everyone", 0, default=True)
+        citizen = FakeRole(1531303733311307997, "Bürger", 10)
+        ex_team = FakeRole(1489912887949394082, "Ex-Teamler", 11)
+        team = FakeRole(2001, "Supporter", 20)
+        roles = [everyone, citizen, ex_team, team, extra_role]
+        guild = FakeGuild(roles, everyone)
+        member = FakeMember([everyone, citizen, ex_team, team, extra_role], everyone)
+        member.guild_permissions = SimpleNamespace(administrator=False)
+        return guild, member
+
+    def _actor(self, top_position):
+        return SimpleNamespace(top_role=SimpleNamespace(position=top_position))
+
+    async def test_target_with_higher_role_is_refused_for_non_admin(self):
+        higher = FakeRole(2002, "Leitung", 60)
+        higher.permissions = SimpleNamespace(administrator=False)
+        guild, member = self._setup(higher)
+        before = list(member.roles)
+        result = await webserver.apply_team_kick_role_reset(
+            guild, member, {}, "Test", actor=self._actor(50), actor_is_admin=False)
+        self.assertFalse(result["ok"])
+        self.assertEqual((member.roles, member.edit_calls), (before, []))
+
+    async def test_target_with_administrator_role_is_refused_for_non_admin(self):
+        admin_role = FakeRole(2003, "Admin", 15)
+        admin_role.permissions = SimpleNamespace(administrator=True)
+        guild, member = self._setup(admin_role)
+        result = await webserver.apply_team_kick_role_reset(
+            guild, member, {}, "Test", actor=self._actor(50), actor_is_admin=False)
+        self.assertFalse(result["ok"])
+        self.assertEqual(member.edit_calls, [])
+
+    async def test_non_admin_may_reset_a_member_below_their_rank(self):
+        ping = FakeRole(2004, "Ankündigungen", 5)
+        ping.permissions = SimpleNamespace(administrator=False)
+        guild, member = self._setup(ping)
+        member.roles[3].permissions = SimpleNamespace(administrator=False)
+        result = await webserver.apply_team_kick_role_reset(
+            guild, member, {}, "Test", actor=self._actor(50), actor_is_admin=False)
+        self.assertTrue(result["ok"], result["message"])
+        self.assertEqual(len(member.edit_calls), 1)
+
+    async def test_administrator_actor_is_not_blocked(self):
+        higher = FakeRole(2002, "Leitung", 60)
+        higher.permissions = SimpleNamespace(administrator=True)
+        guild, member = self._setup(higher)
+        result = await webserver.apply_team_kick_role_reset(
+            guild, member, {}, "Test", actor=self._actor(70), actor_is_admin=True)
+        self.assertTrue(result["ok"], result["message"])
