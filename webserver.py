@@ -9475,11 +9475,15 @@ async def application_templates_restore(request: Request, user_session: str = Co
     form = await request.form()
     key, _, number = str(form.get("restore") or "").partition(":")
     try:
-        pulse_app_comms.restore(key, int(number or 0), actor=str(ctx.user.get("global_name") or ""))
+        restored_text = pulse_app_comms.restore(key, int(number or 0), actor=str(ctx.user.get("global_name") or ""))
     except (ValueError, TypeError):
         return back("/applications/config", "Diese Vorlagenversion gibt es nicht.", False)
     try:
-        pulse_app_comms.sync_library(str(ctx.guild.id), ctx.perms, str(ctx.user["id"]), str(ctx.user.get("global_name") or ""))
+        # Keep central edits to other applicant-message scopes intact when one legacy version is restored.
+        current_values = pulse_app_comms.load_for_guild(str(ctx.guild.id), ctx.perms)
+        current_values[key] = restored_text
+        pulse_app_comms.sync_library(str(ctx.guild.id), ctx.perms, str(ctx.user["id"]),
+                                     str(ctx.user.get("global_name") or ""), values=current_values)
     except Exception as exc:  # noqa: BLE001 - restore is already stored in the legacy version history
         print(f"⚠️ Wiederhergestellte Bewerber-Vorlage konnte nicht gespiegelt werden: {type(exc).__name__}")
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachricht wiederhergestellt", f"{key} v{number}")
