@@ -13,7 +13,7 @@ ACTOR = "100000000000000001"
 APPS = {"can_manage_applications": True}
 
 
-class ApplicantLibraryCase(unittest.TestCase):
+class ApplicantLibraryCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = str(Path(self.tmp.name) / "pulse.db")
@@ -89,8 +89,8 @@ class ApplicantLibraryResolutionTests(ApplicantLibraryCase):
         self.assertEqual(current["received"], "Library-Text {server}")
 
 
-class ApplicantSenderIntegrationTests(ApplicantLibraryCase, __import__('unittest').IsolatedAsyncioTestCase):
-    def test_dm_applicant_sends_library_text_and_journals_exact_version(self):
+class ApplicantSenderIntegrationTests(ApplicantLibraryCase):
+    async def test_dm_applicant_sends_library_text_and_journals_exact_version(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, patch
 
