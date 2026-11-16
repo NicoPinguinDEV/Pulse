@@ -18,7 +18,7 @@ Die Grundbausteine sind vorhanden und teilweise integriert. Ein Modul oder eine 
 | F3 | `pulse_policy` zentralisiert die Zuordnung von Aktionen zu Rechten für neue und ausgewählte bestehende Aktionen; ältere Inline-Prüfungen bleiben bestehen. | #120 |
 | F4 | SSE und Cursor-Polling sind erreichbar. Dieser Branch hängt einen rechtegefilterten Live-Hinweis an alle Seiten der gemeinsamen Dashboard-Shell und ergänzt einen 15-Sekunden-Polling-Rückfall. Die Datenansichten werden noch nicht automatisch in-place aktualisiert. | #70, #117 |
 | F5 | Aktionskarten haben Besitzer-, Einmaligkeits-, Ablauf- und erneute Rechteprüfung; sie werden für bestimmte Ankündigungs-/Termin-/Umfrageabläufe genutzt. Ältere Bestätigungsansichten sind nicht alle ersetzt. | #121 |
-| F6–F8 | Zentrale Vorlagenverwaltung vorhanden; Ticket-Schnellantworten und Ankündigungsformular nutzen die Bibliothek. Bewerber-DMs, Moderationsgründe sowie Willkommens-/Abschiedstexte haben weiterhin Legacy-Speicher/Aufrufpfade. | #123 |
+| F6–F8 | Zentrale Vorlagenverwaltung; Ticket-Schnellantworten, Ankündigungsformular und Bewerber-DM-Versand nutzen aktive Bibliotheksversionen. Bewerber-Editor synchronisiert neue Versionen; Legacy-Fallback bleibt. Moderationsgründe und Willkommens-/Abschiedstexte sind noch nicht durchgängig angebunden. | #123 |
 
 ## Stand auf main
 
