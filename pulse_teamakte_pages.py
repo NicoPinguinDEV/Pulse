@@ -36,7 +36,7 @@ def _e(value) -> str:
     return ws.esc(value)
 
 
-def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False) -> dict:
+def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False, with_training: bool = False) -> dict:
     """Read-only snapshot of everything the analytics need (bounded queries, no writes)."""
     import pulse_access
     now = now or datetime.now(timezone.utc)
