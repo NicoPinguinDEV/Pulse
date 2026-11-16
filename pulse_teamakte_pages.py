@@ -136,7 +136,7 @@ def view_html(view: str, data: dict) -> str:
             + "".join(f'<td>{r["parts"].get(k, "–")}</td>' for k in w)
             + f'<td>{r["absent_days"] or ""}</td><td>{_e(", ".join(r["missing"]))}</td></tr>' for r in rows)
         return (f'<p class="text-xs text-slate-400 mb-2">Anteil am Ziel in Prozent (30 Tage), Gewichtung: {_e(explain)}. Die Stunden-Zielvorgabe wird bei Abwesenheit anteilig gekürzt; '
-                f'fehlende Signale (Schulungen sind hier noch nicht eingerechnet) werden ausgelassen. Verwarnungen fließen nicht in die Punktzahl ein. Kein Ranking-Urteil über Personen.</p>'
+                f'Schulungen zählen als unterschiedliche erfolgreich abgeschlossene Trainings im Zeitraum (ein Training höchstens einmal). Nicht verfügbare Signale werden ausgelassen. Verwarnungen fließen nicht in die Punktzahl ein. Kein Ranking-Urteil über Personen.</p>'
                 f'<div style="overflow-x:auto"><table class="pulse-table"><thead><tr><th>Person</th><th>Punkte</th>'
                 + "".join(f"<th>{k}</th>" for k in w) + f"<th>Abw.-Tage</th><th>Ohne Daten</th></tr></thead><tbody>{body}</tbody></table></div>")
     if view == "abwesenheit":
