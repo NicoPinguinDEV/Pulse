@@ -140,6 +140,18 @@ def seed():
 
 def now():return datetime.now(timezone.utc)
 def iso():return now().isoformat(timespec="seconds")
+
+ACTION_TTL_HOURS = 24  # DISC-2: lifetime of an action that waits for its second approval
+
+def action_expired(created_at, ttl_hours: int = ACTION_TTL_HOURS) -> bool:
+    """True when a pending action is older than its lifetime (or its timestamp is unreadable: fail closed)."""
+    try:
+        created = datetime.fromisoformat(str(created_at))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=now().tzinfo)
+        return now() - created > timedelta(hours=ttl_hours)
+    except (TypeError, ValueError):
+        return True
 def _schedule_interval(row):
     """Parse local BOCHUM-RP shift times into UTC, rejecting ambiguous/nonexistent DST hours."""
     day = datetime.strptime(str(row["date"]), "%Y-%m-%d").date()
@@ -2270,6 +2282,16 @@ class PulseSuite(commands.Cog):
             row=c.execute("SELECT * FROM suite_actions WHERE id=?",(action_id,)).fetchone()
             if not row or row["status"]!="awaiting_second" or row["created_by_id"]==str(i.user.id):
                 return await i.response.send_message("❌ Kein freigabefähiger Vorgang oder du bist dessen Ersteller.",ephemeral=True)
+            # DISC-2: pending actions expire, and the creator must still be entitled to the action at approval time
+            # (a stale request from a since-demoted/removed creator must not be executed by a second person).
+            if action_expired(row["created_at"]):
+                c.execute("UPDATE suite_actions SET status='expired',updated_at=? WHERE id=? AND status='awaiting_second'",(iso(),action_id))
+                return await i.response.send_message(f"❌ Dieser Vorgang ist nach {ACTION_TTL_HOURS} Stunden abgelaufen und wurde ungültig. Bitte neu anlegen.",ephemeral=True)
+            creator=i.guild.get_member(int(row["created_by_id"])) if str(row["created_by_id"]).isdigit() else None
+            creator_perms,_c=web.compute_perms(i.guild,int(row["created_by_id"]),web.load_config()) if creator else ({},None)
+            if not creator or not (creator_perms.get("can_promote") or creator_perms.get("is_admin")):
+                c.execute("UPDATE suite_actions SET status='cancelled',updated_at=? WHERE id=? AND status='awaiting_second'",(iso(),action_id))
+                return await i.response.send_message("❌ Der Ersteller ist nicht mehr berechtigt oder nicht mehr auf dem Server – der Vorgang wurde verworfen.",ephemeral=True)
             try:
                 payload=json.loads(row["payload_json"])
                 target_id=int(payload["target_id"])
