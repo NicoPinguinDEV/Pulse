@@ -44,6 +44,13 @@ def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False,
     data = {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
             "tasks": pulse_db.list_tasks(limit=1000, include_archived=True), "tickets": pulse_db.list_tickets(limit=2000),
             "loas": ws.get_loas(), "apps": ws.load_json(ws.APPS_FILE, {})}
+    if with_training:  # #94: query attempts only for the performance view, not every team/profile page
+        try:
+            data["training_attempts"] = pulse_db.attempts(limit=5000)
+            data["training_attempts_available"] = True
+        except Exception:  # noqa: BLE001 - unavailable data is left missing, never counted as zero
+            data["training_attempts"] = []
+            data["training_attempts_available"] = False
     if with_moderation:  # #129/#137: only for the intelligence page (member pages and planning do not need them)
         try:
             import pulse_intel
