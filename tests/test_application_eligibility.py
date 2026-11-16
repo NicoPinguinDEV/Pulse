@@ -124,9 +124,12 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn('item["status"] = "interview"', invite)
         self.assertNotIn("hired_role_id", invite)
         self.assertNotIn('team_entry["team_since"]', invite)
-        # BOT-10: the invitation text is now the (editable) template "interview"; by default it still says so
+        # BOT-10: the invitation text is resolved through the central versioned
+        # template library, with the legacy default retained as fallback.
         import pulse_app_comms
-        self.assertIn('pulse_app_comms.render("interview"', invite)
+        self.assertIn("pulse_app_comms.resolve_for_guild(\"interview\"", invite)
+        self.assertIn('resolved["text"]', invite)
+        self.assertIn('template_ref=resolved["template_ref"]', invite)
         self.assertIn("Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden.", pulse_app_comms.DEFAULTS["interview"])
         self.assertIn("role.id == APPLICATION_ROLE_ID", hire)
         self.assertIn("await applicant.edit(", hire)
