@@ -290,7 +290,7 @@ def register(app) -> None:
             view = "auslastung"
         tabs = " ".join(f'<a href="/team/planung?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in VIEWS) + ' <a href="/team/intelligenz" class="pulse-btn ghost">🧠 Intelligenz</a>'
         body = (f'<div class="pulse-crumb"><a href="/team">Team</a> › Teamplanung</div><div class="flex flex-wrap gap-2 mb-3">{tabs}</div>'
-                f'<section class="pulse-card"><div class="pulse-card-b">{view_html(view, collect(ws, ctx))}</div></section>')
+                f'<section class="pulse-card"><div class="pulse-card-b">{view_html(view, collect(ws, ctx, with_training=(view == "leistung")))}</div></section>')
         return HTMLResponse(render_pro_page(ws, "Teamplanung", ctx, "team", body))
 
     @app.get("/team/intelligenz", response_class=HTMLResponse)
