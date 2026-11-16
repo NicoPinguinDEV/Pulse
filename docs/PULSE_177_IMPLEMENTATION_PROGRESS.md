@@ -1,38 +1,36 @@
 # Pulse 177 – Umsetzungsfortschritt
 
-Arbeitsstand der Mission „177 von 177“. Einzelstatus je Funktion: `docs/PULSE_FEATURE_AUDIT_177.md`.
+Re-Audit der 177 Funktionsanforderungen. Maßgeblich ist der Einzelstatus in `docs/PULSE_FEATURE_AUDIT_177.md`.
 Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, Rechte-/Datenschutzprüfung, PR und CI. Keine Produktivdaten, Discord-Server oder VPS-Aktionen im Rahmen dieser Arbeit.
 
-## Stand 2026-11-16: 177 von 177
+## Stand 2026-11-16: 172 fertig / 5 teilweise / 0 offen
 
-Alle 177 Funktionen sind laut Audit „Fertig“ (Zählung: `python tools/audit_counts.py`, geprüft von `tests/test_feature_audit_counts.py`). Umgesetzt in den PRs #254-#268 und dem Abschluss-PR; jeder Block mit Verhaltenstests, Routen-/Rechte-Snapshot und grüner CI. Bewusste Entscheidungen statt Lücken sind in den Einzelzeilen des Audits dokumentiert (z. B. typisierte Fallreferenzen statt eines einzelnen Nummernkreises, Empfehlungen als Vorschläge statt ausführbarer Aktionen, keine CI-Anbindung im Betrieb, Standalone-Seiten im Design-Wächter). Nicht Teil dieser Arbeit: Abnahme auf dem Live-Discord-Server und Einrichtung der optionalen VPS-Dienste (Watchdog).
+Die 177 Funktionen sind im Repository vorhanden; bei genauer Prüfung erfüllen **172** die beschriebene Kernanforderung, **5** bleiben teilweise (#4, #10, #70, #117, #123). Der Zähler wird aus den Einzelzeilen mit `python tools/audit_counts.py` berechnet und durch `tests/test_feature_audit_counts.py` geprüft. Dieser Arbeitsbranch ergänzt den globalen Live-Listener mit SSE-/Polling-Rückfall (#70/#117): unveränderte Ansichten aktualisieren sich nach Ereignissen automatisch, geänderte Formulare werden geschützt und erhalten den bewussten Refresh-Hinweis. Ein echtes In-place-Update einzelner Widgets fehlt noch. Die Trainingskomponente (#94) und Bewerber-DM-Aufrufpfade (#123) wurden ebenfalls ergänzt. Die Änderungen liegen im offenen PR; eine Produktivabnahme auf dem VPS steht aus. Keine Live-Discord-Aktion, Produktivdatenänderung oder VPS-Änderung wurde vorgenommen.
 
-## Block F – Zentrale Integration (Verlauf, inzwischen gemergt)
+## Block F – Zentrale Integration (Re-Audit)
 
-Alle Schritte bauen aufeinander auf (Branchkette ab `origin/main` @ `2c02788`); keine Zeile des Audits ist dadurch „Fertig“, die Zählung bleibt unverändert.
+Die Grundbausteine sind vorhanden und teilweise integriert. Ein Modul oder eine erreichbare API allein bedeutet noch nicht, dass jeder Bot- und Dashboard-Aufruf den gemeinsamen Ablauf nutzt.
 
-| Schritt | Inhalt | Audit | Status |
-|---|---|---|---|
-| F1 | Ereignisvertrag `pulse_events` | #116, #122, #125 | Fundament, Teilweise |
-| F2 | Inbox-Contract und Direktlinks | #118, #119 | Fundament, Teilweise |
-| F3 | Rechte-Policy `pulse_policy` | #120 | Fundament, Teilweise |
-| F4 | Eventbus (Polling + SSE) | #117 | Fundament, nicht an Routen angebunden |
-| F5 | Aktionskarten, einheitliche Aufgabenregel | #121, #124 | Fundament, Aufrufer offen |
-| F6 | Vorlagenbibliothek | #123 | Fundament |
-| F7 | Ticket-Ereignisse mit Korrelations-ID (Bot + Dashboard) | #116, #122 | angebunden |
-| F8 | Ticket-Schnellantworten aus der Bibliothek (Analyse der übrigen Arten: `docs/PULSE_F8_PHASENBERICHT.md`) | #123 | 1 von 5 Arten angebunden |
-
-Offene Abhängigkeiten: Bewerber-Nachrichten nach Merge von #99; Ankündigungen und Willkommenstexte brauchen Entscheidungen; Moderationsgründe bleiben im eigenen Speicher.
+| Schritt | Aktueller Befund | Audit |
+|---|---|---|
+| F1 | Ereignisvertrag `pulse_events` und Legacy-Klassifizierung sind vorhanden; fachliche Aufrufer sind nicht vollständig vereinheitlicht. | #116, #122, #125 |
+| F2 | Inbox-Grenzen, sichere interne Links und `pulse_inbox_contract.deliver()` existieren; nicht jeder Legacy-Aufrufer nutzt die deduplizierte Domain-Zustellung. | #118, #119 |
+| F3 | `pulse_policy` zentralisiert die Zuordnung von Aktionen zu Rechten für neue und ausgewählte bestehende Aktionen; ältere Inline-Prüfungen bleiben bestehen. | #120 |
+| F4 | SSE und Cursor-Polling sind erreichbar. Der rechtegefilterte Listener läuft auf allen Seiten der gemeinsamen Dashboard-Shell. Unveränderte Ansichten aktualisieren sich nach einem Ereignis automatisch; bei geänderten Formularen wird das Neuladen blockiert und ein bewusster Refresh angeboten. Daten werden noch nicht per In-place-Widget-Update aktualisiert. | #70, #117 |
+| F5 | Aktionskarten haben Besitzer-, Einmaligkeits-, Ablauf- und erneute Rechteprüfung; sie werden für bestimmte Ankündigungs-/Termin-/Umfrageabläufe genutzt. Ältere Bestätigungsansichten sind nicht alle ersetzt. | #121 |
+| F6–F8 | Zentrale Vorlagenverwaltung; Ticket-Schnellantworten, Ankündigungsformular und Bewerber-DM-Versand nutzen aktive Bibliotheksversionen. Bewerber-Editor synchronisiert neue Versionen; Legacy-Fallback bleibt. Moderationsgründe und Willkommens-/Abschiedstexte sind noch nicht durchgängig angebunden. | #123 |
 
 ## Stand auf main
 
-Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist gemergt, vollständig fertig und mit 27 Browser-Tests abgesichert). Der Block #99 (`feature/recruiting-interview-calendar-99`) ist zusätzlich ausgewiesen. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort liefert `python tools/audit_counts.py` aus den 177 Einzelzeilen; `tests/test_feature_audit_counts.py` prüft Kopfzeilen und diese Tabelle dagegen.
+Baseline ist `main` @ `1fd65fc` vom 16.11.2026. Die folgende Statussumme beschreibt die Bewertung auf diesem Arbeitsbranch; die Codekorrekturen liegen zur Prüfung im offenen PR. Einzelstatus und Belege stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; `tools/audit_counts.py` zählt die 177 Zeilen und `tests/test_feature_audit_counts.py` prüft die Konsistenz.
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 177 (177 mit #99-Branch) |
-| Teilweise | 0 (0 mit #99-Branch) |
+| Fertig | 172 (172 mit #99-Branch) |
+| Teilweise | 5 (5 mit #99-Branch) |
 | Offen | 0 |
+
+### Historischer Verlauf der Umsetzungswellen vom 13.11.2026
 
 | Schritt | Fertig | Teilweise | Auditänderung | PR |
 |---|---:|---:|---|---|
@@ -45,20 +43,16 @@ Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist g
 | Ticketlast-Prognose | 98 | 79 | #127 | #241 |
 | Prüferzuweisung und unabhängige Bewertung | 100 | 77 | #96, #97 | #247 |
 | Kanban-Bewerbungspipeline | 101 | 76 | #95 | #248, #249 (gemergt) |
-| Interview-Kalender (Branch `feature/recruiting-interview-calendar-99`) | 102 | 75 | #99 | PR offen |
+| Interview-Kalender (#99) | 102 | 75 | #99 | inzwischen gemergt |
 
-Gemergt am 13.11.2026 (Reihenfolge wie oben, jeweils auf aktuellen `main` gebracht, CI grün). Jeder Merge nach `main` startet den automatischen VPS-Deploy (`deploy-vps.yml`).
+Diese Zahlen sind historische Zwischenstände der damaligen Merge-Welle und nicht der aktuelle Auditstatus. Die späteren PRs #254–#269 brachten die weiteren Funktionsblöcke auf `main`; das vorliegende Re-Audit korrigiert die überoptimistische Einstufung einzelner Integrationspunkte.
 
-## Nächste Blöcke (Vorschlag, Abhängigkeiten beachten)
+## Verbleibende Arbeit nach dem Re-Audit
 
-Noch 76 teilweise Punkte auf `main` (75 nach Merge des #99-PR). Bereichsweise, jeweils ein Feature-Branch ab `main`:
-
-1. **Recruiting (#100–#103):** Kommunikationsjournal (#100), Erinnerungen (#101; baut auf den Interview-Erinnerungen aus #99 auf), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123). #99 ist umgesetzt (siehe unten).
-2. **Teamakte und Entwicklung (#71, #73–#76, #81, #87–#89, #92, #94):** 360°-Akte konsolidieren, Kompetenzmatrix, Entwicklungspläne, Auslastungsansicht, Abwesenheitskalender, Anomalien mit erklärbaren Schwellen.
-3. **Integration (#116–#125):** zentrale Fallnummer/Direktlinks (#116, #119 bauen auf `pulse_case_registry` auf), Ereignisvertrag (#125), Aktionskarten (#121), zentrale Rechteprüfung (#120).
-4. **Intelligence (#129–#139):** Anomalien, Tages-/Wochenbericht (bauen auf `pulse_staffing_forecast.build_load_forecast` und `pulse_summaries` auf), Assistent mit Quellen (#132, #133, zusammen mit #47).
-5. **Dashboard (#57, #58, #62, #64–#68, #70):** Widgets, Live-Feed, globale Suche, Mobil/Dark/Tastatur/Hilfe.
-6. **Betrieb und Leitstelle (#153–#172, #173–#177).** Offene Reste bei #11 (gemeinsamer Nummernkreis) und #176 (Wissensversionierung).
+1. **#4 Autovervollständigung:** restliche passende Teammitglied-, Ticket- und Kategorieparameter in den relevanten Befehlen ergänzen.
+2. **#10 Mehrsprachigkeit:** weitere Bot-Antworten, Modals, Buttons und Dashboard-Texte vollständig über den Locale-Katalog führen.
+3. **#70/#117 Live-Synchronisierung:** Der globale Änderungshinweis ist ergänzt; als nächster Schritt müssen ausgewählte Datenansichten gezielt und konfliktfrei aktualisiert werden. Formulare mit ungespeicherten Eingaben dürfen dabei nicht überschrieben werden.
+4. **#123 Vorlagen:** Bewerber-DM-, Moderationsgrund- und Willkommens-/Abschied-Aufrufpfade schrittweise auf die gemeinsame Vorlagenbibliothek umstellen. Dabei Legacy-Fallback und Versionshistorie erhalten.
 
 ## Hinweise für die Weiterarbeit (Technik)
 

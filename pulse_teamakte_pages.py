@@ -36,7 +36,7 @@ def _e(value) -> str:
     return ws.esc(value)
 
 
-def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False) -> dict:
+def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False, with_training: bool = False) -> dict:
     """Read-only snapshot of everything the analytics need (bounded queries, no writes)."""
     import pulse_access
     now = now or datetime.now(timezone.utc)
@@ -44,6 +44,13 @@ def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False)
     data = {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
             "tasks": pulse_db.list_tasks(limit=1000, include_archived=True), "tickets": pulse_db.list_tickets(limit=2000),
             "loas": ws.get_loas(), "apps": ws.load_json(ws.APPS_FILE, {})}
+    if with_training:  # #94: query attempts only for the performance view, not every team/profile page
+        try:
+            data["training_attempts"] = pulse_db.attempts(limit=5000)
+            data["training_attempts_available"] = True
+        except Exception:  # noqa: BLE001 - unavailable data is left missing, never counted as zero
+            data["training_attempts"] = []
+            data["training_attempts_available"] = False
     if with_moderation:  # #129/#137: only for the intelligence page (member pages and planning do not need them)
         try:
             import pulse_intel
@@ -67,6 +74,22 @@ def _absent_days(loas: dict, uid: str, now: datetime, days: int = 30) -> int:
 
 def _performance_rows(data: dict) -> list[dict]:
     now, since = data["now"], data["now"] - timedelta(days=30)
+    # Count distinct courses with a successful attempt in the same 30-day window as the other signals.
+    # Repeated attempts at one course never inflate the person's training contribution.
+    training_counts = {} if data.get("training_attempts_available") is True else None
+    if training_counts is not None:
+        for attempt in data.get("training_attempts") or ():
+            if not isinstance(attempt, dict):
+                continue
+            try:
+                passed = int(attempt.get("passed") or 0)
+            except (TypeError, ValueError):
+                continue
+            uid, training_id = ta._uid(attempt.get("user_id")), ta._uid(attempt.get("training_id"))
+            completed = ta._dt(attempt.get("created_at"))
+            if not passed or not uid or not training_id or completed is None or not (since <= completed <= now):
+                continue
+            training_counts.setdefault(uid, set()).add(training_id)
     rows = []
     for uid, name in data["members"]:
         seconds = sum(int(ta.credited_shift_seconds(s)) for s, _st in ta._shifts_of(data["history"], uid, since=since))
@@ -75,7 +98,8 @@ def _performance_rows(data: dict) -> list[dict]:
         done = sum(1 for t in data["tasks"] if ta._uid(t.get("assignee_id")) == uid and t.get("status") == "done"
                    and (u := ta._dt(t.get("updated_at"))) and u >= since)
         rows.append({"id": uid, "name": name, "hours": seconds / 3600, "tickets": closed, "tasks_done": done,
-                     "trainings": None, "absent_days": _absent_days(data["loas"], uid, now)})
+                     "trainings": len(training_counts.get(uid, set())) if training_counts is not None else None,
+                     "absent_days": _absent_days(data["loas"], uid, now)})
     return rows
 
 
@@ -112,7 +136,7 @@ def view_html(view: str, data: dict) -> str:
             + "".join(f'<td>{r["parts"].get(k, "–")}</td>' for k in w)
             + f'<td>{r["absent_days"] or ""}</td><td>{_e(", ".join(r["missing"]))}</td></tr>' for r in rows)
         return (f'<p class="text-xs text-slate-400 mb-2">Anteil am Ziel in Prozent (30 Tage), Gewichtung: {_e(explain)}. Die Stunden-Zielvorgabe wird bei Abwesenheit anteilig gekürzt; '
-                f'fehlende Signale (Schulungen sind hier noch nicht eingerechnet) werden ausgelassen. Verwarnungen fließen nicht in die Punktzahl ein. Kein Ranking-Urteil über Personen.</p>'
+                f'Schulungen zählen als unterschiedliche erfolgreich abgeschlossene Trainings im Zeitraum (ein Training höchstens einmal). Nicht verfügbare Signale werden ausgelassen. Verwarnungen fließen nicht in die Punktzahl ein. Kein Ranking-Urteil über Personen.</p>'
                 f'<div style="overflow-x:auto"><table class="pulse-table"><thead><tr><th>Person</th><th>Punkte</th>'
                 + "".join(f"<th>{k}</th>" for k in w) + f"<th>Abw.-Tage</th><th>Ohne Daten</th></tr></thead><tbody>{body}</tbody></table></div>")
     if view == "abwesenheit":
@@ -266,7 +290,7 @@ def register(app) -> None:
             view = "auslastung"
         tabs = " ".join(f'<a href="/team/planung?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in VIEWS) + ' <a href="/team/intelligenz" class="pulse-btn ghost">🧠 Intelligenz</a>'
         body = (f'<div class="pulse-crumb"><a href="/team">Team</a> › Teamplanung</div><div class="flex flex-wrap gap-2 mb-3">{tabs}</div>'
-                f'<section class="pulse-card"><div class="pulse-card-b">{view_html(view, collect(ws, ctx))}</div></section>')
+                f'<section class="pulse-card"><div class="pulse-card-b">{view_html(view, collect(ws, ctx, with_training=(view == "leistung")))}</div></section>')
         return HTMLResponse(render_pro_page(ws, "Teamplanung", ctx, "team", body))
 
     @app.get("/team/intelligenz", response_class=HTMLResponse)

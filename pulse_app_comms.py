@@ -100,6 +100,79 @@ def render(key: str, **values) -> str:
     return _PLACEHOLDER.sub(lambda m: known.get(m.group(1), m.group(0)), load()[key])[:1900]
 
 
+def _library_access(perms=None) -> dict:
+    """Internal DM rendering is a trusted server-side operation; editing still uses caller permissions."""
+    return perms if isinstance(perms, dict) else {"can_manage_applications": True}
+
+
+def load_for_guild(guild_id, perms=None) -> dict:
+    """Current applicant texts for the legacy editor, preferring active central-library versions."""
+    current = load()
+    try:
+        import pulse_templates
+        rows = pulse_templates.lookup(_library_access(perms), guild_id, "application_dm",
+                                      scopes=list(DEFAULTS), include_archived=True)
+        for key in DEFAULTS:
+            matching = [row for row in rows if row.get("scope") == key]
+            active_rows = [row for row in matching if not row.get("archived_at")]
+            active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
+            if active is not None:
+                current[key] = str(active.get("body") or "")
+            elif matching:
+                latest = max(matching, key=lambda row: str(row.get("updated_at") or ""))
+                # A manual archive means "stop using this custom text". The legacy-takeover marker is
+                # different: it explicitly means the old store is the fallback for this template.
+                if latest.get("archived_by_id") != pulse_templates.TAKEOVER_ID:
+                    current[key] = DEFAULTS[key]
+    except Exception:  # noqa: BLE001 - the pre-existing store remains an operational fallback
+        pass
+    return current
+
+
+def resolve_for_guild(key: str, guild_id, perms=None, **values) -> dict:
+    """Resolve a DM to the central version, with an explicit safe fallback to the former store.
+
+    The returned reference is suitable for the applicant communication journal. A manually archived
+    library entry falls back to the built-in text, while an archive marked TAKEOVER_ID uses the legacy
+    store because that marker explicitly says the legacy entry took over.
+    """
+    fallback = {"text": render(key, **values), "template_ref": f"legacy:{key}", "source": "legacy"}
+    if key not in DEFAULTS or guild_id in (None, ""):
+        return fallback
+    try:
+        import pulse_embed_design
+        import pulse_templates
+        access = _library_access(perms)
+        rows = pulse_templates.lookup(access, guild_id, "application_dm", scopes=[key], include_archived=True)
+        if not rows:
+            return fallback
+        active_rows = [row for row in rows if not row.get("archived_at")]
+        active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
+        if active is not None:
+            rendered = pulse_templates.render(access, guild_id, active["id"], values)
+            return {"text": rendered["text"],
+                    "template_ref": f'{rendered["template_id"]}:v{rendered["version"]}', "source": "library"}
+        latest = max(rows, key=lambda row: str(row.get("updated_at") or ""))
+        if latest.get("archived_by_id") == pulse_templates.TAKEOVER_ID:
+            return fallback
+        allowed = {name: value for name, value in values.items()
+                   if name in pulse_templates.KINDS["application_dm"]["placeholders"]}
+        text = pulse_embed_design.render_template(DEFAULTS[key], allowed)
+        text = pulse_embed_design.neutralize_mentions(text)
+        text = pulse_embed_design.truncate(text, pulse_templates.KINDS["application_dm"]["max_body"])
+        return {"text": text, "template_ref": f"builtin:{key}", "source": "builtin"}
+    except Exception:  # noqa: BLE001 - a broken optional library must never block an applicant DM
+        return fallback
+
+
+def sync_library(guild_id, perms, actor_id, actor_name, values: dict | None = None) -> dict:
+    """Mirror supplied/current editor values as new central versions; no write occurs without app permission."""
+    import pulse_templates
+    selected = values if isinstance(values, dict) else load()
+    entries = [(key, LABELS[key], str(selected.get(key, DEFAULTS[key]))) for key in DEFAULTS]
+    return pulse_templates.sync_kind(perms, guild_id, "application_dm", entries, actor_id, actor_name)
+
+
 def parse_slot(value: str, tz, now: datetime | None = None) -> datetime:
     """'2026-10-24T18:30' from a datetime-local field in German time → aware datetime; must be in the future.
 

@@ -1,20 +1,19 @@
 # Phasenbericht F8 – Vorlagenbibliothek in den Aufrufpfaden (#123)
 
-Stand: 2026-11-14, Branch `feature/central-templates-consumers-f8` (aufbauend auf F1–F7, lokal, nicht veröffentlicht).
-Audit #123 bleibt **Teilweise**: nur die Ticket-Schnellantworten lesen aus der Bibliothek.
+Re-Audit: 16.11.2026. Der ursprüngliche F8-Stand ist durch die späteren Änderungen aus PR #268 und Arbeitsbranch `fix/global-live-sync-177` ergänzt.
+Audit #123 bleibt **Teilweise**: Ticketantworten, Ankündigungen und Bewerber-DMs sind angebunden; Moderationsgründe und Welcome-/Leave-Texte haben noch eigene Leser.
 
 ## 1. Bestandsaufnahme: tatsächliche Leser und Schreiber
 
 | Vorlagenart | Speicher | Leser (Aufrufpfad) | Schreiber | Bibliothek nutzt |
 |---|---|---|---|---|
 | Ticket-Schnellantworten | Setting `ticket_quick_replies` (`pulse_ticket_extras`) | `/antwort` und Autocomplete (`cogs/ticket_tools.py`), Editor-Textfelder (`webserver.py` `/tickets/tools`) | `POST /tickets/tools/replies` (nur Admin) | **ja (F8)** |
-| Bewerber-Nachrichten | Setting `application_dm_templates` (`pulse_app_comms`) | `dm_applicant`, Gesprächs-/Erinnerungs-/Einstellungs-/Ablehnungs-Pfade in `webserver.py` (Z. 8390–9234, 12034–12668) | `POST /applications/templates` | nein (siehe 3.1) |
+| Bewerber-Nachrichten | Zentrale `message_templates` für aktive Versionen, Legacy-Setting als Fallback (`pulse_app_comms`) | `dm_applicant`, Gesprächs-/Erinnerungs-/Einstellungs-/Ablehnungs-Pfade in `webserver.py` | Bewerber-Editor synchronisiert beim Speichern/Wiederherstellen (`sync_library`); `/vorlagen` | **ja (neuer DM-Aufrufpfad)** |
 | Moderationsgründe | Tabellen `mod_reason_templates` + `_versions` (`pulse_mod_reason_templates`) | `cogs/mod_cases.py` (Auswahl, `resolve_reason`, Verwaltung, Versionen) | `cogs/mod_cases.py` | nein (siehe 3.3) |
 | Willkommen/Abschied | Setting `welcome_config` (`pulse_welcome`) | `cogs/welcome.py` (`build_member_message`) | `POST /admin/discord/welcome` (`pulse_admin.py`) | nein (siehe 3.4) |
-| Ankündigungen | **kein Vorlagenspeicher gefunden** | `/teamannounce` und `send_rp_announcement` nehmen Freitext | – | nein (siehe 3.2) |
+| Ankündigungen | Zentrale `message_templates` (`announcement`) | Ankündigungsformular bietet Vorlagen aus `/vorlagen` an | `/vorlagen` | **Auswahl im Dashboard** |
 
-Kein Fachmodul außer den Ticket-Schnellantworten liest `message_templates`; die Bibliotheksarten `announcement` und `moderation_reason`
-haben noch keinen Aufrufer.
+Ticket-Schnellantworten, das Ankündigungsformular und Bewerber-DMs lesen inzwischen aus `message_templates`. Die Bibliotheksart `moderation_reason` wird im eigenen Aufrufpfad noch nicht verwendet.
 
 ## 2. Umsetzung: Ticket-Schnellantworten
 
@@ -49,18 +48,19 @@ Bekannte Einschränkungen
 
 ## 3. Integrationsanalyse der weiteren Vorlagenarten (nicht umgesetzt)
 
-### 3.1 Bewerber-Nachrichten – **blockiert durch #99**
+### 3.1 Bewerber-Nachrichten – angebunden, mit Legacy-Fallback
 
-* `Pulse-99` ändert `pulse_app_comms.py` (neue Schlüssel `rescheduled` und `cancelled` in `DEFAULTS`/`LABELS`, geänderte `parse_slot`) und 259 Zeilen `webserver.py`, darunter Gesprächs-/Termin-Pfade, die dieselben Vorlagen rendern.
-* Bibliotheksart `application_dm`: Platzhalter `{server}`, `{id}`, `{rolle}`, `{termin}` passen zu den Standardtexten. Abweichung: der alte `render` lässt unbekannte Platzhalter sichtbar, die Bibliothek ersetzt sie durch „–“; der alte Pfad neutralisiert keine Massen-Erwähnungen.
-* Rechte (geprüft): Die Editor-Route `/applications/templates` ist **nur für Administratoren** (`admin=True`). Die Bibliotheksart `application_dm` verlangt dagegen `application.manage` (`can_manage_applications`) und wäre damit weiter gefasst. Für Sync und Lesen im Aufrufpfad ist das unkritisch (der Sync läuft mit den Rechten der speichernden Admins), aber eine künftige Bearbeitungsoberfläche der Bibliothek darf diese Art nicht mit `application.manage` öffnen, ohne das bewusst zu entscheiden.
-* Vorgehen **nach** dem Merge von #99: gleiches Muster wie bei Tickets (Sync beim Speichern, `resolve` mit Legacy-Fallback), Schlüssel (`scope`) = Vorlagenschlüssel inkl. der neuen #99-Schlüssel; Zeilen in `dm_applicant` und den drei Erinnerungs-/Entscheidungs-Pfaden umstellen.
+* `pulse_app_comms.resolve_for_guild` liest pro Vorlagenschlüssel die aktive zentrale Bibliotheksversion. `dm_applicant`, Gesprächseinladungen, Zusagen/Absagen und Gesprächserinnerungen verwenden diesen Resolver.
+* `POST /applications/templates` und das Wiederherstellen einer Legacy-Version rufen `sync_library` auf. Jede Änderung wird in der zentralen Bibliothek als neue Version gespiegelt; der alte Speicher bleibt als Rückfall verfügbar.
+* Das Bewerber-Editorformular zeigt aktive zentrale Texte an. Die zentrale Verwaltungsseite `/vorlagen` bleibt ebenfalls nutzbar.
+* Der Bewerber-Kommunikationsjournal-Eintrag enthält jetzt die zentrale Vorlagen-ID und Versionsnummer. Ein Bibliotheksfehler blockiert das Versenden nicht; dann wird die bisherige Legacy-Vorlage verwendet.
+* Manuell archivierte zentrale Vorlagen fallen auf den eingebauten Standardtext zurück und werden nicht versehentlich aus dem Legacy-Speicher reaktiviert. Nur mit `TAKEOVER_ID` markierte Archive erlauben ausdrücklich den Legacy-Fallback.
+* Die Bibliotheksleseoperation nutzt serverseitigen `application.manage`-Kontext; Schreibvorgänge bleiben an die bestehende Admin-Prüfung des Bewerber-Editors und die zentrale Policy gebunden. Keine ID-Migration oder Änderung bestehender Bewerbungsdatensätze.
 
-### 3.2 Ankündigungen – **kein Bestand, neue Funktion**
+### 3.2 Ankündigungen – Dashboard-Auswahl angebunden
 
-* Es gibt keinen bestehenden Vorlagenspeicher (`/teamannounce`, `send_rp_announcement`, geplante Ankündigungen nehmen Freitext). Die Art `announcement` und ihre Platzhalter (`server`, `name`, `datum`) sind eine Annahme ohne Aufrufer.
-* Anbindung hieße eine neue Funktion (Vorlagenauswahl beim Verfassen, Platzhalter aus dem Ankündigungskontext). Vorher klären: welche Platzhalter, wer darf nutzen (Policy `announcement.manage` passt zu `can_manage_announcements`), wo wird ausgewählt (Befehl oder Dashboard).
-* Bis dahin gilt #123 für Ankündigungen als nicht erfüllt, auch wenn die Bibliotheksart existiert.
+* Die Seite `/announcements` blendet über `pulse_templates_pages.announcement_picker` Vorlagen aus der Bibliothek ein. Veröffentlicht wird weiterhin über den vorhandenen Ankündigungsweg; die Vorlage wird beim Verfassen ausgewählt.
+* Der Discord-Befehl `/teamannounce` besitzt weiterhin keinen Bibliotheks-Auswahlparameter. Die Bibliotheksart `announcement` ist damit im Dashboard angebunden, aber noch nicht in allen passenden Versandwegen.
 
 ### 3.3 Moderationsgründe – **eigener, datenverknüpfter Speicher; nicht ohne Migration überführbar**
 

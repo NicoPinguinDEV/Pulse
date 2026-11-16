@@ -1,4 +1,4 @@
-"""Audit #70: Echtzeit-Hinweis auf weiteren Dashboard-Seiten (Skript, Zuordnung, Einbindung in render_pro_page)."""
+"""Audit #70/#117: global event notification on the shared dashboard shell and polling fallback."""
 import json
 import re
 import unittest
@@ -9,27 +9,46 @@ import pulse_pro
 
 
 class ScriptTests(unittest.TestCase):
-    def test_pages_without_domains_get_nothing(self):
-        for page in ("me", "wiki", "", None, "unbekannt"):
-            self.assertEqual(lr.script_for(page), "")
+    def test_every_shared_shell_page_gets_the_global_listener(self):
+        for page in ("me", "wiki", "tickets", "tasks", "dashboard", "settings", "admin", "unknown", ""):
+            with self.subTest(page=page):
+                html = lr.script_for(page)
+                self.assertIn("pulseLiveBanner", html)
+                self.assertIn("/api/events/stream", html)
+                self.assertIn("/api/events/poll", html)
 
-    def test_script_contains_only_the_pages_own_domains_and_no_auto_reload(self):
-        html = lr.script_for("tickets")
-        self.assertIn("/api/events/stream", html)
-        self.assertIn('var domains=["ticket"]', html)
-        self.assertIn('role="status"', html)
-        self.assertIn("hidden", html)
-        self.assertNotIn("location.reload()", html.split("pulseLiveReload")[0])        # nur auf Klick, nie automatisch
-        self.assertEqual(html.count("location.reload()"), 1)
-        self.assertNotIn("__DOMAINS__", html)
-
-    def test_every_mapped_domain_is_a_valid_event_domain(self):
+    def test_script_uses_all_non_admin_event_domains(self):
         import pulse_events
-        for page, domains in lr.PAGE_DOMAINS.items():
-            self.assertTrue(domains, page)
-            for domain in domains:
-                self.assertIn(domain, pulse_events.DOMAINS, page)
-            self.assertEqual(json.loads(re.search(r"var domains=(\[[^\]]*\])", lr.script_for(page)).group(1)), list(domains))
+        html = lr.script_for("wiki")
+        match = re.search(r"var domains=(\[[^\]]*\])", html)
+        self.assertIsNotNone(match)
+        self.assertEqual(tuple(json.loads(match.group(1))), lr.LIVE_DOMAINS)
+        self.assertEqual(set(lr.LIVE_DOMAINS), set(pulse_events.DOMAINS))
+
+    def test_sse_cursor_and_poll_fallback_are_present(self):
+        html = lr.script_for("*")
+        for marker in ("ready", "pulse", "reset", "expired", "setInterval(poll,15000)"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, html)
+        self.assertIn("document.hidden", html)
+        self.assertIn("credentials:'same-origin'", html)
+        self.assertIn("errors>=2", html)
+
+    def test_clean_views_refresh_automatically_but_dirty_forms_are_preserved(self):
+        html = lr.script_for("tickets")
+        self.assertEqual(html.count("location.reload()"), 2)  # guarded automatic refresh plus explicit button
+        self.assertIn("function safeRefresh()", html)
+        self.assertIn("if(dirty||document.hidden)return", html)
+        self.assertIn("setTimeout(function(){refreshTimer=null", html)
+        self.assertIn("sessionStorage.setItem(scrollKey", html)
+        self.assertIn("addEventListener('input'", html)
+        self.assertIn("addEventListener('change'", html)
+        self.assertIn("addEventListener('click'", html)
+
+    def test_global_listener_is_injected_by_the_shared_shell_hook(self):
+        html = pulse_pro.pro_body_extra()
+        self.assertIn("pulseLiveBanner", html)
+        self.assertIn("/api/events/poll", html)
 
 
 class IntegrationTests(unittest.TestCase):
@@ -38,11 +57,10 @@ class IntegrationTests(unittest.TestCase):
         ctx = SimpleNamespace(perms={})
         return pulse_pro.render_pro_page(ws, "T", ctx, page, "<p>Inhalt</p>")
 
-    def test_live_pages_include_the_banner_and_others_do_not(self):
-        self.assertIn("pulseLiveBanner", self.render("tickets"))
-        self.assertIn("pulseLiveBanner", self.render("tasks"))
-        self.assertNotIn("pulseLiveBanner", self.render("wiki"))
-        self.assertIn("<p>Inhalt</p>", self.render("tickets"))
+    def test_render_pro_page_does_not_add_a_second_page_specific_listener(self):
+        html = self.render("tickets")
+        self.assertNotIn("pulseLiveBanner", html)
+        self.assertIn("<p>Inhalt</p>", html)
 
 
 if __name__ == "__main__":
