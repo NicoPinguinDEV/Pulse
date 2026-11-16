@@ -11572,6 +11572,8 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
     previous_automod = ctx.config.get("pulse_automod") if isinstance(ctx.config.get("pulse_automod"), dict) else {}
     previous_antinuke = ctx.config.get("pulse_antinuke") if isinstance(ctx.config.get("pulse_antinuke"), dict) else {}
     ctx.config["pulse_automod"] = normalize_automod({**previous_automod, **automod})
+    if "profanity" in (previous_automod.get("rules") or []):  # the compatibility form cannot edit it – never switch it off silently
+        ctx.config["pulse_automod"]["rules"] = sorted({*ctx.config["pulse_automod"]["rules"], "profanity"})
     ctx.config["pulse_antinuke"] = normalize_antinuke({**previous_antinuke, **antinuke})
     if isinstance(previous_antinuke.get("rules"), list):  # keep individual rules exactly as stored (also invalid ones)
         ctx.config["pulse_antinuke"]["rules"] = previous_antinuke["rules"]

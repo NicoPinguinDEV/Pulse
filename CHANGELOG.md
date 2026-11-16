@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## AutoMod: Schimpfwortfilter mit Verwarnungssystem (November 2026)
+
+- **Neue AutoMod-Regel `profanity` („Schimpfwort / Beleidigung“, opt-in):** löscht die Nachricht, warnt per DM (1. und 2. Verwarnung) und vergibt ab dem 3. Verstoß innerhalb des Zählfensters (`strike_window_minutes`, Standard 60 Min.) einen Timeout von genau 60 Minuten – jeder weitere Verstoß erneut 60 Minuten (keine Verdoppelung). Andere Regeln (Spam, Erwähnungen, Links, Wortfilter …) fließen nicht in diesen Zähler ein und behalten ihre Eskalation.
+- **Erkennung (`pulse_profanity.py`):** lokale Standardliste (Deutsch, Englisch, diskriminierend, Gaming/Abkürzungen) mit Ganzwort-Abgleich nach Unicode-Normalisierung, Leet-Ersetzung, Wiederholungs-Zusammenfassung, Zero-Width-Entfernung sowie Erkennung von „f.u.c.k“, „f u c k“, „f*ck“. Keine Teilstring-Treffer (`class`, `Spaß`, `Assistent` bleiben unberührt). Keine KI, keine neuen Pakete.
+- **Persistenz (`pulse_profanity_strikes.py`):** neue Tabelle `profanity_strikes` (wird beim ersten Zugriff angelegt, bestehende Daten bleiben unberührt): Server, Person, Name, Kategorie, Verwarnungsnummer, Maßnahme, Timeout-Dauer, Ergebnis und Ereignis-ID – nie der Nachrichtentext. `(guild_id, message_id)` ist eindeutig: parallele oder wiederholte Events erzeugen keine doppelte Verwarnung. Der Zähler übersteht Neustarts.
+- **Dashboard `/admin/security`:** neuer Abschnitt „Schimpfwortfilter“ (nur Administratoren, neue Route `POST /admin/security/profanity`): aktivieren, Wortlisten je Kategorie, eigene Wörter, Standardwörter deaktivieren, Anzeige von Zeitfenster, Timeout-Dauer und Eskalation. Die Aktivierung ändert weder die globale AutoMod-Aktivierung noch den Betriebsmodus; Test- und Beobachtungsmodus bleiben ohne Sanktionen.
+- **Tests:** `tests/test_profanity.py`, `tests/test_profanity_automod.py`.
+
 ## Re-Audit 177 und ergänzte Funktionslücken (16.11.2026)
 
 - **Live-Synchronisierung (#70/#117):** Der gemeinsame Dashboard-Shell-Hook bindet den Event-Stream an allen internen Shell-Seiten ein. Ein 15-Sekunden-Cursor-Polling dient als Rückfall, wenn SSE nicht verfügbar ist oder wiederholt ausfällt. Nach einem Ereignis werden unveränderte Ansichten automatisch neu geladen; geänderte Formulare werden geschützt und erhalten einen bewussten Refresh-Hinweis. Die Scrollposition bleibt beim automatischen Refresh erhalten.
