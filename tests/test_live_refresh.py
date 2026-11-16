@@ -18,12 +18,12 @@ class ScriptTests(unittest.TestCase):
                 self.assertIn("/api/events/poll", html)
 
     def test_script_uses_all_non_admin_event_domains(self):
-        import pulse_eventbus
+        import pulse_events
         html = lr.script_for("wiki")
         match = re.search(r"var domains=(\[[^\]]*\])", html)
         self.assertIsNotNone(match)
         self.assertEqual(tuple(json.loads(match.group(1))), lr.LIVE_DOMAINS)
-        self.assertEqual(set(lr.LIVE_DOMAINS), set(pulse_eventbus.DOMAIN_ACTION))
+        self.assertEqual(set(lr.LIVE_DOMAINS), set(pulse_events.DOMAINS))
 
     def test_sse_cursor_and_poll_fallback_are_present(self):
         html = lr.script_for("*")
