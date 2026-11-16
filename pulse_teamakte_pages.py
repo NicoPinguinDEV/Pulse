@@ -74,6 +74,22 @@ def _absent_days(loas: dict, uid: str, now: datetime, days: int = 30) -> int:
 
 def _performance_rows(data: dict) -> list[dict]:
     now, since = data["now"], data["now"] - timedelta(days=30)
+    # Count distinct courses with a successful attempt in the same 30-day window as the other signals.
+    # Repeated attempts at one course never inflate the person's training contribution.
+    training_counts = {} if data.get("training_attempts_available") is True else None
+    if training_counts is not None:
+        for attempt in data.get("training_attempts") or ():
+            if not isinstance(attempt, dict):
+                continue
+            try:
+                passed = int(attempt.get("passed") or 0)
+            except (TypeError, ValueError):
+                continue
+            uid, training_id = ta._uid(attempt.get("user_id")), ta._uid(attempt.get("training_id"))
+            completed = ta._dt(attempt.get("created_at"))
+            if not passed or not uid or not training_id or completed is None or not (since <= completed <= now):
+                continue
+            training_counts.setdefault(uid, set()).add(training_id)
     rows = []
     for uid, name in data["members"]:
         seconds = sum(int(ta.credited_shift_seconds(s)) for s, _st in ta._shifts_of(data["history"], uid, since=since))
