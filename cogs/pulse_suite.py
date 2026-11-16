@@ -1114,6 +1114,10 @@ def register_routes():
             if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
             if status not in {"pending","in_review","interview","accepted","rejected"}:raise HTTPException(400,"Ungültiger Status")
             before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            # AUTHZ-10: this route must not bypass the decision process (Board: min. reviews, reason, role/DM
+            # follow-ups, status revision). Decided applications stay decided, and accept/reject only exist there.
+            if expected_status in {"hired","accepted","rejected"} and status!=expected_status:raise HTTPException(409,"Entschiedene Bewerbungen können nicht mehr geändert werden.")
+            if status in {"accepted","rejected"} and status!=expected_status:raise HTTPException(400,"Annahme und Ablehnung werden im Bewerbungs-Board entschieden (Mindestbewertungen, Pflichtgrund, Benachrichtigung).")
             item["status"]=status;item["processor_id"]=ctx.user["id"];item["processor_name"]=ctx.user.get("global_name","");item["testergebnis"]=testergebnis[:1000];item["internal_notes"]=note[:3000];item.setdefault("history",[]).append({"at":iso(),"action":status,"by":ctx.user.get("global_name",""),"details":note[:1000]});item["history"]=item["history"][-100:]
             webserver.get_applications_repository().update_entry(app_id,expected_status=expected_status,before=before,updated=item)
             audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),app_id,appname(app_id,item),"application_updated",f"{status} · {note}")
@@ -1141,6 +1145,8 @@ def register_routes():
             item=apps.get(application_id)
             if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
             before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            # AUTHZ-10: an interview never revives an already decided application.
+            if expected_status not in {"","pending","in_review","interview"}:raise HTTPException(409,"Für diese Bewerbung kann kein Gespräch mehr angelegt werden.")
             v=[max(0,min(100,x)) for x in (auftreten,kommunikation,regeln,aktivitaet,team)];overall=sum(v)//5;rec="Sehr geeignet" if overall>=85 else "Geeignet" if overall>=70 else "Bedingt geeignet" if overall>=55 else "Nicht empfohlen";iid="int_"+uuid.uuid4().hex[:10]
             with cx() as c:c.execute("INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",(iid,application_id,str(item.get("discord_id") or item.get("user_id") or ""),appname(application_id,item),json.dumps(dict(zip(("Auftreten","Kommunikation","Regelkenntnis","Aktivität","Teamfähigkeit"),v)),ensure_ascii=False),overall,rec,notes[:3000],str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
             item["interview_id"]=iid;item["testergebnis"]=f"{overall}% · {rec}";item["status"]="interview";item.setdefault("history",[]).append({"at":iso(),"action":"interview","by":ctx.user.get("global_name",""),"details":f"{overall}% · {rec}"})
@@ -1453,6 +1459,9 @@ def search_all(q,ctx):
     ]
     if web.can_review_applications(ctx):
         searchable_tables.append(("suite_interviews","Gespräch","applicant_name","/suite/interviews"))
+    # AUTHZ-9: the audit trail and cases are leadership pages (manager) -> not searchable for everyone else.
+    if not (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+        searchable_tables=[t for t in searchable_tables if t[0] not in {"suite_audit","suite_cases"}]
     with cx() as c:
         for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():

@@ -483,13 +483,16 @@ def get_search_results(ctx, q):
     q = q.strip()[:100]
     if not q:
         return {}
-    result={"team":[],"cases":get_cases_for_search(q),"roblox":[],"ideas":[],"announcements":[],"tasks":[],"tickets":[]}
+    # AUTHZ-9: cases and Roblox profiles are manager-only pages -> the search must not be an oracle for them.
+    _sp=getattr(ctx,"perms",{}) or {}
+    _lead=bool(_sp.get("can_promote") or _sp.get("is_admin"))
+    result={"team":[],"cases":get_cases_for_search(q) if _lead else [],"roblox":[],"ideas":[],"announcements":[],"tasks":[],"tickets":[]}
     ql=q.lower()
     for m in members(ctx.guild):
         if ql in m.display_name.lower() or ql in m.name.lower() or q in str(m.id):
             result["team"].append({"id":m.id,"name":m.display_name,"roles":role_names(m)})
     with u.cx() as c:
-        result["roblox"]=[dict(r) for r in c.execute(
+        result["roblox"]=[] if not _lead else [dict(r) for r in c.execute(
             "SELECT roblox_id,username,display_name,status FROM ultimate_roblox_profiles WHERE username LIKE ? OR display_name LIKE ? OR roblox_id LIKE ? LIMIT 20",
             (f"%{q}%",f"%{q}%",f"%{q}%"),
         ).fetchall()]
@@ -1195,7 +1198,7 @@ def register(app):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
         for m,s in await asyncio.to_thread(all_stats, ctx.guild):
-            writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"])])
+            writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],(s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms,ctx.user.get("id"),m.id) else ""),s["training_passed"])])
         return HTMLResponse(output.getvalue(),headers={"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=pulse_team_report.csv"})
 
     @app.get("/ultimate/backup", response_class=HTMLResponse)
@@ -1389,7 +1392,7 @@ def register(app):
         shared=u.stats_context()
         for m in members(ctx.guild):
             s=u.member_stats(m, shared)
-            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
+            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":(s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms,ctx.user.get("id"),m.id) else None),"training_passed":s["training_passed"]})
         with cx() as c:
             payload["goals"]=[dict(r) for r in c.execute("SELECT * FROM next_goals ORDER BY created_at DESC").fetchall()]
             payload["ideas"]=[dict(r) for r in c.execute("SELECT * FROM next_ideas ORDER BY created_at DESC").fetchall()]

@@ -5332,7 +5332,10 @@ def csv_safe(value) -> str:
 
 @app.get("/export/logs")
 async def export_logs(request: Request, user_session: str = Cookie(None)):
-    auth(request, user_session, perm="can_view_analytics")
+    ctx = auth(request, user_session, perm="can_view_analytics")
+    # AUTHZ-8: the export contains every Melonly record (notes, bans, BOLOs) -> same read gate as the Melonly page.
+    if not can_access_melonly(ctx):
+        raise HTTPException(status_code=403, detail="Daf\u00fcr fehlt dir die Berechtigung.")
     output = io.StringIO()
     output.write("\ufeff")  # BOM: Excel zeigt Umlaute korrekt an
     writer = csv.writer(output, delimiter=';')
