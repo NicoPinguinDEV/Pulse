@@ -5,7 +5,7 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 ## Stand 2026-11-16: 172 fertig / 5 teilweise / 0 offen
 
-Die 177 Funktionen sind im Repository vorhanden; bei genauer Prüfung erfüllen **172** die beschriebene Kernanforderung, **5** bleiben teilweise (#4, #10, #70, #117, #123). Der Zähler wird aus den Einzelzeilen mit `python tools/audit_counts.py` berechnet und durch `tests/test_feature_audit_counts.py` geprüft. Dieser Arbeitsbranch ergänzt den globalen Live-Änderungshinweis mit SSE-/Polling-Rückfall (#70/#117) und bindet bestandene Schulungen in die 30-Tage-Leistungsübersicht ein (#94). Die Live-Synchronisierung aktualisiert Daten noch nicht automatisch in-place; die übrigen Restpunkte sind in den Auditzeilen beschrieben. Die neuen Änderungen sind noch nicht gemergt oder auf dem VPS abgenommen. Keine Live-Discord-Aktion, Produktivdatenänderung oder VPS-Änderung wurde vorgenommen.
+Die 177 Funktionen sind im Repository vorhanden; bei genauer Prüfung erfüllen **172** die beschriebene Kernanforderung, **5** bleiben teilweise (#4, #10, #70, #117, #123). Der Zähler wird aus den Einzelzeilen mit `python tools/audit_counts.py` berechnet und durch `tests/test_feature_audit_counts.py` geprüft. Dieser Arbeitsbranch ergänzt den globalen Live-Änderungshinweis mit SSE-/Polling-Rückfall (#70/#117) und bindet bestandene Schulungen in die 30-Tage-Leistungsübersicht ein (#94). Die Live-Synchronisierung aktualisiert Daten noch nicht automatisch in-place; die übrigen Restpunkte sind in den Auditzeilen beschrieben. Die Änderungen liegen im offenen PR; eine Produktivabnahme auf dem VPS steht aus. Keine Live-Discord-Aktion, Produktivdatenänderung oder VPS-Änderung wurde vorgenommen.
 
 ## Block F – Zentrale Integration (Re-Audit)
 
@@ -22,7 +22,7 @@ Die Grundbausteine sind vorhanden und teilweise integriert. Ein Modul oder eine 
 
 ## Stand auf main
 
-Baseline ist `main` @ `1fd65fc` vom 16.11.2026. Die folgende Statussumme beschreibt die Bewertung auf diesem Arbeitsbranch; die zwei Codekorrekturen sind noch nicht gemergt. Einzelstatus und Belege stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; `tools/audit_counts.py` zählt die 177 Zeilen und `tests/test_feature_audit_counts.py` prüft die Konsistenz.
+Baseline ist `main` @ `1fd65fc` vom 16.11.2026. Die folgende Statussumme beschreibt die Bewertung auf diesem Arbeitsbranch; die Codekorrekturen liegen zur Prüfung im offenen PR. Einzelstatus und Belege stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; `tools/audit_counts.py` zählt die 177 Zeilen und `tests/test_feature_audit_counts.py` prüft die Konsistenz.
 
 | Status | Anzahl |
 |---|---:|
