@@ -89,5 +89,29 @@ class ApplicantLibraryResolutionTests(ApplicantLibraryCase):
         self.assertEqual(current["received"], "Library-Text {server}")
 
 
+class ApplicantSenderIntegrationTests(ApplicantLibraryCase, __import__('unittest').IsolatedAsyncioTestCase):
+    def test_dm_applicant_sends_library_text_and_journals_exact_version(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        import webserver as ws
+        import pulse_app_journal
+
+        entry = templates.create(APPS, GUILD, "application_dm", "received", "Eingang",
+                                 "Zentral {server} {id}", ACTOR, "Admin")
+        user = SimpleNamespace(id=123456789012345678)
+        guild = SimpleNamespace(id=int(GUILD), name="Bochum RP", get_member=lambda user_id: user)
+        bot = SimpleNamespace(get_guild=lambda _guild_id: guild, get_user=lambda _user_id: None,
+                              fetch_user=AsyncMock(return_value=user))
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(bot=bot)))
+        with patch.object(ws, "GUILD_ID", int(GUILD)), \
+             patch.object(ws, "send_dm_notification", AsyncMock(return_value=True)), \
+             patch.object(pulse_app_journal, "record_safe") as journal:
+            sent = await ws.dm_applicant(request, str(user.id), "received", actor=(ACTOR, "Admin"), id="A-9")
+        self.assertTrue(sent)
+        self.assertEqual(journal.call_args.args[:4], ("A-9", "received", "sent", "Zentral Bochum RP A-9"))
+        self.assertEqual(journal.call_args.kwargs["template_ref"], f"{entry['id']}:v1")
+
+
 if __name__ == "__main__":
     unittest.main()
