@@ -505,7 +505,11 @@ def get_search_results(ctx, q):
         result["tasks"]=[t for t in db.list_tasks(limit=500,include_archived=True) if ql in str(t.get("title","")).lower()][:20]
     except Exception: pass
     try:
-        result["tickets"]=[t for t in db.list_tickets(limit=5000) if ql in str(t).lower()][:20]
+        # AUTHZ-1/9: only ticket managers, and only tickets whose category the viewer may see.
+        from pulse_ticket_access import filter_tickets
+        _perms=getattr(ctx,"perms",{}) or {}
+        _mgr=_perms.get("can_manage_tickets") or _perms.get("can_promote") or _perms.get("is_admin")
+        result["tickets"]=[t for t in filter_tickets(ctx,db.list_tickets(limit=5000)) if ql in str(t).lower()][:20] if _mgr else []
     except Exception: pass
     return result
 

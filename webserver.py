@@ -37,6 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import pulse_public_site
 import pulse_summaries
+import pulse_ticket_access
 import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
@@ -6619,7 +6620,7 @@ async def pulse_ticket_category_delete(
 async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
     transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
     if not transcript_name or transcript_name != f"{ticket_id}.txt":
@@ -6647,7 +6648,7 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
     from pulse_pro import render_pro_page
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
     path = _ticket_transcript_file(ticket)
     if path is None:
@@ -7187,7 +7188,7 @@ async def pulse_tickets_dashboard_action(
 ):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         return back("/tickets", "Ticket nicht gefunden oder gehört zu einem anderen Server.", False)
 
     bot = getattr(request.app.state, "bot", None)

@@ -2135,6 +2135,10 @@ def register(app):
     async def tickets_v5(request: Request, user_session: str=Cookie(None)):
         # Guided case handling: triage, filters, pagination and the existing /tickets/action route.
         c=cctx(request,user_session)
+        # AUTHZ-2: the list exposes names, claimers and close reasons of every ticket -> ticket management only
+        # (the former webserver route required can_manage_tickets before remove_and_add replaced it).
+        if not (c.perms.get('can_manage_tickets') or c.perms.get('can_promote') or c.perms.get('is_admin')):
+            raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         from pulse_ticket_center import render_ticket_center
         return render_ticket_center(ws, c, request, render_pro_page)
 
@@ -2142,6 +2146,8 @@ def register(app):
         c=cctx(request,user_session); manager=c.perms.get('can_manage_tickets') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         if priority not in ('low','normal','high','urgent'): raise HTTPException(400,'Ungültige Priorität.')
+        # AUTHZ-1: guild + category check after loading the ticket (no write for a ticket the viewer may not see).
+        if not ws.pulse_ticket_access.can_access_ticket(c,db.get_ticket(ticket_id=ticket_id)): return ws.back('/tickets','Ticket nicht gefunden.',False)
         if not db.update_ticket_priority(ticket_id,priority,c.user['id'],c.user.get('global_name') or 'Team'): return ws.back('/tickets','Ticket nicht gefunden.',False)
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Ticket Priorität geändert',f'{ticket_id} → {priority}')
         return ws.back('/tickets','Ticket aktualisiert.')
@@ -2760,7 +2766,7 @@ def register(app):
         if q:
             for m in team(c.guild,c.config.get('team_role_ids',[])):
                 if q in f'{m.display_name} {m.name} {m.id}'.lower(): results.append(('◌',m.display_name,'Teammitglied',f'/member/{m.id}'))
-            for t in db.list_tickets(limit=1000):
+            for t in ws.pulse_ticket_access.filter_tickets(c,db.list_tickets(limit=1000)) if (c.perms.get('can_manage_tickets') or c.perms.get('can_promote') or c.perms.get('is_admin')) else []:
                 if q in f'{t["id"]} {t["user_name"]} {t["category"]}'.lower(): results.append(('▣',t['id'],'Ticket', '/tickets'))
             for x in db.announcements(300):
                 if q in f'{x["title"]} {x["content"]}'.lower(): results.append(('✦',x['title'],'Ankündigung','/announcements'))
@@ -3081,7 +3087,7 @@ def register(app):
 
     async def ticket_detail_v5(request: Request, ticket_id: str, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm='can_manage_tickets'); t=db.get_ticket(ticket_id=ticket_id)
-        if not t: raise HTTPException(404,'Ticket nicht gefunden.')
+        if not ws.pulse_ticket_access.can_access_ticket(c,t): raise HTTPException(404,'Ticket nicht gefunden.')
         evs=db.ticket_events(ticket_id,150)
         history=''.join(f'<div class="pulse-row"><div class="pulse-avatar">↯</div><div class="pulse-row-main"><div class="pulse-row-title">{e(x["event_type"])}</div><div class="pulse-row-meta">{e(x["actor_name"])} · {e(fmt_dt(x["created_at"]))}</div><div class="text-[11px] text-slate-500 mt-1">{e(x.get("details"))}</div></div></div>' for x in evs)
         transcript=f'<a href="/ticket/transcript/{quote(os.path.basename(t.get("transcript_path") or ""))}" class="pulse-btn ghost">Transcript öffnen</a>' if t.get('transcript_path') else '<span class="pulse-pill">Kein Transcript</span>'
@@ -3093,7 +3099,7 @@ def register(app):
         import pulse_summaries
         import pulse_ticket_extras
         c=cctx(request,user_session,perm='can_manage_tickets'); t=db.get_ticket(ticket_id=ticket_id)
-        if not t: raise HTTPException(404,'Ticket nicht gefunden.')
+        if not ws.pulse_ticket_access.can_access_ticket(c,t): raise HTTPException(404,'Ticket nicht gefunden.')
         messages, source, problem = [], 'Discord-Verlauf', ''
         bot=getattr(request.app.state,'bot',None); guild=bot.get_guild(ws.GUILD_ID) if bot else None
         channel=guild.get_channel(int(t['channel_id'])) if guild and str(t.get('channel_id') or '').isdigit() else None

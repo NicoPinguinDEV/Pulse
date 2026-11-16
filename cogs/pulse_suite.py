@@ -643,7 +643,7 @@ def register_routes():
         if not m or m.bot or m not in members(ctx.guild,web):raise HTTPException(404,"Teammitglied nicht gefunden")
         upsert_member(m);sm=member_row(member_id) or {};td=web.load_json(web.DATA_FILE,{});entry=web.user_entry(td,str(member_id));s=team_score(m,web)
         with cx() as c:ps=[dict(x) for x in c.execute("SELECT * FROM suite_promotions WHERE target_id=? ORDER BY created_at DESC",(str(member_id),)).fetchall()];aud=[dict(x) for x in c.execute("SELECT * FROM suite_audit WHERE target_id=? OR actor_id=? ORDER BY rowid DESC LIMIT 80",(str(member_id),str(member_id))).fetchall()]
-        ticks=[x for x in db.list_tickets(limit=3000) if str(x.get("user_id"))==str(member_id) or str(x.get("claimed_by_id"))==str(member_id)];tasks_=db.list_tasks(assignee_id=member_id,limit=1000,include_archived=True);sh=web.load_shifts();hist=[x for x in sh.get("history",[]) if str(x.get("mod_id"))==str(member_id)];last=hist[-1].get("ended_at_iso") if hist else "—"
+        ticks=[x for x in web.pulse_ticket_access.filter_tickets(ctx,db.list_tickets(limit=3000)) if str(x.get("user_id"))==str(member_id) or str(x.get("claimed_by_id"))==str(member_id)];tasks_=db.list_tasks(assignee_id=member_id,limit=1000,include_archived=True);sh=web.load_shifts();hist=[x for x in sh.get("history",[]) if str(x.get("mod_id"))==str(member_id)];last=hist[-1].get("ended_at_iso") if hist else "—"
         try:
             with closing(sqlite3.connect(os.path.join(BASE,"activity_check.db"))) as c, c:act=c.execute("SELECT COUNT(*) FROM responses WHERE user_id=?",(member_id,)).fetchone()[0]
         except Exception:act=0
@@ -1417,7 +1417,9 @@ def search_all(q,ctx):
         apps=web.load_json(web.APPS_FILE,{})
         for aid,a in apps.items():
             if q in json.dumps(a,ensure_ascii=False).lower():out.append({"type":"Bewerbung","title":appname(aid,a),"meta":aid,"url":f"/suite/applications/{aid}"})
-    for t in db.list_tickets(limit=3000):
+    from pulse_ticket_access import filter_tickets  # AUTHZ-1
+    _tp=ctx.perms or {}
+    for t in (filter_tickets(ctx,db.list_tickets(limit=3000)) if (_tp.get('can_manage_tickets') or _tp.get('can_promote') or _tp.get('is_admin')) else []):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Ticket","title":f"Ticket {t.get('id')}","meta":str(t.get('category','')),"url":"/tickets"})
     for t in db.list_tasks(limit=3000,include_archived=True):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Aufgabe","title":t.get("title","Aufgabe"),"meta":t.get("id"),"url":"/suite/tasks"})

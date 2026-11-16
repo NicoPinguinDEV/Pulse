@@ -78,6 +78,10 @@ def register(app):
         safe=os.path.basename(filename)
         path=contained_file(os.path.join(str(ws.DATA_DIR),'transcripts'),safe)
         if not safe.endswith('.txt') or not path or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
+        # AUTHZ-1: transcripts are named <ticket_id>.txt -> authorize against the ticket's category. A transcript
+        # without a ticket row is administrator-only; refusals look exactly like a missing file.
+        if not ws.pulse_ticket_access.can_access_ticket(c,db.get_ticket(ticket_id=safe[:-4])) and not c.perms.get('is_admin'):
+            raise HTTPException(404,'Transcript nicht gefunden.')
         return __import__('fastapi').responses.FileResponse(path,filename=safe,media_type='text/plain')
 
     @app.post("/tickets/rate")
