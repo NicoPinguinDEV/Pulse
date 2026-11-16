@@ -65,7 +65,7 @@ class ApplicantLibraryResolutionTests(ApplicantLibraryCase):
         templates.archive(APPS, GUILD, entry["id"], ACTOR, "Admin")
         resolved = comms.resolve_for_guild("received", GUILD, APPS, server="Bochum")
         self.assertEqual(resolved["source"], "builtin")
-        self.assertEqual(resolved["text"], comms.DEFAULTS["received"].replace("{server}", "Bochum"))
+        self.assertEqual(resolved["text"], comms.DEFAULTS["received"].replace("{server}", "Bochum").replace("{id}", "–"))
         self.assertNotIn("Alte Sonderfassung", resolved["text"])
 
     def test_legacy_takeover_archive_keeps_legacy_fallback(self):
