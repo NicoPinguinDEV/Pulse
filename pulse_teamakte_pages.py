@@ -98,7 +98,8 @@ def _performance_rows(data: dict) -> list[dict]:
         done = sum(1 for t in data["tasks"] if ta._uid(t.get("assignee_id")) == uid and t.get("status") == "done"
                    and (u := ta._dt(t.get("updated_at"))) and u >= since)
         rows.append({"id": uid, "name": name, "hours": seconds / 3600, "tickets": closed, "tasks_done": done,
-                     "trainings": None, "absent_days": _absent_days(data["loas"], uid, now)})
+                     "trainings": len(training_counts.get(uid, set())) if training_counts is not None else None,
+                     "absent_days": _absent_days(data["loas"], uid, now)})
     return rows
 
 
