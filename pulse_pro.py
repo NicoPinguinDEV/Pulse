@@ -997,7 +997,7 @@ PULSE_INTERACTION_JS = r"""
 def render_pro_page(ws, title, ctx, page, body, extra=""):
     import pulse_flags
     import pulse_keys
-    body = '<div class="pulse-shell">' + __import__("pulse_testmode").banner_html(ws.esc) + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung' + pulse_keys.button_html() + '</div></div>' + pulse_keys.dialog_html() + build_command_modal(ws, getattr(ctx, "perms", None)) + __import__("pulse_live_refresh").script_for(page)
+    body = '<div class="pulse-shell">' + __import__("pulse_testmode").banner_html(ws.esc) + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung' + pulse_keys.button_html() + '</div></div>' + pulse_keys.dialog_html() + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
