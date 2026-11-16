@@ -719,8 +719,8 @@ def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
 
 
 def pro_body_extra():
-    """The cursor and interaction layer for every page using the shared webserver shell."""
-    return PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS
+    """The interaction layer and global live-change listener for every shared-shell page."""
+    return PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS + __import__("pulse_live_refresh").script_for("*")
 
 
 def make_shell_helpers(ws):
