@@ -92,6 +92,12 @@ class AbmeldungView(PulseView):
             )
             return
 
+        if not self.cog.is_team_member(interaction.user):  # DISC-3
+            await interaction.response.send_message(
+                "❌ Abmeldungen sind nur für Teammitglieder möglich.", ephemeral=True
+            )
+            return
+
         if self.cog.is_abgemeldet(interaction.user.id):
             await interaction.response.send_message(
                 "ℹ️ Du bist bereits abgemeldet. Nutze **✅ Zurückmelden**, "
@@ -467,6 +473,15 @@ class AbmeldungCog(commands.Cog):
         except Exception:
             return set()
 
+    @classmethod
+    def is_team_member(cls, user) -> bool:
+        """DISC-3: only configured team members (or administrators) may register an absence."""
+        perms = getattr(user, "guild_permissions", None)
+        if getattr(perms, "administrator", False):
+            return True
+        ids = cls._configured_team_role_ids()
+        return bool(ids) and any(getattr(r, "id", None) in ids for r in (getattr(user, "roles", None) or ()))
+
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         """Austritt, Kick und Ban: Abmeldung löschen, keine Discord-Änderung am Mitglied."""
@@ -718,6 +733,14 @@ class AbmeldungCog(commands.Cog):
                 ephemeral=True,
             )
             return
+
+        # DISC-3: no role change, nickname edit or team-list entry for people outside the team.
+        if not self.is_team_member(interaction.user):
+            await interaction.response.send_message(
+                "❌ Abmeldungen sind nur für Teammitglieder möglich.", ephemeral=True
+            )
+            return
+        grund = discord.utils.escape_mentions(str(grund or ""))[:250]
 
         # Datenbank + Discord-Synchronisation können mehrere API-Aufrufe enthalten.
         # Früh defer'en verhindert Interaction-Timeouts bei langsamem Hosting.
