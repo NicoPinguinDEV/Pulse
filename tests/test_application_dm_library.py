@@ -70,8 +70,8 @@ class ApplicantLibraryResolutionTests(ApplicantLibraryCase):
 
     def test_legacy_takeover_archive_keeps_legacy_fallback(self):
         comms.save({"received": "Legacy-Übernahme {server} {id}"}, actor="Admin")
-        entry = templates.create(APPS, GUILD, "application_dm", "received", "Eingang",
-                                 "Library-Text {server} {id}", ACTOR, "Admin")
+        templates.create(APPS, GUILD, "application_dm", "received", "Eingang",
+                          "Library-Text {server} {id}", ACTOR, "Admin")
         sync = templates.sync_kind(APPS, GUILD, "application_dm",
                                    [("received", "Eingang", "Ungültig {unknown.path}")], ACTOR, "Admin")
         self.assertEqual(sync["archived"], 1)
