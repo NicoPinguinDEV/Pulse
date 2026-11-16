@@ -8455,12 +8455,14 @@ async def dm_applicant(request: Request, user_id, template: str, actor=None, **v
     import pulse_app_journal
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot is not None else None
-    text = pulse_app_comms.render(template, server=getattr(guild, "name", "dem Server"), **values)
+    resolved = pulse_app_comms.resolve_for_guild(
+        template, getattr(guild, "id", None), server=getattr(guild, "name", "dem Server"), **values)
+    text, template_ref = resolved["text"], resolved["template_ref"]
     actor_id, actor_name = actor or ("0", "System")
 
     def journal(ok: bool, reason: str = "") -> bool:
         pulse_app_journal.record_safe(values.get("id"), template, "sent" if ok else "failed", text, detail="" if ok else reason,
-                                      actor_id=actor_id, actor_name=actor_name, template_ref=f"legacy:{template}")
+                                      actor_id=actor_id, actor_name=actor_name, template_ref=template_ref)
         return ok
     if bot is None:
         return journal(False, "bot_unavailable")
@@ -8473,7 +8475,7 @@ async def dm_applicant(request: Request, user_id, template: str, actor=None, **v
     return journal(bool(await send_dm_notification(user, text)), "dm_not_delivered")
 
 
-async def send_applicant_notice(user, text: str, *, app_id, kind: str, actor_id="0", actor_name="System") -> bool:
+async def send_applicant_notice(user, text: str, *, app_id, kind: str, actor_id="0", actor_name="System", template_ref=None) -> bool:
     """#100: DM to an applicant that is already a Discord member object (or ``None``) - sent and journaled."""
     import pulse_app_journal
     ok, reason = False, "user_not_found" if user is None else "dm_not_delivered"
@@ -8483,7 +8485,7 @@ async def send_applicant_notice(user, text: str, *, app_id, kind: str, actor_id=
         except Exception:  # noqa: BLE001 - recorded as failed, the decision flow continues as before
             ok, reason = False, "error"
     pulse_app_journal.record_safe(app_id, kind, "sent" if ok else "failed", text, detail="" if ok else reason,
-                                  actor_id=str(actor_id), actor_name=str(actor_name), template_ref=f"legacy:{kind}")
+                                  actor_id=str(actor_id), actor_name=str(actor_name), template_ref=str(template_ref or f"legacy:{kind}"))
     return ok
 
 
@@ -9299,7 +9301,7 @@ def application_templates_section(ctx) -> str:
     import pulse_app_comms
     if not ctx.perms.get("is_admin"):
         return ""
-    current = pulse_app_comms.load()
+    current = pulse_app_comms.load_for_guild(getattr(getattr(ctx, "guild", None), "id", None), ctx.perms)
     fields = "".join(
         f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
         f'<textarea name="tpl_{key}" rows="2" class="{INPUT} text-xs">{esc(current[key])}</textarea></label>'
@@ -9455,7 +9457,12 @@ async def application_templates_save(request: Request, user_session: str = Cooki
     import pulse_app_comms
     ctx = auth(request, user_session, perm=None, admin=True)
     form = await request.form()
-    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS}, actor=str(ctx.user.get("global_name") or ""))
+    actor_name = str(ctx.user.get("global_name") or "")
+    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS}, actor=actor_name)
+    try:
+        pulse_app_comms.sync_library(str(ctx.guild.id), ctx.perms, str(ctx.user["id"]), actor_name)
+    except Exception as exc:  # noqa: BLE001 - the legacy editor save remains successful if library sync is unavailable
+        print(f"⚠️ Bewerber-Vorlagen konnten nicht in die zentrale Bibliothek gespiegelt werden: {type(exc).__name__}")
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachrichten geändert", "Vorlagen")
     return back("/applications/config", "Vorlagen gespeichert.")
 
@@ -9471,6 +9478,10 @@ async def application_templates_restore(request: Request, user_session: str = Co
         pulse_app_comms.restore(key, int(number or 0), actor=str(ctx.user.get("global_name") or ""))
     except (ValueError, TypeError):
         return back("/applications/config", "Diese Vorlagenversion gibt es nicht.", False)
+    try:
+        pulse_app_comms.sync_library(str(ctx.guild.id), ctx.perms, str(ctx.user["id"]), str(ctx.user.get("global_name") or ""))
+    except Exception as exc:  # noqa: BLE001 - restore is already stored in the legacy version history
+        print(f"⚠️ Wiederhergestellte Bewerber-Vorlage konnte nicht gespiegelt werden: {type(exc).__name__}")
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachricht wiederhergestellt", f"{key} v{number}")
     return back("/applications/config", "Vorlagenversion wiederhergestellt.")
 
@@ -9525,14 +9536,16 @@ async def send_interview_reminders(bot) -> int:
         termin = local.strftime("%H:%M") if local else ""
         import pulse_app_journal
         ok, reason = False, "dm_not_delivered"
-        text = pulse_app_comms.render("reminder", server=getattr(guild, "name", "dem Server"), id=app_id, termin=termin)
+        resolved = pulse_app_comms.resolve_for_guild("reminder", getattr(guild, "id", None),
+                                                     server=getattr(guild, "name", "dem Server"), id=app_id, termin=termin)
+        text = resolved["text"]
         try:
             user = (guild.get_member(int(item.get("user_id"))) if guild else None) or await bot.fetch_user(int(item.get("user_id")))
             ok = bool(await send_dm_notification(user, text))
         except (discord.HTTPException, TypeError, ValueError, AttributeError):
             ok, reason = False, "user_not_found"  # recorded below; never retried
         pulse_app_journal.record_safe(app_id, "reminder", "sent" if ok else "failed", text, detail="" if ok else reason,
-                                      actor_id="0", actor_name="System", template_ref="legacy:reminder")
+                                      actor_id="0", actor_name="System", template_ref=resolved["template_ref"])
         _interview_notify_team(app_id, interviews.team_ids(item), "🎙️ Bewerbungsgespräch gleich", f"{who} um {termin}", f"remind{revision}", 7200)
         _interview_record_delivery(app_id, revision, "applicant_reminder", ok)
         sent_reminders += 1
@@ -12870,11 +12883,12 @@ async def handle_action(
                 item["interview_invited_at"] = invited_at
                 item["interview_invitation_reason"] = action_reason
                 store_item()
-                import pulse_app_comms  # BOT-10: same text by default, editable template
+                import pulse_app_comms  # BOT-10: resolve from the central versioned library, legacy fallback
+                resolved = pulse_app_comms.resolve_for_guild("interview", str(guild.id),
+                                                               server=guild.name, rolle=application_role.name, id=app_id)
                 await send_applicant_notice(
-                    applicant,
-                    pulse_app_comms.render("interview", server=guild.name, rolle=application_role.name, id=app_id),
-                    app_id=app_id, kind="interview", actor_id=actor_id, actor_name=actor,
+                    applicant, resolved["text"], app_id=app_id, kind="interview", actor_id=actor_id, actor_name=actor,
+                    template_ref=resolved["template_ref"],
                 )
                 await send_team_update_embed(
                     guild,
@@ -12987,10 +13001,10 @@ async def handle_action(
                 save_json(DATA_FILE, team_db)
                 store_item()
                 import pulse_app_comms  # BOT-10
+                resolved = pulse_app_comms.resolve_for_guild("hired", str(guild.id), server=guild.name, rolle=role.name, id=app_id)
                 await send_applicant_notice(
-                    applicant,
-                    pulse_app_comms.render("hired", server=guild.name, rolle=role.name, id=app_id),
-                    app_id=app_id, kind="hired", actor_id=actor_id, actor_name=actor,
+                    applicant, resolved["text"], app_id=app_id, kind="hired", actor_id=actor_id, actor_name=actor,
+                    template_ref=resolved["template_ref"],
                 )
                 await send_team_update_embed(
                     guild,
@@ -13029,9 +13043,10 @@ async def handle_action(
             store_item()
             import pulse_app_comms  # BOT-10
             reject_kind = "rejected_after_interview" if decision == "reject_after_interview" else "rejected"
-            notice = pulse_app_comms.render(reject_kind, server=guild.name, id=app_id)
+            resolved = pulse_app_comms.resolve_for_guild(reject_kind, str(guild.id), server=guild.name, id=app_id)
             # #100: also journals the case that the applicant is no longer reachable (no DM is possible then)
-            await send_applicant_notice(applicant, notice, app_id=app_id, kind=reject_kind, actor_id=actor_id, actor_name=actor)
+            await send_applicant_notice(applicant, resolved["text"], app_id=app_id, kind=reject_kind, actor_id=actor_id,
+                                        actor_name=actor, template_ref=resolved["template_ref"])
             await send_team_update_embed(
                 guild,
                 "📄 Team-Update: Bewerbung abgelehnt",
