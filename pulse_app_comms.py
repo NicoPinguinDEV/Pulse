@@ -145,7 +145,8 @@ def resolve_for_guild(key: str, guild_id, perms=None, **values) -> dict:
         rows = pulse_templates.lookup(access, guild_id, "application_dm", scopes=[key], include_archived=True)
         if not rows:
             return fallback
-        active = next((row for row in rows if not row.get("archived_at")), None)
+        active_rows = [row for row in rows if not row.get("archived_at")]
+            active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
         if active is not None:
             rendered = pulse_templates.render(access, guild_id, active["id"], values)
             return {"text": rendered["text"],
