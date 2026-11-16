@@ -165,10 +165,11 @@ def resolve_for_guild(key: str, guild_id, perms=None, **values) -> dict:
         return fallback
 
 
-def sync_library(guild_id, perms, actor_id, actor_name) -> dict:
-    """Mirror the current legacy editor values as new central versions; no write occurs without app permission."""
+def sync_library(guild_id, perms, actor_id, actor_name, values: dict | None = None) -> dict:
+    """Mirror supplied/current editor values as new central versions; no write occurs without app permission."""
     import pulse_templates
-    entries = [(key, LABELS[key], body) for key, body in load().items()]
+    selected = values if isinstance(values, dict) else load()
+    entries = [(key, LABELS[key], str(selected.get(key, DEFAULTS[key]))) for key in DEFAULTS]
     return pulse_templates.sync_kind(perms, guild_id, "application_dm", entries, actor_id, actor_name)
 
 
