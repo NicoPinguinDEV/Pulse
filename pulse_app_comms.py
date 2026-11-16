@@ -114,7 +114,8 @@ def load_for_guild(guild_id, perms=None) -> dict:
                                       scopes=list(DEFAULTS), include_archived=True)
         for key in DEFAULTS:
             matching = [row for row in rows if row.get("scope") == key]
-            active = next((row for row in matching if not row.get("archived_at")), None)
+            active_rows = [row for row in matching if not row.get("archived_at")]
+            active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
             if active is not None:
                 current[key] = str(active.get("body") or "")
             elif matching:
@@ -146,7 +147,7 @@ def resolve_for_guild(key: str, guild_id, perms=None, **values) -> dict:
         if not rows:
             return fallback
         active_rows = [row for row in rows if not row.get("archived_at")]
-            active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
+        active = max(active_rows, key=lambda row: str(row.get("updated_at") or "")) if active_rows else None
         if active is not None:
             rendered = pulse_templates.render(access, guild_id, active["id"], values)
             return {"text": rendered["text"],
