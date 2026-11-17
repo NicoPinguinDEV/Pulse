@@ -50,6 +50,10 @@ class SecondConfirmationRuleTests(unittest.TestCase):
 
 
 class ReviewFlowTests(unittest.TestCase):
+    def tearDown(self):
+        import pulse_sanction_guard
+        pulse_sanction_guard.reset()
+
     def setUp(self):
         self.cog = AIModeration.__new__(AIModeration)
         self.cog._action_problem = lambda *a: ""
@@ -64,7 +68,7 @@ class ReviewFlowTests(unittest.TestCase):
         user = reviewer(uid)
         interaction = NS(
             user=user, message=NS(edit=AsyncMock()),
-            guild=NS(owner_id=0, get_member=lambda i: self.target, fetch_member=AsyncMock()),
+            guild=NS(id=1, owner_id=0, get_member=lambda i: self.target, fetch_member=AsyncMock()),
             response=NS(defer=AsyncMock()), followup=NS(send=AsyncMock()))
         with patch("webserver.log_audit") as audit:
             asyncio.run(self.cog._run_review_action(interaction, "C1", self.case, action))
@@ -98,7 +102,7 @@ class ReviewFlowTests(unittest.TestCase):
         self.click(1)
         user = reviewer(2)
         interaction = NS(user=user, message=NS(edit=AsyncMock()),
-                         guild=NS(owner_id=0, get_member=lambda i: self.target, fetch_member=AsyncMock()),
+                         guild=NS(id=1, owner_id=0, get_member=lambda i: self.target, fetch_member=AsyncMock()),
                          response=NS(defer=AsyncMock()), followup=NS(send=AsyncMock()))
         with patch("webserver.log_audit", side_effect=RuntimeError("db")):
             asyncio.run(self.cog._run_review_action(interaction, "C1", self.case, "ban"))
