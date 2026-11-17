@@ -901,3 +901,194 @@ class AiWarnPartialFailureTests(AiReviewRightsTests):
              patch.object(ws, "user_entry", lambda db, uid: db[uid]):
             result = asyncio.run(cog._issue_team_warn(interaction.guild, target, interaction.user, case))
         self.assertTrue(result["ok"])  # case resolved → no second warning on retry
+
+
+# ---------------------------------------------------------------------------------------------------------
+# N-01 / R-04 (night audit) – withdrawn consent is not resurrected by an in-flight sync; bans block the rejoin.
+# ---------------------------------------------------------------------------------------------------------
+class _NotFound(Exception):
+    pass
+
+
+class RecoveryWithdrawalAndBanTests(TempDb):
+    UID = "123456789012345678"
+    TOKENS = {"access_token": "a", "refresh_token": "rotated-refresh-token", "scope": "identify guilds.join"}
+
+    def setUp(self):
+        super().setUp()
+        self.env = patch.dict("os.environ", {"PULSE_RECOVERY_KEY": "unit-test-recovery-key-0123456789-ABCDEFGH", "DISCORD_TOKEN": "x"})
+        self.env.start()
+        self.key = patch.object(ws, "SESSION_KEY", b"p" * 32)
+        self.key.start()
+        pulse_recovery.store_refresh_token(self.UID, "refresh-token-for-tests", now=100)
+        self.backup_guild = SimpleNamespace(id=1, kick=AsyncMock())
+        self.target = patch.object(pulse_recovery, "target_status", lambda *_a: (self.backup_guild, SimpleNamespace(id=2), []))
+        self.target.start()
+
+    def tearDown(self):
+        self.target.stop()
+        self.key.stop()
+        self.env.stop()
+        super().tearDown()
+
+    def _bot(self, banned):
+        fetch_ban = AsyncMock(return_value=object()) if banned else AsyncMock(side_effect=_NotFound())
+        primary = SimpleNamespace(id=ws.GUILD_ID, fetch_ban=fetch_ban)
+        return SimpleNamespace(get_guild=lambda gid: primary)
+
+    def _run(self, client, bot=None):
+        return asyncio.run(pulse_recovery.rejoin_user(self.UID, "refresh-token-for-tests", bot, client))
+
+    def test_unlink_during_token_refresh_keeps_consent_withdrawn(self):
+        async def refresh(*_a, **_k):
+            pulse_recovery.unlink(self.UID)  # user runs /recovery-abmelden while the refresh is in flight
+            return FakeHttpResponse(200, dict(self.TOKENS))
+        client = SimpleNamespace(post=AsyncMock(side_effect=refresh), put=AsyncMock())
+        ok, message = self._run(client)
+        self.assertFalse(ok)
+        self.assertIn("widerrufen", message)
+        client.put.assert_not_awaited()
+        self.assertFalse(pulse_recovery.has_stored_consent(self.UID))
+
+    def test_already_withdrawn_consent_is_not_used(self):
+        pulse_recovery.unlink(self.UID)
+        client = SimpleNamespace(post=AsyncMock(), put=AsyncMock())
+        ok, _ = self._run(client)
+        self.assertFalse(ok)
+        client.post.assert_not_awaited()
+        client.put.assert_not_awaited()
+
+    def test_banned_member_is_not_rejoined_but_consent_is_kept(self):
+        client = SimpleNamespace(post=AsyncMock(), put=AsyncMock())
+        ok, message = self._run(client, self._bot(banned=True))
+        self.assertFalse(ok)
+        self.assertIn("gebannt", message)
+        client.post.assert_not_awaited()
+        client.put.assert_not_awaited()
+        self.assertEqual(pulse_recovery.get_refresh_token(self.UID), "refresh-token-for-tests")
+
+    def test_ban_arriving_during_refresh_blocks_the_join(self):
+        bot = self._bot(banned=False)
+        primary = bot.get_guild(0)
+        calls = {"n": 0}
+
+        async def fetch_ban(_obj):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _NotFound()
+            return object()
+        primary.fetch_ban = fetch_ban
+        client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(200, dict(self.TOKENS))), put=AsyncMock())
+        ok, _ = self._run(client, bot)
+        self.assertFalse(ok)
+        client.put.assert_not_awaited()
+
+    def test_normal_rejoin_rotates_token_and_keeps_consent_time(self):
+        client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(200, dict(self.TOKENS))),
+                                 put=AsyncMock(return_value=FakeHttpResponse(201, {})))
+        ok, _ = self._run(client, self._bot(banned=False))
+        self.assertTrue(ok)
+        self.assertEqual(pulse_recovery.get_refresh_token(self.UID), "rotated-refresh-token")
+        rows = pulse_recovery.list_linked_users(10)
+        self.assertEqual(float(rows[0]["consented_at"]), 100.0)
+
+    def test_withdrawal_crossing_the_join_undoes_it(self):
+        async def join(*_a, **_k):
+            pulse_recovery.unlink(self.UID)
+            return FakeHttpResponse(201, {})
+        client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(200, dict(self.TOKENS))), put=AsyncMock(side_effect=join))
+        ok, _ = self._run(client)
+        self.assertFalse(ok)
+        self.backup_guild.kick.assert_awaited_once()
+        self.assertFalse(pulse_recovery.has_stored_consent(self.UID))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# AC-01 / AC-02 (night audit) – leaders cannot edit profiles or end shifts of higher-ranked members or themselves.
+# ---------------------------------------------------------------------------------------------------------
+class LeaderRankRuleNightTests(TempDb):
+    def setUp(self):
+        super().setUp()
+        self.lead = member(100, "Lena", LEAD)
+        self.mod = member(110, "Mo", MOD)            # leader-level permissions, but BELOW the lead role
+        self.support = member(300, "Sam", SUPPORT)
+        self.guild = FakeGuild(members=[self.lead, self.mod, self.support], roles=[SUPPORT, MOD, LEAD])
+        self.guild.me.top_role = Role(99, "Pulse", 50)
+        self.config = {"team_role_ids": TEAM_IDS}
+        self.actor = self.lead
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _i: self.guild)
+        import pulse_ultimate
+        self.init_flag = patch.object(pulse_ultimate, "_INIT", False)
+        self.init_flag.start()
+        pulse_ultimate.init_db()
+        self.patches = [patch.object(ws, "load_config", lambda: self.config), patch.object(ws, "auth", self.fake_auth),
+                        patch.object(ws, "send_dm_notification", AsyncMock())]
+        for p in self.patches:
+            p.start()
+        self.client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.init_flag.stop()
+        ws.app.state.bot = None
+        super().tearDown()
+
+    def fake_auth(self, request, session, perm="can_view_dashboard", admin=False):
+        if perm and not LEAD_PERMS.get(perm):
+            raise ws.HTTPException(status_code=403)
+        return SimpleNamespace(user={"id": str(self.actor.id), "global_name": self.actor.display_name}, guild=self.guild,
+                               guild_name="G", perms=dict(LEAD_PERMS), config=self.config, member=self.actor,
+                               msg="", msg_ok=True)
+
+    def _msg(self, response):
+        from urllib.parse import parse_qs, urlparse
+        return parse_qs(urlparse(response.headers.get("location", "")).query).get("msg", [""])[0]
+
+    def _rating(self, uid):
+        import pulse_ultimate
+        with pulse_ultimate.cx() as c:
+            row = c.execute("SELECT rating, internal_status FROM ultimate_profiles WHERE user_id=?", (str(uid),)).fetchone()
+        return tuple(row) if row else None
+
+    def _update(self, uid, **over):
+        data = {"internal_status": "available", "rating": 11, "internal_message": "x"} | over
+        return self.client.post(f"/ultimate/team/{uid}/update", data=data, follow_redirects=False)
+
+    def test_leader_can_update_a_lower_ranked_member(self):
+        self.assertEqual(self._update(self.support.id).status_code, 303)
+        self.assertEqual(self._rating(self.support.id), (11, "available"))
+
+    def test_leader_cannot_update_higher_ranked_or_own_profile(self):
+        self.actor = self.mod
+        for target in (self.lead, self.mod):
+            r = self._update(target.id)
+            self.assertEqual(r.status_code, 403, target.id)
+            self.assertIsNone(self._rating(target.id))
+
+    def test_unknown_status_and_garbage_id_are_refused_without_writes(self):
+        self.assertEqual(self._update(self.support.id, internal_status="<script>").status_code, 400)
+        self.assertEqual(self._update("12abc").status_code, 400)
+        self.assertIsNone(self._rating(self.support.id))
+
+    def _start_shift(self, user):
+        started = ws.now_de().isoformat(timespec="seconds")
+        shifts = {"active_shifts": {str(user.id): {"date": "01.01.2026", "started_at_iso": started}}, "history": []}
+        ws.save_json(ws.SHIFTS_FILE, shifts)
+
+    def test_leader_cannot_end_the_shift_of_a_higher_ranked_member(self):
+        self.actor = self.mod
+        self._start_shift(self.lead)
+        r = self.client.post("/shift/admin-end", data={"target_user_id": self.lead.id}, follow_redirects=False)
+        self.assertEqual(r.status_code, 403)
+        stored = ws.load_json(ws.SHIFTS_FILE, {})
+        self.assertIn(str(self.lead.id), stored["active_shifts"])
+        self.assertEqual(stored["history"], [])
+
+    def test_leader_can_still_end_the_shift_of_a_lower_ranked_member(self):
+        self._start_shift(self.support)
+        r = self.client.post("/shift/admin-end", data={"target_user_id": self.support.id}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        stored = ws.load_json(ws.SHIFTS_FILE, {})
+        self.assertNotIn(str(self.support.id), stored["active_shifts"])
+        self.assertEqual(len(stored["history"]), 1)

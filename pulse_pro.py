@@ -1667,6 +1667,10 @@ def register(app):
         target=c.guild.get_member(int(target_user_id))
         if not target or target.bot:
             return ws.back("/team-status","Teammitglied wurde nicht gefunden.",False)
+        # AC-02: same rank rule as confirm_auto_closed_shift_duration – only shifts of lower-ranked members (admins excepted).
+        role_ids = c.config.get("team_role_ids", [])
+        if not c.perms.get("is_admin") and ws.team_rank(c.member, role_ids) <= ws.team_rank(target, role_ids):
+            raise HTTPException(403,"Du darfst nur die Schicht eines niedriger eingestuften Teammitglieds beenden.")
         shifts_db=ws.load_shifts()
         active=shifts_db.setdefault("active_shifts",{})
         shift=active.get(str(target.id))
