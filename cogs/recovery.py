@@ -238,7 +238,8 @@ class RecoveryCog(commands.Cog):
         async with httpx.AsyncClient(timeout=TOKEN_TIMEOUT) as client:
             for index, person in enumerate(people):
                 ok, message = await pulse_recovery.rejoin_user(
-                    person["user_id"], person["refresh_token"], self.bot, client, settings=settings
+                    person["user_id"], person["refresh_token"], self.bot, client, settings=settings,
+                    expected_consented_at=person["consented_at"]
                 )
                 if ok:
                     if message.startswith("bereits vorhanden"):
@@ -330,7 +331,8 @@ class RecoveryCog(commands.Cog):
                             )
                             break
                         ok, message = await pulse_recovery.rejoin_user(
-                            person["user_id"], person["refresh_token"], self.bot, client, settings=settings
+                            person["user_id"], person["refresh_token"], self.bot, client, settings=settings,
+                            expected_consented_at=person["consented_at"]
                         )
                         state["scanned"] += 1
                         if ok:

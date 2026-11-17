@@ -58,9 +58,11 @@ class RecoveryTests(unittest.TestCase):
     def test_only_a_new_consent_started_after_the_ban_can_clear_the_tombstone(self):
         uid = "123456789012345678"
         pulse_recovery.block_primary_ban(uid, now=200)
-        self.assertFalse(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=199))
+        self.assertFalse(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=199))
         self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
-        self.assertTrue(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=201))
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=201))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        pulse_recovery.store_refresh_token(uid, "fresh-after-ban", now=201, consent_started_at=201)
         self.assertFalse(pulse_recovery.is_primary_ban_blocked(uid))
 
     def test_rejoin_user_rejects_stale_sync_snapshot_for_banned_member(self):
@@ -86,15 +88,40 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(pulse_recovery.RecoveryBlockedError):
             pulse_recovery.store_refresh_token(uid, "stale-in-flight-refresh", now=201)
         self.assertFalse(pulse_recovery.has_stored_consent(uid))
-        self.assertTrue(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=202))
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=202))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+        pulse_recovery.store_refresh_token(
+            uid, "fresh-after-opt-out", now=202, consent_started_at=202
+        )
         self.assertFalse(pulse_recovery.is_recovery_consent_blocked(uid))
 
     def test_unlink_tombstone_wins_against_oauth_flow_started_before_withdrawal(self):
         uid = "123456789012345678"
         pulse_recovery.store_refresh_token(uid, "refresh-before-unlink", now=100)
         self.assertTrue(pulse_recovery.unlink(uid, now=200))
-        self.assertFalse(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=199))
+        self.assertFalse(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=199))
         self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+
+
+    def test_stale_sync_snapshot_cannot_overwrite_reconsented_token(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "old-refresh-token", now=100)
+        pulse_recovery.unlink(uid, now=200)
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=300))
+        pulse_recovery.store_refresh_token(
+            uid, "new-user-consented-token", now=300, consent_started_at=300
+        )
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.rotate_refresh_token(uid, "stale-sync-rotated-token", expected_consented_at=100)
+        self.assertEqual(pulse_recovery.get_refresh_token(uid), "new-user-consented-token")
+
+    def test_old_invalid_grant_cannot_unlink_a_newer_consent(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "old-refresh-token", now=100)
+        pulse_recovery.unlink(uid, now=200)
+        pulse_recovery.store_refresh_token(uid, "fresh-consent-token", now=300, consent_started_at=300)
+        self.assertFalse(pulse_recovery.unlink_if_current(uid, expected_consented_at=100, now=400))
+        self.assertEqual(pulse_recovery.get_refresh_token(uid), "fresh-consent-token")
 
     def test_invalid_ids_are_not_stored(self):
         with self.assertRaises(ValueError):

@@ -268,7 +268,14 @@ def migrate_to_current_key(*, dry_run: bool = True) -> dict:
     return result
 
 
-def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None) -> None:
+def store_refresh_token(
+    user_id,
+    refresh_token: str,
+    *,
+    now: float | None = None,
+    consent_started_at: float | None = None,
+) -> None:
+    """Store new user-consented OAuth tokens; the started-at marker fences stale callbacks."""
     uid = _snowflake(user_id)
     if not uid or not isinstance(refresh_token, str) or not refresh_token or len(refresh_token) > 4096:
         raise ValueError("Ungültige Recovery-Anmeldedaten.")
@@ -277,13 +284,22 @@ def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None
     with _db().connect() as db:
         _init(db)
         blocked = db.execute(
-            "SELECT 1 FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
+            "SELECT blocked_at FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
         ).fetchone()
         if blocked:
-            raise RecoveryBlockedError(
-                "Die Recovery-Einwilligung wurde widerrufen oder gesperrt. Eine erneute Freigabe ist nur durch "
-                "eine neue ausdrückliche OAuth-Zustimmung möglich."
-            )
+            if consent_started_at is None or float(blocked[0]) > float(consent_started_at):
+                raise RecoveryBlockedError(
+                    "Die Recovery-Einwilligung wurde widerrufen oder gesperrt. Eine danach gestartete ausdrückliche "
+                    "OAuth-Zustimmung ist erforderlich."
+                )
+        if consent_started_at is not None:
+            previous = db.execute(
+                "SELECT consented_at FROM recovery_oauth_tokens WHERE user_id=?", (uid,)
+            ).fetchone()
+            if previous is not None and float(previous[0]) >= float(consent_started_at):
+                raise RecoveryBlockedError("Eine neuere Recovery-Einwilligung wurde bereits abgeschlossen.")
+        if blocked:
+            db.execute("DELETE FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,))
         db.execute(
             "INSERT INTO recovery_oauth_tokens(user_id, refresh_token_enc, consented_at, last_sync_at, last_status) "
             "VALUES (?, ?, ?, NULL, 'freigeschaltet') "
@@ -323,6 +339,70 @@ async def revoke_refresh_token(refresh_token: str, client: httpx.AsyncClient | N
         return response.status_code in (200, 204)
     except httpx.HTTPError:
         return False
+
+
+
+def rotate_refresh_token(user_id, refresh_token: str, *, expected_consented_at: float) -> None:
+    """Rotate a refresh token only if the exact consent snapshot is still current."""
+    uid = _snowflake(user_id)
+    if not uid or not isinstance(refresh_token, str) or not refresh_token or len(refresh_token) > 4096:
+        raise ValueError("Ungültige Recovery-Anmeldedaten.")
+    expected = float(expected_consented_at)
+    encrypted = _encrypt(refresh_token)
+    with _db().connect() as db:
+        _init(db)
+        blocked = db.execute(
+            "SELECT 1 FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
+        ).fetchone()
+        if blocked:
+            raise RecoveryBlockedError("Recovery-Einwilligung wurde während des Syncs widerrufen.")
+        cur = db.execute(
+            "UPDATE recovery_oauth_tokens SET refresh_token_enc=?, last_sync_at=NULL, "
+            "last_status='freigeschaltet' WHERE user_id=? AND consented_at=?",
+            (encrypted, uid, expected),
+        )
+        if cur.rowcount != 1:
+            raise RecoveryBlockedError("Einwilligung wurde seit dem Sync-Snapshot erneuert oder widerrufen.")
+
+
+def unlink_if_current(user_id, *, expected_consented_at: float, now: float | None = None) -> bool:
+    """Expire a token only when it still belongs to the sync snapshot that received invalid_grant."""
+    uid = _snowflake(user_id)
+    if not uid:
+        return False
+    blocked_at = time.time() if now is None else float(now)
+    expected = float(expected_consented_at)
+    with _db().connect() as db:
+        _init(db)
+        row = db.execute(
+            "SELECT consented_at FROM recovery_oauth_tokens WHERE user_id=?", (uid,)
+        ).fetchone()
+        if row is None or float(row[0]) != expected:
+            return False
+        db.execute(
+            "INSERT INTO recovery_primary_ban_blocks(user_id, blocked_at, reason) "
+            "VALUES (?, ?, 'invalid_grant') ON CONFLICT(user_id) DO UPDATE SET "
+            "blocked_at=MAX(blocked_at, excluded.blocked_at), reason='invalid_grant'",
+            (uid, blocked_at),
+        )
+        db.execute(
+            "DELETE FROM recovery_oauth_tokens WHERE user_id=? AND consented_at=?",
+            (uid, expected),
+        )
+        return True
+
+
+def mark_sync_if_current(user_id, status: str, *, expected_consented_at: float) -> bool:
+    """Keep stale sync outcomes from mutating the status of a newer consent."""
+    safe_status = str(status or "unbekannt")[:80]
+    with _db().connect() as db:
+        _init(db)
+        cur = db.execute(
+            "UPDATE recovery_oauth_tokens SET last_sync_at=?, last_status=? "
+            "WHERE user_id=? AND consented_at=?",
+            (time.time(), safe_status, str(user_id), float(expected_consented_at)),
+        )
+        return cur.rowcount == 1
 
 
 def recovery_consent_block_reason(user_id) -> str:
@@ -372,11 +452,8 @@ def block_primary_ban(user_id, *, now: float | None = None) -> tuple[str | None,
     return _block_consent(user_id, "primary_ban", now=now)
 
 
-def clear_primary_ban_block_for_new_consent(user_id, *, consent_started_at: float) -> bool:
-    """Clear an older revocation only for an explicit OAuth flow begun after it.
-
-    A ban or withdrawal received during an in-flight OAuth flow has a newer timestamp and wins.
-    """
+def can_replace_revocation_with_new_consent(user_id, *, consent_started_at: float) -> bool:
+    """Read-only age check; keep the tombstone until the final OAuth token write."""
     uid = _snowflake(user_id)
     if not uid:
         return False
@@ -385,12 +462,7 @@ def clear_primary_ban_block_for_new_consent(user_id, *, consent_started_at: floa
         row = db.execute(
             "SELECT blocked_at FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
         ).fetchone()
-        if row is None:
-            return True
-        if float(row[0]) > float(consent_started_at):
-            return False
-        db.execute("DELETE FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,))
-        return True
+    return row is None or float(row[0]) <= float(consent_started_at)
 
 
 async def _remove_backup_member_after_consent_revocation(guild, user_id) -> bool:
@@ -625,7 +697,7 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
                 return False, "Für den Backup-Zugang wird die Bürgerrolle im Hauptserver benötigt.", uid
             # An older ban can be cleared only by a genuinely new explicit OAuth flow after the ban.
             # A ban timestamp newer than this flow wins even when its callback arrives late.
-            if not clear_primary_ban_block_for_new_consent(uid, consent_started_at=consent_started_at):
+            if not can_replace_revocation_with_new_consent(uid, consent_started_at=consent_started_at):
                 return False, "Deine Recovery-Freigabe wurde während der Anmeldung durch einen Hauptserver-Bann gesperrt.", uid
             bot_token = os.getenv("DISCORD_TOKEN", "").strip()
             if not bot_token:
@@ -656,7 +728,10 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
                 if role.id not in {r.id for r in getattr(member, "roles", [])}:
                     await member.add_roles(role, reason="Pulse Recovery: ausdrücklich freigegebene Bürgerrolle")
         try:
-            store_refresh_token(uid, tokens["refresh_token"])
+            store_refresh_token(
+                uid, tokens["refresh_token"], now=consent_started_at,
+                consent_started_at=consent_started_at,
+            )
         except RecoveryBlockedError as exc:
             await revoke_refresh_token(tokens["refresh_token"])
             if joined.status_code == 201:
@@ -688,6 +763,7 @@ async def rejoin_user(
     client: httpx.AsyncClient,
     *,
     settings: dict | None = None,
+    expected_consented_at: float | None = None,
 ) -> tuple[bool, str]:
     """Refresh one user's consent, then add them to the backup guild with only its citizen role."""
     import webserver as ws
@@ -698,6 +774,8 @@ async def rejoin_user(
         reason = recovery_consent_block_reason(uid)
         detail = "Bann im Hauptserver" if reason == "primary_ban" else "widerrufene Recovery-Freigabe"
         return False, f"Recovery wegen {detail} gesperrt; eine alte Freigabe wird nicht wiederverwendet."
+    if expected_consented_at is None:
+        return False, "Einwilligungszeitpunkt fehlt; ein sicherer Recovery-Sync ist nicht möglich."
     selected_settings = normalize_settings(settings if settings is not None else load_settings())
     current_settings = load_settings()
     if settings is not None and (
@@ -732,7 +810,9 @@ async def rejoin_user(
             if response.status_code == 401 or error_code in {"invalid_client", "unauthorized_client"}:
                 return False, CONFIG_ERROR_MESSAGE
             if response.status_code == 400 and error_code == "invalid_grant":
-                unlink(uid)  # Revoked/expired consent must be renewed by the user.
+                if unlink_if_current(uid, expected_consented_at=expected_consented_at):
+                    return False, "Freigabe abgelaufen/widerrufen; Nutzer muss erneut freischalten"
+                return False, "Veralteter Sync-Token abgewiesen; eine neuere Einwilligung bleibt bestehen."
                 return False, "Freigabe abgelaufen/widerrufen; Nutzer muss erneut freischalten"
             return False, f"Token-Aktualisierung fehlgeschlagen (HTTP {response.status_code})"
         tokens = response.json()
@@ -741,10 +821,9 @@ async def rejoin_user(
         refreshed_scopes = str(tokens.get("scope") or "").split()
         if refreshed_scopes and "guilds.join" not in refreshed_scopes:
             return False, "guilds.join fehlt in der erneuerten Freigabe"
-        # Discord rotates refresh tokens. If a ban/opt-out wins before this write, revoke the newly
-        # issued token immediately instead of leaving a valid orphaned grant at Discord.
+        # Rotate only while the exact consent snapshot from this page remains current.
         try:
-            store_refresh_token(uid, tokens["refresh_token"])
+            rotate_refresh_token(uid, tokens["refresh_token"], expected_consented_at=expected_consented_at)
         except RecoveryBlockedError:
             await revoke_refresh_token(tokens["refresh_token"], client)
             reason = recovery_consent_block_reason(uid)
@@ -761,7 +840,7 @@ async def rejoin_user(
             json={"access_token": tokens["access_token"], "roles": [str(role.id)]},
         ))
         if joined.status_code not in (201, 204):
-            mark_sync(uid, f"Beitritt fehlgeschlagen HTTP {joined.status_code}")
+            mark_sync_if_current(uid, f"Beitritt fehlgeschlagen HTTP {joined.status_code}", expected_consented_at=expected_consented_at)
             return False, f"Beitritt fehlgeschlagen (HTTP {joined.status_code})"
         # The ban listener may have run before this in-flight join completed. Re-check and compensate.
         if is_recovery_consent_blocked(uid):
@@ -774,7 +853,7 @@ async def rejoin_user(
             member = await guild.fetch_member(int(uid))
             if role.id not in {r.id for r in getattr(member, "roles", [])}:
                 await member.add_roles(role, reason="Pulse Recovery Sync: ausschließlich Bürgerrolle")
-        mark_sync(uid, "Backup-Beitritt geprüft/abgeschlossen")
+        mark_sync_if_current(uid, "Backup-Beitritt geprüft/abgeschlossen", expected_consented_at=expected_consented_at)
         return True, "bereits vorhanden" if joined.status_code == 204 else "hinzugefügt (nur Bürgerrolle)"
     except Exception as exc:
         mark_sync(uid, f"Fehler: {type(exc).__name__}")
