@@ -277,6 +277,15 @@ async def favicon():
     )
 
 
+def _loa_rank_problem(ctx, guild, team_role_ids, target_id) -> bool:
+    """AC-03: leaders manage absences of lower-ranked members only (admins excepted), like promote/demote/team_kick."""
+    if ctx.perms.get("is_admin"):
+        return False
+    target = guild.get_member(int(target_id))
+    actor_rank = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
+    return target is not None and actor_rank <= team_rank(target, team_role_ids, guild)
+
+
 # Night audit F-1: bodies are parsed (Form/UploadFile) BEFORE the handler authenticates, so an anonymous client could
 # make Pulse buffer a huge urlencoded/JSON body (768 MiB container). Declared sizes are capped here; multipart
 # uploads (spooled to disk by Starlette) keep the larger limit that the upload routes enforce themselves.
@@ -12907,6 +12916,8 @@ async def handle_action(
         target = user_id or int(actor_id)
         if str(target) != actor_id and not is_manager:
             return back("/loa", "Du kannst nur dich selbst abmelden.", False)
+        if str(target) != actor_id and _loa_rank_problem(ctx, guild, team_role_ids, target):
+            return back("/loa", "Du darfst nur Mitglieder unterhalb deines eigenen Teamrangs abmelden.", False)
         try:
             d_start = datetime.strptime(loa_start or "", "%Y-%m-%d").date()
             d_end = datetime.strptime(loa_end or "", "%Y-%m-%d").date()
@@ -12939,6 +12950,8 @@ async def handle_action(
             return back("/loa", "Ungültige Anfrage.", False)
         if str(target) != actor_id and not is_manager:
             return back("/loa", "Du kannst nur deine eigene Abmeldung beenden.", False)
+        if str(target) != actor_id and _loa_rank_problem(ctx, guild, team_role_ids, target):
+            return back("/loa", "Du darfst nur Abmeldungen von Mitgliedern unterhalb deines eigenen Teamrangs beenden.", False)
         conn = sqlite3.connect(DB_ABMELDUNGEN)
         conn.execute("DELETE FROM abmeldungen WHERE user_id = ?", (target,))
         conn.commit()

@@ -3002,7 +3002,7 @@ def register(app):
             f'{shift_note_items or "<div class=pulse-empty>Noch keine Schichtnotizen.</div>"}</div></section>'
         ) if can_see_shift_notes else ''
 
-        tickets=[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)]
+        tickets=ws.pulse_ticket_access.filter_tickets(c,[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)])  # AC-07: only tickets the viewer may see
         tasks=[t for t in db.list_tasks(limit=2000,include_archived=True) if str(t.get('assignee_id'))==str(target.id) or str(t.get('creator_id'))==str(target.id)]
         evs=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))][:40]
         role=member_role(target,ids)

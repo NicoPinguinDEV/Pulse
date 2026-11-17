@@ -1035,10 +1035,11 @@ class LeaderRankRuleNightTests(TempDb):
         super().tearDown()
 
     def fake_auth(self, request, session, perm="can_view_dashboard", admin=False):
-        if perm and not LEAD_PERMS.get(perm):
+        perms = getattr(self, "perms", LEAD_PERMS)
+        if perm and not perms.get(perm):
             raise ws.HTTPException(status_code=403)
         return SimpleNamespace(user={"id": str(self.actor.id), "global_name": self.actor.display_name}, guild=self.guild,
-                               guild_name="G", perms=dict(LEAD_PERMS), config=self.config, member=self.actor,
+                               guild_name="G", perms=dict(perms), config=self.config, member=self.actor,
                                msg="", msg_ok=True)
 
     def _msg(self, response):
@@ -1092,3 +1093,37 @@ class LeaderRankRuleNightTests(TempDb):
         stored = ws.load_json(ws.SHIFTS_FILE, {})
         self.assertNotIn(str(self.support.id), stored["active_shifts"])
         self.assertEqual(len(stored["history"]), 1)
+
+    def test_addressed_handover_is_hidden_from_bystanders(self):
+        import pulse_ultimate
+        with pulse_ultimate.cx() as c:
+            for hid, to_id, title in (("h1", str(self.lead.id), "GEHEIM-AN-LEAD"), ("h2", None, "OFFEN-FUER-ALLE")):
+                c.execute("INSERT INTO ultimate_handovers VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                          (hid, title, "inhalt", "normal", str(self.mod.id), "Mo", to_id, "", "open", "2026-01-01T00:00:00", None))
+        self.actor = self.support
+        self.perms = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True}
+        body = self.client.get("/ultimate/handovers").text
+        self.assertNotIn("GEHEIM-AN-LEAD", body)
+        self.assertIn("OFFEN-FUER-ALLE", body)
+        self.actor = self.lead  # recipient
+        self.perms = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True}
+        self.assertIn("GEHEIM-AN-LEAD", self.client.get("/ultimate/handovers").text)
+
+    def test_leader_cannot_manage_absence_of_higher_ranked_member(self):
+        import sqlite3
+        import tempfile
+        db_path = str(Path(tempfile.mkdtemp()) / "abm.db")
+        con = sqlite3.connect(db_path)
+        con.execute("CREATE TABLE abmeldungen(user_id INTEGER, user_name TEXT, grund TEXT, von TEXT, bis TEXT, original_nick TEXT, guild_id INTEGER)")
+        con.execute("INSERT INTO abmeldungen VALUES(?,?,?,?,?,?,?)", (self.lead.id, "Lena", "x", "2026-01-01", "2099-01-01", None, 1))
+        con.commit()
+        con.close()
+        self.actor = self.mod
+        with patch.object(ws, "DB_ABMELDUNGEN", db_path):
+            r = self.client.post("/action", data={"action": "cancel_loa", "target_user_id": str(self.lead.id)}, follow_redirects=False)
+            r2 = self.client.post("/action", data={"action": "submit_loa", "user_id": str(self.lead.id), "loa_start": "2099-01-01",
+                                                   "loa_end": "2099-01-02", "loa_reason": "x"}, follow_redirects=False)
+        rows = sqlite3.connect(db_path).execute("SELECT user_id, bis FROM abmeldungen").fetchall()
+        self.assertEqual(rows, [(self.lead.id, "2099-01-01")])  # neither deleted nor replaced
+        self.assertIn("Teamrang", self._msg(r))
+        self.assertIn("Teamrang", self._msg(r2))

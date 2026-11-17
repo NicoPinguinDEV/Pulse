@@ -827,7 +827,8 @@ def register(app) -> None:
         if not public_access_enabled():
             return Response("", status_code=404, media_type="application/xml",
                             headers={"X-Robots-Tag": "noindex, nofollow"})
-        base = str(request.base_url).rstrip("/")
+        import webserver as _ws  # L-2: configured origin, never the (forgeable) Host header when one is configured
+        base = _ws.request_origin(request).rstrip("/")
         return Response(sitemap_xml(base), media_type="application/xml")
 
     app.add_api_route("/sitemap.xml", sitemap, methods=["GET"], include_in_schema=False)
