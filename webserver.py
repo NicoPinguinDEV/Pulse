@@ -277,6 +277,31 @@ async def favicon():
     )
 
 
+# Night audit F-1: bodies are parsed (Form/UploadFile) BEFORE the handler authenticates, so an anonymous client could
+# make Pulse buffer a huge urlencoded/JSON body (768 MiB container). Declared sizes are capped here; multipart
+# uploads (spooled to disk by Starlette) keep the larger limit that the upload routes enforce themselves.
+MAX_BODY_BYTES = 4 * 1024 * 1024
+MAX_UPLOAD_BODY_BYTES = 60 * 1024 * 1024
+_BODY_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def request_body_problem(method: str, headers) -> tuple[int, str] | None:
+    """(status, message) when the declared request body is not acceptable, else None."""
+    if str(method).upper() not in _BODY_METHODS:
+        return None
+    raw = (headers.get("content-length") or "").strip()
+    if not raw:
+        if "chunked" in (headers.get("transfer-encoding") or "").lower():
+            return 411, "Content-Length erforderlich."
+        return None
+    if not raw.isdigit() or len(raw) > 12:
+        return 400, "Ungültige Content-Length."
+    limit = MAX_UPLOAD_BODY_BYTES if "multipart/form-data" in (headers.get("content-type") or "").lower() else MAX_BODY_BYTES
+    if int(raw) > limit:
+        return 413, "Anfrage zu groß."
+    return None
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """U-13: the single security middleware – same-origin check for state-changing requests
@@ -284,6 +309,9 @@ async def security_headers(request: Request, call_next):
     import pulse_security
     if not pulse_security.same_origin_ok(request.method, request.headers):
         return JSONResponse({"detail": "Ungültige Anfragequelle."}, status_code=403)
+    too_big = request_body_problem(request.method, request.headers)
+    if too_big:
+        return JSONResponse({"detail": too_big[1]}, status_code=too_big[0])
     started = time.perf_counter()
     probe = None
     if request.method == "POST" and request.url.path.startswith(AUDIT_PROBE_PREFIXES):
