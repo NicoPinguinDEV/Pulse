@@ -738,7 +738,9 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
             if joined.status_code == 201 or reason == "primary_ban":
                 await _remove_backup_member_after_consent_revocation(guild, uid)
             return False, str(exc), uid
-        mark_sync(uid, "Backup-Zugriff freigeschaltet")
+        mark_sync_if_current(
+            uid, "Backup-Zugriff freigeschaltet", expected_consented_at=consent_started_at
+        )
         return True, "Freigabe erfolgreich. Du bist dem Backup-Server mit der konfigurierten Bürgerrolle beigetreten. Es werden keine Team- oder Moderationsrollen übernommen.", uid
     except Exception as exc:
         message = str(exc) if isinstance(exc, ValueError) else f"Verbindung, Discord-Rollenaktion oder sichere Speicherung fehlgeschlagen ({type(exc).__name__})."
