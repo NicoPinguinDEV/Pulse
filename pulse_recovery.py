@@ -294,6 +294,37 @@ def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None
 
 
 
+
+async def revoke_refresh_token(refresh_token: str, client: httpx.AsyncClient | None = None) -> bool:
+    """Best-effort Discord OAuth revocation after a persistent local consent block is recorded."""
+    import webserver as ws
+
+    if not refresh_token or not ws.CLIENT_ID or not ws.CLIENT_SECRET:
+        return False
+
+    async def send_revoke(active_client):
+        return await _request_with_429_retry(lambda: active_client.post(
+            "https://discord.com/api/v10/oauth2/token/revoke",
+            data={
+                "client_id": ws.CLIENT_ID,
+                "client_secret": ws.CLIENT_SECRET,
+                "token": refresh_token,
+                "token_type_hint": "refresh_token",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        ))
+
+    try:
+        if client is not None:
+            response = await send_revoke(client)
+        else:
+            async with httpx.AsyncClient(timeout=TOKEN_TIMEOUT, follow_redirects=False) as active_client:
+                response = await send_revoke(active_client)
+        return response.status_code in (200, 204)
+    except httpx.HTTPError:
+        return False
+
+
 def recovery_consent_block_reason(user_id) -> str:
     uid = _snowflake(user_id)
     if not uid:
@@ -485,9 +516,14 @@ def mark_sync(user_id, status: str, *, now: float | None = None) -> None:
                    (time.time() if now is None else float(now), safe_status, str(user_id)))
 
 
+def unlink_with_refresh_token(user_id, *, now: float | None = None) -> tuple[str | None, bool]:
+    """Atomically block in-flight syncs, delete the latest consent and return its token for revocation."""
+    return _block_consent(user_id, "user_revoked", now=now)
+
+
 def unlink(user_id, *, now: float | None = None) -> bool:
     """Persist withdrawal so a token already held by a running sync cannot recreate consent."""
-    _token, had_consent = _block_consent(user_id, "user_revoked", now=now)
+    _token, had_consent = unlink_with_refresh_token(user_id, now=now)
     return had_consent
 
 
@@ -704,8 +740,15 @@ async def rejoin_user(
         refreshed_scopes = str(tokens.get("scope") or "").split()
         if refreshed_scopes and "guilds.join" not in refreshed_scopes:
             return False, "guilds.join fehlt in der erneuerten Freigabe"
-        # Discord can rotate refresh tokens, so save the replacement before the next API request.
-        store_refresh_token(uid, tokens["refresh_token"])
+        # Discord rotates refresh tokens. If a ban/opt-out wins before this write, revoke the newly
+        # issued token immediately instead of leaving a valid orphaned grant at Discord.
+        try:
+            store_refresh_token(uid, tokens["refresh_token"])
+        except RecoveryBlockedError:
+            await revoke_refresh_token(tokens["refresh_token"], client)
+            reason = recovery_consent_block_reason(uid)
+            detail = "Bann im Hauptserver" if reason == "primary_ban" else "Widerruf der Recovery-Freigabe"
+            return False, f"Recovery während der Token-Erneuerung durch {detail} gesperrt."
         # Re-check after rotating the token; a ban may have arrived during the OAuth exchange.
         if is_recovery_consent_blocked(uid):
             reason = recovery_consent_block_reason(uid)

@@ -194,3 +194,37 @@ class RecoveryRateLimitTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_unlink_with_refresh_token_returns_latest_token_after_blocking_storage(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "latest-refresh-token", now=100)
+        token, had_consent = pulse_recovery.unlink_with_refresh_token(uid, now=200)
+        self.assertEqual(token, "latest-refresh-token")
+        self.assertTrue(had_consent)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "late-rotated-token", now=201)
+
+    def test_refresh_token_revocation_uses_fixed_discord_endpoint_and_refresh_hint(self):
+        class FakeResponse:
+            status_code = 204
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+            async def post(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return FakeResponse()
+
+        async def run():
+            client = FakeClient()
+            with patch("webserver.CLIENT_ID", "client-id"), patch("webserver.CLIENT_SECRET", "client-secret"):
+                result = await pulse_recovery.revoke_refresh_token("refresh-token", client)
+            return result, client.calls
+
+        result, calls = asyncio.run(run())
+        self.assertTrue(result)
+        self.assertEqual(calls[0][0], "https://discord.com/api/v10/oauth2/token/revoke")
+        self.assertEqual(calls[0][1]["data"]["token"], "refresh-token")
+        self.assertEqual(calls[0][1]["data"]["token_type_hint"], "refresh_token")

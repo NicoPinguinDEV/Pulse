@@ -423,57 +423,52 @@ class RecoveryCog(commands.Cog):
     async def recovery_unlink(self, interaction: discord.Interaction):
         import pulse_recovery
         import webserver as ws
+
         uid = str(interaction.user.id)
-        refresh_token = pulse_recovery.get_refresh_token(uid)
-        if not refresh_token:
-            if pulse_recovery.has_stored_consent(uid):
-                # AUTH-2: the consent exists but cannot be decrypted (key missing/rotated). Withdrawing is the
-                # person's right: delete it locally and say clearly that Discord could not be told.
-                pulse_recovery.unlink(uid)
-                await interaction.response.send_message(
-                    "✅ Dein gespeicherter Recovery-Zugang wurde gelöscht. Er war nicht mehr lesbar, deshalb konnte "
-                    "Discord nicht informiert werden. Entferne Pulse zusätzlich unter Discord → Einstellungen → "
-                    "Autorisierte Apps, damit die Freigabe auch dort endet.",
-                    ephemeral=True,
-                )
-                return
+        # Persist revocation and remove the latest stored token before making any network call.
+        refresh_token, had_consent = pulse_recovery.unlink_with_refresh_token(uid)
+        if not had_consent:
             await interaction.response.send_message(
-                "Für dein Konto ist keine aktive Recovery-Freigabe gespeichert.", ephemeral=True
+                "Für dein Konto ist keine aktive Recovery-Freigabe gespeichert.",
+                ephemeral=True,
             )
             return
-        revoked = False
-        try:
-            async with httpx.AsyncClient(timeout=TOKEN_TIMEOUT) as client:
-                response = await client.post(
-                    "https://discord.com/api/v10/oauth2/token/revoke",
-                    data={
-                        "client_id": ws.CLIENT_ID,
-                        "client_secret": ws.CLIENT_SECRET,
-                        "token": refresh_token,
-                        "token_type_hint": "refresh_token",
-                    },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+
+        if not refresh_token:
+            await interaction.response.send_message(
+                "✅ Deine lokale Recovery-Freigabe wurde gesperrt und gelöscht. Der gespeicherte Token war "
+                "nicht mehr lesbar; widerrufe Pulse zusätzlich unter Discord → Einstellungen → Autorisierte Apps.",
+                ephemeral=True,
+            )
+            try:
+                ws.log_audit(
+                    getattr(interaction.user, "display_name", uid),
+                    uid,
+                    "Backup-Recovery-Freigabe widerrufen",
+                    "Lokaler Sperrvermerk gesetzt; gespeicherter Token war nicht entschlüsselbar.",
                 )
-                revoked = response.status_code in (200, 204)
-        except httpx.HTTPError:
-            pass
-        pulse_recovery.unlink(uid)
+            except Exception:
+                pass
+            return
+
+        revoked = await pulse_recovery.revoke_refresh_token(refresh_token)
         try:
             ws.log_audit(
                 getattr(interaction.user, "display_name", uid),
                 uid,
                 "Backup-Recovery-Freigabe widerrufen",
-                "Gespeicherter OAuth-Recovery-Zugang gelöscht.",
+                "Lokaler Sperrvermerk gesetzt; Discord OAuth widerrufen=" + str(revoked),
             )
         except Exception:
             pass
-        status = "Discord-Freigabe widerrufen" if revoked else "lokaler Recovery-Zugang gelöscht"
+        status = "Discord-Freigabe widerrufen" if revoked else "lokale Freigabe gesperrt; Discord-Widerruf nicht bestätigt"
         await interaction.response.send_message(
-            f"✅ Deine Recovery-Freigabe wurde beendet ({status}). Pulse wird dich nicht mehr automatisch "
+            f"✅ Deine Recovery-Freigabe wurde beendet ({status}). Pulse kann dich nicht mehr automatisch "
             "zum Backup-Server hinzufügen. Falls du den Backup-Server ebenfalls verlassen möchtest, "
             "kannst du ihn zusätzlich selbst verlassen.",
             ephemeral=True,
         )
+
 
 
 async def setup(bot: commands.Bot):
