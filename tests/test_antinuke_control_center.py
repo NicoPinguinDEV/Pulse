@@ -91,7 +91,8 @@ class RuleEngineTests(unittest.TestCase):
         pulse_db.init_db()
         self.clock = Clock()
         self.patches = [patch("cogs.antinuke.time.monotonic", self.clock), patch("builtins.print"),
-                        patch.object(antinuke, "LOCK_EDIT_PAUSE", 0)]
+                        patch.object(antinuke, "LOCK_EDIT_PAUSE", 0),
+                        patch.object(antinuke, "AUDIT_LOOKUP_DELAYS", (0.0,))]  # DISC-7: no real waiting in the old tests
         for p in self.patches:
             p.start()
 

@@ -47,6 +47,8 @@ from pulse_moderation import (
     roles_to_strip,
 )
 
+AUDIT_LOOKUP_DELAYS = (0.0, 1.0, 2.0)  # DISC-7: bounded retries (seconds before each attempt) for delayed audit-log entries
+
 AUDIT_ACTIONS = {
     "ban": discord.AuditLogAction.ban,
     "kick": discord.AuditLogAction.kick,
@@ -316,23 +318,31 @@ class PulseAntiNuke(commands.Cog):
         for name in names:
             wanted.update(EXTRA_AUDIT_ACTIONS.get(name, ()))
         single = next(iter(wanted)) if len(wanted) == 1 else None
-        try:
-            kwargs = {"limit": 10 if single else 25, "after": datetime.now(timezone.utc) - timedelta(seconds=20)}
-            if single is not None:
-                kwargs["action"] = single
-            async for entry in guild.audit_logs(**kwargs):
-                if getattr(entry, "action", single) not in wanted:
-                    continue
-                if entry.id in self._seen(guild.id):
-                    continue  # already counted – keep looking, a burst has several entries in 20 s
-                target = getattr(entry, "target", None)
-                entry_target_id = getattr(target, "id", None)
-                if target_id is None or entry_target_id == target_id:
-                    return entry
-        except discord.Forbidden:
-            print("⚠️ Anti-Nuke kann Discord-Audit-Logs nicht lesen: dem Bot fehlt „Audit-Log ansehen“.")
-        except discord.HTTPException as exc:
-            print(f"⚠️ Anti-Nuke-Audit-Log-Abfrage für {action} fehlgeschlagen: HTTP {exc.status}.")
+        # DISC-7: Discord writes audit-log entries with a delay, so a single immediate query can miss the entry
+        # that belongs to the gateway event. A few bounded retries with backoff (max. ~3 s in total) close that
+        # gap; permission errors and HTTP errors (incl. 429) are never retried - no retry storms.
+        for attempt, delay in enumerate(AUDIT_LOOKUP_DELAYS):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                kwargs = {"limit": 10 if single else 25, "after": datetime.now(timezone.utc) - timedelta(seconds=20)}
+                if single is not None:
+                    kwargs["action"] = single
+                async for entry in guild.audit_logs(**kwargs):
+                    if getattr(entry, "action", single) not in wanted:
+                        continue
+                    if entry.id in self._seen(guild.id):
+                        continue  # already counted – keep looking, a burst has several entries in 20 s
+                    target = getattr(entry, "target", None)
+                    entry_target_id = getattr(target, "id", None)
+                    if target_id is None or entry_target_id == target_id:
+                        return entry
+            except discord.Forbidden:
+                print("⚠️ Anti-Nuke kann Discord-Audit-Logs nicht lesen: dem Bot fehlt „Audit-Log ansehen“.")
+                return None
+            except discord.HTTPException as exc:
+                print(f"⚠️ Anti-Nuke-Audit-Log-Abfrage für {action} fehlgeschlagen: HTTP {exc.status}.")
+                return None
         return None
 
     async def _alert(self, guild: discord.Guild, config: dict, text: str, ping_role_id: int = 0) -> bool:
@@ -434,6 +444,14 @@ class PulseAntiNuke(commands.Cog):
             return
         bot_member = getattr(guild, "me", None)
         if not getattr(getattr(bot_member, "guild_permissions", None), "view_audit_log", False):
+            # DISC-7: a protection that silently does nothing is worse than none - tell the leadership, but
+            # at most once per hour and server.
+            now_mono = time.monotonic()
+            warn_key = ("audit-permission-missing", guild.id)
+            if not self._cooldown_active(warn_key, now_mono):
+                self._set_cooldown(warn_key, now_mono, 3600)
+                await self._alert(guild, config, "⚠️ Anti-Nuke ist aktiv, aber dem Bot fehlt die Berechtigung "
+                                                  "„Audit-Log ansehen“. Ohne sie werden Aktionen nicht erkannt.")
             return
 
         entry = await self._find_entry(guild, candidates if len(candidates) > 1 else candidates[0], target_id)
