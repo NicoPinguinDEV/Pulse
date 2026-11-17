@@ -111,6 +111,9 @@ class PulseAutoMod(commands.Cog):
         guild = message.guild
         if guild is None or message.author.bot or message.webhook_id or not isinstance(message.author, discord.Member):
             return
+        import pulse_guild_guard  # DISC-8: AutoMod acts only in allowed guilds (its config is the home server's)
+        if not pulse_guild_guard.is_allowed_guild(guild.id):
+            return
         if guild.owner_id == message.author.id or message.author.guild_permissions.manage_messages:
             return
 

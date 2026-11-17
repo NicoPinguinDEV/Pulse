@@ -438,6 +438,9 @@ class PulseAntiNuke(commands.Cog):
             return
         if not config["enabled"]:
             return
+        import pulse_guild_guard  # DISC-8: the rules/thresholds are the home server's -> only act in allowed guilds
+        if not pulse_guild_guard.is_allowed_guild(getattr(guild, "id", None)):
+            return
         candidates = list(action) if isinstance(action, (list, tuple)) else [action]
         candidates = [a for a in candidates if a in monitored and a in AUDIT_ACTIONS]
         if not candidates:

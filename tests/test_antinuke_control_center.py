@@ -92,7 +92,9 @@ class RuleEngineTests(unittest.TestCase):
         self.clock = Clock()
         self.patches = [patch("cogs.antinuke.time.monotonic", self.clock), patch("builtins.print"),
                         patch.object(antinuke, "LOCK_EDIT_PAUSE", 0),
-                        patch.object(antinuke, "AUDIT_LOOKUP_DELAYS", (0.0,))]  # DISC-7: no real waiting in the old tests
+                        patch.object(antinuke, "AUDIT_LOOKUP_DELAYS", (0.0,)),  # DISC-7: no real waiting in the old tests
+                        patch("pulse_guild_guard._home_guild_id", return_value=7),  # DISC-8: the fake guild is the home guild
+                        patch("pulse_guild_guard._recovery_backup_id", return_value=0)]
         for p in self.patches:
             p.start()
 
