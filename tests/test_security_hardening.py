@@ -434,7 +434,11 @@ class RecoveryConsentTests(TempDb):
 
     def _rejoin(self, status, body):
         client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(status, body)), put=AsyncMock())
-        return asyncio.run(pulse_recovery.rejoin_user(self.UID, "refresh-token-for-tests", None, client))
+        return asyncio.run(
+            pulse_recovery.rejoin_user(
+                self.UID, "refresh-token-for-tests", None, client, expected_consented_at=100
+            )
+        )
 
     def test_wrong_client_secret_keeps_every_consent(self):
         for status, body in ((401, {"error": "invalid_client"}), (400, {"error": "invalid_client"}), (400, {})):
@@ -453,7 +457,11 @@ class RecoveryConsentTests(TempDb):
         stored, so the consent must not be used (and not be lost) at all."""
         client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(200, {})), put=AsyncMock())
         with patch.dict("os.environ", {"PULSE_RECOVERY_KEY": ""}):
-            ok, message = asyncio.run(pulse_recovery.rejoin_user(self.UID, "refresh-token-for-tests", None, client))
+            ok, message = asyncio.run(
+                pulse_recovery.rejoin_user(
+                    self.UID, "refresh-token-for-tests", None, client, expected_consented_at=100
+                )
+            )
         self.assertFalse(ok)
         self.assertIn("PULSE_RECOVERY_KEY", message)
         client.post.assert_not_awaited()
