@@ -48,6 +48,8 @@ MODERATION_DECISION_ROLE_ID = _pulse_ids.MODERATION_DECISION_ROLE_ID
 # SEC-06: team warnings from a review run through webserver.issue_team_warning, which needs a validity –
 # same default as the dashboard form and /warn.
 AI_TEAM_WARN_DAYS = 7
+CRITICAL_REVIEW_ACTIONS = frozenset({"kick", "ban"})  # DISC-5: two-person rule
+CRITICAL_CONFIRM_HOURS = 12
 DUPLICATE_WINDOW_SECONDS = 120
 MAX_RECENT_FINGERPRINTS = 500
 ROOT = pulse_paths.DATA_DIR  # Phase 13: data directory, not the code folder
@@ -1213,7 +1215,16 @@ class AIModeration(commands.Cog):
                     if role_kind != "BÜRGER":
                         await interaction.followup.send("❌ Diese Bürgermaßnahme ist nur für Mitglieder mit einer der konfigurierten Bürgerrollen verfügbar.", ephemeral=True)
                         return
+                    # DISC-5: kick and ban need a second person; the first click only records the request.
+                    if action in CRITICAL_REVIEW_ACTIONS:
+                        gate = self.second_confirmation(case, action, interaction.user)
+                        if gate:
+                            self._save_cases()
+                            await interaction.followup.send(gate, ephemeral=True)
+                            return
                     result = await self._apply_citizen_action(guild, member, interaction.user, case, action)
+                    if action in CRITICAL_REVIEW_ACTIONS and result.get("ok"):
+                        self._record_critical_action(case, action, interaction.user, member)
                 else:
                     await interaction.followup.send("Unbekannte Aktion.", ephemeral=True)
                     return
@@ -1241,6 +1252,48 @@ class AIModeration(commands.Cog):
         except Exception as exc:
             print(f"⚠️ KI-Moderation: Aktion {action} für Fall {case_id} fehlgeschlagen ({type(exc).__name__}).")
             await interaction.followup.send("Die Aktion ist fehlgeschlagen; der Fall bleibt offen. Details stehen in der Hosting-Konsole.", ephemeral=True)
+
+    @staticmethod
+    def second_confirmation(case: dict[str, Any], action: str, reviewer) -> str:
+        """DISC-5: two-person rule for kick/ban from the AI review queue.
+
+        Returns "" when a *different* reviewer confirms a still valid request for the same action; otherwise
+        a message for the reviewer (request recorded / own request / expired request replaced)."""
+        now = datetime.now(timezone.utc)
+        pending = case.get("pending_confirmation")
+        if isinstance(pending, dict) and pending.get("action") == action:
+            try:
+                age = now - datetime.fromisoformat(str(pending.get("at")))
+                valid = age <= timedelta(hours=CRITICAL_CONFIRM_HOURS)
+            except (TypeError, ValueError):
+                valid = False
+            if valid:
+                if str(pending.get("by")) == str(reviewer.id):
+                    return "⏳ Du hast diese Maßnahme bereits angefordert. Eine zweite Person muss sie bestätigen."
+                case["requested_by"] = str(pending.get("by"))
+                case["confirmed_by"] = str(reviewer.id)
+                case["pending_confirmation"] = None
+                return ""
+        case["pending_confirmation"] = {"action": action, "by": str(reviewer.id), "at": now.isoformat(timespec="seconds")}
+        label = "Kick" if action == "kick" else "Ban"
+        return (f"🔐 {label} vorgemerkt. Aus Sicherheitsgründen muss eine **zweite berechtigte Person** denselben Button "
+                f"innerhalb von {CRITICAL_CONFIRM_HOURS} Stunden bestätigen. Es wurde noch nichts ausgeführt.")
+
+    @staticmethod
+    def _record_critical_action(case: dict[str, Any], action: str, reviewer, member) -> None:
+        """Full case record + Pulse audit for an executed kick/ban (never raises)."""
+        entry = {"action": action, "requested_by": case.get("requested_by"), "confirmed_by": case.get("confirmed_by"),
+                 "executed_by": str(reviewer.id), "target_id": str(member.id),
+                 "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        case.setdefault("actions", []).append(entry)
+        try:
+            import webserver
+            webserver.log_audit(
+                getattr(reviewer, "display_name", str(reviewer)), str(reviewer.id), f"KI-Review {action}",
+                f"{getattr(member, 'display_name', member.id)} ({member.id}) · Fall {case.get('id')} · bestätigt von {case.get('confirmed_by')}",
+            )
+        except Exception as exc:  # noqa: BLE001 - the audit must not undo an executed action
+            print(f"⚠️ KI-Moderation: Audit-Eintrag fehlgeschlagen ({type(exc).__name__}).")
 
     async def _issue_team_warn(self, guild: discord.Guild, member: discord.Member, reviewer: discord.Member, case: dict[str, Any]) -> dict[str, Any]:
         """SEC-06: same checks and side effects as /warn and the dashboard (self-warn block, team rank,
