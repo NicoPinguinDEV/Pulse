@@ -1,7 +1,7 @@
 """Opt-in Discord backup-server recovery.
 
 A user must explicitly authorize the Discord OAuth2 scopes identify + guilds.join.
-Refresh tokens are encrypted at rest using the existing Pulse session secret and PyNaCl.
+Refresh tokens are encrypted at rest with PyNaCl and a dedicated, versioned key (PULSE_RECOVERY_KEY, AUTH-2).
 The recovery flow never copies roles from the primary guild: newly added users receive
 only the configured, permission-reviewed citizen role.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import os
 import time
 from typing import Any
@@ -99,26 +100,162 @@ def _init(db) -> None:
     db.execute("CREATE INDEX IF NOT EXISTS idx_recovery_oauth_consent ON recovery_oauth_tokens(consented_at DESC)")
 
 
-def _box() -> SecretBox:
-    """Derive a separate encryption key from Pulse's existing persistent session secret."""
+class RecoveryKeyError(RuntimeError):
+    """The dedicated recovery encryption key is missing or too weak (fail closed – nothing is stored)."""
+
+
+# ---------------------------------------------------------------------------------------------------------
+# AUTH-2: dedicated, versioned encryption key (independent of the session signing secret)
+#
+# Stored format (v2):  "v2:<key id>:<urlsafe-base64 SecretBox>"   key id = first 8 hex chars of SHA-256(derived key)
+# Legacy format (v1):  "<urlsafe-base64 SecretBox>" encrypted with a key derived from the session secret. It stays
+# readable so existing consents keep working, but nothing new is written in it; migrate_to_current_key() moves
+# rows to the dedicated key as an explicit, separate step (it never runs automatically).
+#
+# Keys: PULSE_RECOVERY_KEY (current, required to store anything) and optionally PULSE_RECOVERY_KEY_PREVIOUS
+# (read-only, used during a key rotation). Any secret of at least 32 characters is accepted; the 32-byte key is
+# derived with HKDF-SHA256 so the raw value is never used directly.
+# ---------------------------------------------------------------------------------------------------------
+_V2_PREFIX = "v2:"
+_HKDF_SALT = b"pulse-recovery-oauth-salt-v2"
+_HKDF_INFO = b"pulse recovery oauth refresh-token encryption v2"
+_MIN_KEY_CHARS = 32
+
+
+def _derive_key(raw: str) -> bytes:
+    secret = str(raw or "").strip()
+    if len(secret) < _MIN_KEY_CHARS or len(set(secret)) < 10:
+        raise RecoveryKeyError("Recovery-Schlüssel ist zu kurz oder zu einfach (mindestens 32 Zeichen, zufällig).")
+    prk = hmac.new(_HKDF_SALT, secret.encode("utf-8"), hashlib.sha256).digest()
+    return hmac.new(prk, _HKDF_INFO + b"\x01", hashlib.sha256).digest()
+
+
+def _key_id(key: bytes) -> str:
+    return hashlib.sha256(b"key-id:" + key).hexdigest()[:8]
+
+
+def _configured_keys() -> tuple[tuple[str, SecretBox] | None, dict[str, SecretBox]]:
+    """(current key, all readable keys by id). Raises RecoveryKeyError for a configured but unusable key."""
+    current = None
+    readable: dict[str, SecretBox] = {}
+    for env_name, is_current in (("PULSE_RECOVERY_KEY", True), ("PULSE_RECOVERY_KEY_PREVIOUS", False)):
+        raw = os.getenv(env_name, "").strip()
+        if not raw:
+            continue
+        key = _derive_key(raw)
+        box = SecretBox(key)
+        readable[_key_id(key)] = box
+        if is_current:
+            current = (_key_id(key), box)
+    return current, readable
+
+
+def _legacy_box() -> SecretBox:
+    """v1: key derived from Pulse's persistent session secret (read-only legacy support)."""
     import webserver
     secret = webserver._session_key()
     if not isinstance(secret, bytes) or len(secret) < 32:
         raise RuntimeError("Pulse-Session-Geheimnis ist nicht sicher genug.")
-    key = hashlib.sha256(b"Pulse recovery OAuth token encryption v1\x00" + secret).digest()
-    return SecretBox(key)
+    return SecretBox(hashlib.sha256(b"Pulse recovery OAuth token encryption v1\x00" + secret).digest())
 
 
 def _encrypt(token: str) -> str:
-    return base64.urlsafe_b64encode(bytes(_box().encrypt(token.encode("utf-8")))).decode("ascii")
+    current, _readable = _configured_keys()
+    if current is None:
+        raise RecoveryKeyError("PULSE_RECOVERY_KEY ist nicht gesetzt – Recovery-Freigaben können nicht gespeichert werden.")
+    key_id, box = current
+    payload = base64.urlsafe_b64encode(bytes(box.encrypt(token.encode("utf-8")))).decode("ascii")
+    return f"{_V2_PREFIX}{key_id}:{payload}"
+
+
+def token_state(stored: str) -> str:
+    """'current' | 'old-key' | 'legacy' | 'unreadable' – never raises, never returns the secret."""
+    stored = str(stored or "")
+    try:
+        current, readable = _configured_keys()
+        if stored.startswith(_V2_PREFIX):
+            _prefix, key_id, payload = stored.split(":", 2)
+            box = readable.get(key_id)
+            if box is None:
+                return "unreadable"
+            box.decrypt(base64.urlsafe_b64decode(payload.encode("ascii")))
+            return "current" if current and current[0] == key_id else "old-key"
+        _legacy_box().decrypt(base64.urlsafe_b64decode(stored.encode("ascii")))
+        return "legacy"
+    except (ValueError, UnicodeError, CryptoError, RuntimeError):
+        return "unreadable"
 
 
 def _decrypt(token: str) -> str | None:
+    token = str(token or "")
     try:
+        if token.startswith(_V2_PREFIX):
+            _prefix, key_id, payload = token.split(":", 2)
+            _current, readable = _configured_keys()
+            box = readable.get(key_id)
+            if box is None:
+                return None
+            return box.decrypt(base64.urlsafe_b64decode(payload.encode("ascii"))).decode("utf-8")
         raw = base64.urlsafe_b64decode(token.encode("ascii"))
-        return _box().decrypt(raw).decode("utf-8")
+        return _legacy_box().decrypt(raw).decode("utf-8")
     except (ValueError, UnicodeError, CryptoError, RuntimeError):
         return None
+
+
+def key_configured() -> bool:
+    """True when a usable PULSE_RECOVERY_KEY exists (a configured but weak key counts as not configured)."""
+    try:
+        return _configured_keys()[0] is not None
+    except RecoveryKeyError:
+        return False
+
+
+def encryption_status() -> dict:
+    """Counts per storage state for the admin/status view – makes unreadable consents visible instead of silent."""
+    counts = {"current": 0, "old-key": 0, "legacy": 0, "unreadable": 0}
+    with _db().connect() as db:
+        _init(db)
+        rows = db.execute("SELECT refresh_token_enc FROM recovery_oauth_tokens").fetchall()
+    for (stored,) in rows:
+        counts[token_state(str(stored))] += 1
+    try:
+        configured = _configured_keys()[0] is not None
+    except RecoveryKeyError:
+        configured = False
+    return {"key_configured": configured, "total": len(rows), **counts}
+
+
+def migrate_to_current_key(*, dry_run: bool = True) -> dict:
+    """Explicit, separate migration step: re-encrypt legacy (v1) and old-key rows with the current key.
+
+    Never runs automatically. ``dry_run=True`` (default) only reports what would change. Every row is first
+    decrypted and the new ciphertext is verified by decrypting it again before the row is updated, rows that
+    cannot be read are left untouched, and the whole step needs PULSE_RECOVERY_KEY. Take a database backup first."""
+    current, _readable = _configured_keys()
+    if current is None:
+        raise RecoveryKeyError("PULSE_RECOVERY_KEY ist nicht gesetzt – Migration nicht möglich.")
+    result = {"dry_run": bool(dry_run), "migrated": 0, "would_migrate": 0, "already_current": 0, "unreadable": 0}
+    with _db().connect() as db:
+        _init(db)
+        rows = db.execute("SELECT user_id, refresh_token_enc FROM recovery_oauth_tokens").fetchall()
+        for user_id, stored in rows:
+            state = token_state(str(stored))
+            if state == "current":
+                result["already_current"] += 1
+            elif state == "unreadable":
+                result["unreadable"] += 1
+            elif dry_run:
+                result["would_migrate"] += 1
+            else:
+                plain = _decrypt(str(stored))
+                fresh = _encrypt(plain) if plain else None
+                if not fresh or _decrypt(fresh) != plain:
+                    result["unreadable"] += 1
+                    continue
+                db.execute("UPDATE recovery_oauth_tokens SET refresh_token_enc=? WHERE user_id=? AND refresh_token_enc=?",
+                           (fresh, user_id, stored))
+                result["migrated"] += 1
+    return result
 
 
 def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None) -> None:
@@ -144,6 +281,13 @@ def get_refresh_token(user_id) -> str | None:
         _init(db)
         row = db.execute("SELECT refresh_token_enc FROM recovery_oauth_tokens WHERE user_id=?", (uid,)).fetchone()
     return _decrypt(str(row[0])) if row else None
+
+
+def has_stored_consent(user_id) -> bool:
+    """True when a consent row exists, even if its token can currently not be decrypted (AUTH-2)."""
+    with _db().connect() as db:
+        _init(db)
+        return db.execute("SELECT 1 FROM recovery_oauth_tokens WHERE user_id=?", (str(user_id or ""),)).fetchone() is not None
 
 
 def list_linked_users(limit: int = 100) -> list[dict]:
@@ -409,6 +553,10 @@ async def rejoin_user(
     bot_token = os.getenv("DISCORD_TOKEN", "").strip()
     if not bot_token:
         return False, "DISCORD_TOKEN fehlt"
+    if not key_configured():
+        # AUTH-2: Discord rotates refresh tokens on use. Without the dedicated key the replacement could not be
+        # stored and the consent would be lost – so the stored token is not used at all.
+        return False, "PULSE_RECOVERY_KEY fehlt – die Freigabe wurde nicht verwendet, damit sie nicht verloren geht"
     try:
         response = await _request_with_429_retry(lambda: client.post(
             "https://discord.com/api/v10/oauth2/token",

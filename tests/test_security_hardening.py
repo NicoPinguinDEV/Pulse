@@ -413,6 +413,8 @@ class RecoveryConsentTests(TempDb):
 
     def setUp(self):
         super().setUp()
+        self.recovery_key = patch.dict("os.environ", {"PULSE_RECOVERY_KEY": "unit-test-recovery-key-0123456789-ABCDEFGH"})  # AUTH-2
+        self.recovery_key.start()
         self.key = patch.object(ws, "SESSION_KEY", b"p" * 32)
         self.key.start()
         pulse_recovery.store_refresh_token(self.UID, "refresh-token-for-tests", now=100)
@@ -426,6 +428,7 @@ class RecoveryConsentTests(TempDb):
         for p in self.patches:
             p.stop()
         self.key.stop()
+        self.recovery_key.stop()
         super().tearDown()
 
     def _rejoin(self, status, body):
@@ -443,6 +446,18 @@ class RecoveryConsentTests(TempDb):
         ok, _ = self._rejoin(400, {"error": "invalid_grant"})
         self.assertFalse(ok)
         self.assertIsNone(pulse_recovery.get_refresh_token(self.UID))
+
+    def test_stored_consent_is_not_used_without_the_recovery_key(self):
+        """AUTH-2: Discord rotates refresh tokens on use; without the dedicated key the replacement could not be
+        stored, so the consent must not be used (and not be lost) at all."""
+        client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(200, {})), put=AsyncMock())
+        with patch.dict("os.environ", {"PULSE_RECOVERY_KEY": ""}):
+            ok, message = asyncio.run(pulse_recovery.rejoin_user(self.UID, "refresh-token-for-tests", None, client))
+        self.assertFalse(ok)
+        self.assertIn("PULSE_RECOVERY_KEY", message)
+        client.post.assert_not_awaited()
+        client.put.assert_not_awaited()
+        self.assertEqual(pulse_recovery.get_refresh_token(self.UID), "refresh-token-for-tests")
 
 
 # ---------------------------------------------------------------------------------------------------------
