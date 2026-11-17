@@ -68,7 +68,10 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     )
     registry = ws.pulse_ticket_category_registry()
 
-    tickets = [t for t in db.list_tickets(limit=2000) if str(t.get("guild_id")) in {"", "None", str(guild.id)}]
+    # AUTHZ-1: confidential categories (Highteam/Führungsebene) only for their responsible roles/admins;
+    # the helper also enforces the guild binding.
+    from pulse_ticket_access import filter_tickets
+    tickets = filter_tickets(ctx, db.list_tickets(limit=2000))
     rows = [(t, triage(t, now, settings)) for t in tickets]
     open_rows = [(t, i) for t, i in rows if i["state"] != "closed"]
     counts = {key: sum(1 for t, i in rows if matches_filter(t, i, key, actor_id)) for key, _ in VIEWS}

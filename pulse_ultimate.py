@@ -1229,7 +1229,7 @@ def register(app) -> None:
     async def ultimate_member(request: Request, user_id: str, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
         member = ctx.guild.get_member(int(user_id)) if str(user_id).isdigit() else None
-        if not member:
+        if not member or (member not in team_members(ctx.guild) and not ctx.perms.get("is_admin")):  # AUTHZ-9: files exist for team members (admins may open any)
             raise HTTPException(404, "Teammitglied nicht gefunden.")
         s = member_stats(member)
         p = s["profile"]
@@ -2906,7 +2906,7 @@ window.setInterval(loadPulseMonitor, 15000);
         shared = stats_context()
         for m in members:
             s = member_stats(m, shared)
-            data.append({"id":m.id,"name":m.display_name,"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"tickets":s["closed_tickets"],"warnings":s["warnings"]})
+            data.append({"id":m.id,"name":m.display_name,"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"tickets":s["closed_tickets"],"warnings":(s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms,ctx.user.get("id"),m.id) else None)})
         return JSONResponse({"generated_at":iso(),"members":data})
 
     @app.get("/ultimate/api/monitor")

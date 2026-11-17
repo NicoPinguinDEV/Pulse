@@ -136,3 +136,64 @@ class TeamStatusApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoneypotAuditAndOwnerGuardTests(unittest.IsolatedAsyncioTestCase):
+    """DISC-4: every trigger is audited, the owner is never banned, detection for others is unchanged."""
+
+    def _message(self, author_id=5, webhook_id=None):
+        from types import SimpleNamespace as NS
+        from unittest.mock import AsyncMock
+        from cogs import honeypot
+        guild = NS(id=1, name="G", owner_id=99, ban=AsyncMock())
+        message = NS(guild=guild, channel=NS(id=honeypot.HONEYPOT_CHANNEL_ID), id=777, webhook_id=webhook_id,
+                     author=NS(id=author_id, name="Tester"), delete=AsyncMock())
+        return guild, message
+
+    async def _trigger(self, message, ban_error=None):
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from cogs import honeypot
+        cog = honeypot.Honeypot(NS(user=NS(id=1000)))
+        if ban_error is not None:
+            message.guild.ban.side_effect = ban_error
+        with patch("webserver.log_audit") as audit:
+            await cog.on_message(message)
+        return audit
+
+    async def test_normal_author_is_banned_and_audited(self):
+        guild, message = self._message()
+        audit = await self._trigger(message)
+        guild.ban.assert_awaited_once()
+        self.assertEqual(audit.call_count, 1)
+        self.assertIn("gebannt", audit.call_args.args[3])
+
+    async def test_owner_is_not_banned_but_audited(self):
+        guild, message = self._message(author_id=99)
+        audit = await self._trigger(message)
+        guild.ban.assert_not_awaited()
+        self.assertIn("Inhaber", audit.call_args.args[3])
+
+    async def test_webhook_message_is_removed_audited_and_not_banned(self):
+        guild, message = self._message(webhook_id=42)
+        audit = await self._trigger(message)
+        guild.ban.assert_not_awaited()
+        message.delete.assert_awaited_once()
+        self.assertEqual(audit.call_count, 1)
+
+    async def test_refused_ban_is_audited_and_does_not_raise(self):
+        import discord
+        from types import SimpleNamespace as NS
+        guild, message = self._message()
+        audit = await self._trigger(message, ban_error=discord.Forbidden(NS(status=403, reason="x"), "no"))
+        self.assertIn("abgelehnt", audit.call_args.args[3])
+
+    async def test_audit_failure_never_stops_the_ban(self):
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from cogs import honeypot
+        guild, message = self._message()
+        cog = honeypot.Honeypot(NS(user=NS(id=1000)))
+        with patch("webserver.log_audit", side_effect=RuntimeError("db")):
+            await cog.on_message(message)
+        guild.ban.assert_awaited_once()

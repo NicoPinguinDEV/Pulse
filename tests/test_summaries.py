@@ -189,7 +189,15 @@ class SummaryRouteTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def get(self, path, perms):
-        with patch.object(ws, "auth", fake_auth_for(perms)):
+        base_auth = fake_auth_for(perms)
+
+        def auth(*args, **kwargs):
+            # AUTHZ-1: ticket routes are bound to the session's guild; the ticket belongs to the home guild.
+            ctx = base_auth(*args, **kwargs)
+            ctx.guild = SimpleNamespace(**{**vars(ctx.guild), "id": ws.GUILD_ID})
+            return ctx
+
+        with patch.object(ws, "auth", auth):
             return self.client.get(path)
 
     def test_open_ticket_is_summarised_from_the_channel_for_ticket_staff_only(self):

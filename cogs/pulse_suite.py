@@ -31,6 +31,7 @@ import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
+from pulse_rank_guard import actor_rank_change_problem
 
 BASE = str(pulse_paths.DATA_DIR)  # Phase 13: data directory (pulse_suite.db, activity_check.db)
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
@@ -139,6 +140,18 @@ def seed():
 
 def now():return datetime.now(timezone.utc)
 def iso():return now().isoformat(timespec="seconds")
+
+ACTION_TTL_HOURS = 24  # DISC-2: lifetime of an action that waits for its second approval
+
+def action_expired(created_at, ttl_hours: int = ACTION_TTL_HOURS) -> bool:
+    """True when a pending action is older than its lifetime (or its timestamp is unreadable: fail closed)."""
+    try:
+        created = datetime.fromisoformat(str(created_at))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=now().tzinfo)
+        return now() - created > timedelta(hours=ttl_hours)
+    except (TypeError, ValueError):
+        return True
 def _schedule_interval(row):
     """Parse local BOCHUM-RP shift times into UTC, rejecting ambiguous/nonexistent DST hours."""
     day = datetime.strptime(str(row["date"]), "%Y-%m-%d").date()
@@ -642,7 +655,7 @@ def register_routes():
         if not m or m.bot or m not in members(ctx.guild,web):raise HTTPException(404,"Teammitglied nicht gefunden")
         upsert_member(m);sm=member_row(member_id) or {};td=web.load_json(web.DATA_FILE,{});entry=web.user_entry(td,str(member_id));s=team_score(m,web)
         with cx() as c:ps=[dict(x) for x in c.execute("SELECT * FROM suite_promotions WHERE target_id=? ORDER BY created_at DESC",(str(member_id),)).fetchall()];aud=[dict(x) for x in c.execute("SELECT * FROM suite_audit WHERE target_id=? OR actor_id=? ORDER BY rowid DESC LIMIT 80",(str(member_id),str(member_id))).fetchall()]
-        ticks=[x for x in db.list_tickets(limit=3000) if str(x.get("user_id"))==str(member_id) or str(x.get("claimed_by_id"))==str(member_id)];tasks_=db.list_tasks(assignee_id=member_id,limit=1000,include_archived=True);sh=web.load_shifts();hist=[x for x in sh.get("history",[]) if str(x.get("mod_id"))==str(member_id)];last=hist[-1].get("ended_at_iso") if hist else "—"
+        ticks=[x for x in web.pulse_ticket_access.filter_tickets(ctx,db.list_tickets(limit=3000)) if str(x.get("user_id"))==str(member_id) or str(x.get("claimed_by_id"))==str(member_id)];tasks_=db.list_tasks(assignee_id=member_id,limit=1000,include_archived=True);sh=web.load_shifts();hist=[x for x in sh.get("history",[]) if str(x.get("mod_id"))==str(member_id)];last=hist[-1].get("ended_at_iso") if hist else "—"
         try:
             with closing(sqlite3.connect(os.path.join(BASE,"activity_check.db"))) as c, c:act=c.execute("SELECT COUNT(*) FROM responses WHERE user_id=?",(member_id,)).fetchone()[0]
         except Exception:act=0
@@ -1113,6 +1126,10 @@ def register_routes():
             if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
             if status not in {"pending","in_review","interview","accepted","rejected"}:raise HTTPException(400,"Ungültiger Status")
             before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            # AUTHZ-10: this route must not bypass the decision process (Board: min. reviews, reason, role/DM
+            # follow-ups, status revision). Decided applications stay decided, and accept/reject only exist there.
+            if expected_status in {"hired","accepted","rejected"} and status!=expected_status:raise HTTPException(409,"Entschiedene Bewerbungen können nicht mehr geändert werden.")
+            if status in {"accepted","rejected"} and status!=expected_status:raise HTTPException(400,"Annahme und Ablehnung werden im Bewerbungs-Board entschieden (Mindestbewertungen, Pflichtgrund, Benachrichtigung).")
             item["status"]=status;item["processor_id"]=ctx.user["id"];item["processor_name"]=ctx.user.get("global_name","");item["testergebnis"]=testergebnis[:1000];item["internal_notes"]=note[:3000];item.setdefault("history",[]).append({"at":iso(),"action":status,"by":ctx.user.get("global_name",""),"details":note[:1000]});item["history"]=item["history"][-100:]
             webserver.get_applications_repository().update_entry(app_id,expected_status=expected_status,before=before,updated=item)
             audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),app_id,appname(app_id,item),"application_updated",f"{status} · {note}")
@@ -1140,6 +1157,8 @@ def register_routes():
             item=apps.get(application_id)
             if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
             before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            # AUTHZ-10: an interview never revives an already decided application.
+            if expected_status not in {"","pending","in_review","interview"}:raise HTTPException(409,"Für diese Bewerbung kann kein Gespräch mehr angelegt werden.")
             v=[max(0,min(100,x)) for x in (auftreten,kommunikation,regeln,aktivitaet,team)];overall=sum(v)//5;rec="Sehr geeignet" if overall>=85 else "Geeignet" if overall>=70 else "Bedingt geeignet" if overall>=55 else "Nicht empfohlen";iid="int_"+uuid.uuid4().hex[:10]
             with cx() as c:c.execute("INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",(iid,application_id,str(item.get("discord_id") or item.get("user_id") or ""),appname(application_id,item),json.dumps(dict(zip(("Auftreten","Kommunikation","Regelkenntnis","Aktivität","Teamfähigkeit"),v)),ensure_ascii=False),overall,rec,notes[:3000],str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
             item["interview_id"]=iid;item["testergebnis"]=f"{overall}% · {rec}";item["status"]="interview";item.setdefault("history",[]).append({"at":iso(),"action":"interview","by":ctx.user.get("global_name",""),"details":f"{overall}% · {rec}"})
@@ -1160,6 +1179,11 @@ def register_routes():
         # ctx.user ist die Session (dict); die Rollenhierarchie kommt vom Discord-Mitglied ctx.member.
         actor=ctx.member
         if not actor or not m or not r or r.id not in ids or str(m.id)==str(ctx.user["id"]) or r.position>=actor.top_role.position:raise HTTPException(403,"Ungültige Zielposition oder Hierarchie.")
+        # AUTHZ-4: only existing team members can be promoted here (hiring has its own flow) and the shared
+        # actor-rank rules apply already when the request is created.
+        if not any(x.id in ids for x in m.roles):raise HTTPException(403,"Nur Teammitglieder können befördert werden.")
+        _problem=actor_rank_change_problem(actor=actor,actor_is_admin=bool(ctx.perms.get("is_admin")),target=m,role=r,ordered_team_role_ids=web.ordered_team_role_ids(ctx.guild,ids),action="promote")
+        if _problem:raise HTTPException(403,_problem)
         pid="prom_"+uuid.uuid4().hex[:10];required=2 if r.position>=actor.top_role.position-1 else 1
         with cx() as c:c.execute("INSERT INTO suite_promotions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(pid,str(m.id),m.display_name,m.top_role.name,str(m.top_role.id),r.name,str(r.id),reason[:2000],performance[:1000],activity[:1000],str(len(warns(m,web))),team_score(m,web)["score"],"pending",required,"[]",str(ctx.user["id"]),ctx.user.get("global_name",""),"",iso(),iso()))
         audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promotion_created",f"{m.top_role.name} → {r.name} · {reason}");return RedirectResponse("/suite/promotions",303)
@@ -1176,16 +1200,34 @@ def register_routes():
         elif decision=="reject":
             with cx() as c:c.execute("UPDATE suite_promotions SET status='rejected',decision_note=?,updated_at=? WHERE id=?",(f"Abgelehnt von {ctx.user.get('global_name','')}",iso(),pid));audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),p["target_id"],p["target_name"],"promotion_rejected","Antrag abgelehnt")
         else:
+            # AUTHZ-4: four-eyes (the requester never approves), permissions/hierarchy/lockouts are re-checked
+            # at approval time and the state change is a compare-and-set, so parallel or repeated requests
+            # cannot approve twice or overwrite each other's approvals.
+            web=webserver
+            if str(p.get("created_by_id"))==str(ctx.user["id"]):raise HTTPException(403,"Vier-Augen-Prinzip: Den eigenen Antrag muss jemand anderes freigeben.")
             if any(str(x.get("id"))==str(ctx.user["id"]) for x in a):raise HTTPException(400,"Du hast bereits freigegeben")
+            if locked():raise HTTPException(423,"Pulse Emergency Lock ist aktiv.")
+            m=ctx.guild.get_member(int(p["target_id"]));role=ctx.guild.get_role(int(p["target_role_id"]))
+            _ids={int(x) for x in web.load_config().get("team_role_ids",[])}
+            if not ctx.member or not m or not role or role.position>=ctx.member.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
+            _problem=actor_rank_change_problem(actor=ctx.member,actor_is_admin=bool(ctx.perms.get("is_admin")),target=m,role=role,ordered_team_role_ids=web.ordered_team_role_ids(ctx.guild,_ids),action="promote")
+            if _problem:raise HTTPException(403,_problem)
+            _safe_ok,_safe_msg=await web.enforce_team_safety_action_lockout(ctx.guild,ctx.member,m,"promote",source="Suite-Freigabe")
+            if not _safe_ok:raise HTTPException(403,_safe_msg)
             a.append({"id":ctx.user["id"],"name":ctx.user.get("global_name",""),"at":iso()})
+            _new=json.dumps(a,ensure_ascii=False)
             if len(a)>=int(p["required_approvals"]):
-                m=ctx.guild.get_member(int(p["target_id"]));role=ctx.guild.get_role(int(p["target_role_id"]))
-                if not ctx.member or not m or not role or role.position>=ctx.member.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
-                await m.add_roles(role,reason="Pulse Promotion "+pid)
-                with cx() as c:c.execute("UPDATE suite_promotions SET approvals_json=?,status='approved',updated_at=? WHERE id=?",(json.dumps(a,ensure_ascii=False),iso(),pid))
+                with cx() as c:_claimed=c.execute("UPDATE suite_promotions SET status='executing',approvals_json=?,updated_at=? WHERE id=? AND status IN ('pending','revision') AND approvals_json=?",(_new,iso(),pid,p["approvals_json"])).rowcount
+                if _claimed!=1:raise HTTPException(409,"Der Antrag wurde gleichzeitig geändert – bitte Seite neu laden.")
+                try:await m.add_roles(role,reason="Pulse Promotion "+pid)
+                except Exception:
+                    with cx() as c:c.execute("UPDATE suite_promotions SET status=?,approvals_json=?,updated_at=? WHERE id=? AND status='executing'",(p["status"],p["approvals_json"],iso(),pid))
+                    raise HTTPException(502,"Discord hat die Rollenvergabe abgelehnt – der Antrag bleibt offen.")
+                with cx() as c:c.execute("UPDATE suite_promotions SET status='approved',updated_at=? WHERE id=? AND status='executing'",(iso(),pid))
                 audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promote",f'{p["current_role"]} → {role.name} · Antrag {pid}')
             else:
-                with cx() as c:c.execute("UPDATE suite_promotions SET approvals_json=?,updated_at=? WHERE id=?",(json.dumps(a,ensure_ascii=False),iso(),pid))
+                with cx() as c:_stored=c.execute("UPDATE suite_promotions SET approvals_json=?,updated_at=? WHERE id=? AND status IN ('pending','revision') AND approvals_json=?",(_new,iso(),pid,p["approvals_json"])).rowcount
+                if _stored!=1:raise HTTPException(409,"Der Antrag wurde gleichzeitig geändert – bitte Seite neu laden.")
                 audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),p["target_id"],p["target_name"],"promotion_approval",f'{len(a)}/{p["required_approvals"]}')
         return RedirectResponse("/suite/promotions",303)
 
@@ -1416,7 +1458,9 @@ def search_all(q,ctx):
         apps=web.load_json(web.APPS_FILE,{})
         for aid,a in apps.items():
             if q in json.dumps(a,ensure_ascii=False).lower():out.append({"type":"Bewerbung","title":appname(aid,a),"meta":aid,"url":f"/suite/applications/{aid}"})
-    for t in db.list_tickets(limit=3000):
+    from pulse_ticket_access import filter_tickets  # AUTHZ-1
+    _tp=ctx.perms or {}
+    for t in (filter_tickets(ctx,db.list_tickets(limit=3000)) if (_tp.get('can_manage_tickets') or _tp.get('can_promote') or _tp.get('is_admin')) else []):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Ticket","title":f"Ticket {t.get('id')}","meta":str(t.get('category','')),"url":"/tickets"})
     for t in db.list_tasks(limit=3000,include_archived=True):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Aufgabe","title":t.get("title","Aufgabe"),"meta":t.get("id"),"url":"/suite/tasks"})
@@ -1427,11 +1471,16 @@ def search_all(q,ctx):
     ]
     if web.can_review_applications(ctx):
         searchable_tables.append(("suite_interviews","Gespräch","applicant_name","/suite/interviews"))
+    # AUTHZ-9: cases are a leadership page (manager) -> not searchable for everyone else. The audit trail is a
+    # leadership page too; below leadership only recruiters find its recruiting-related rows (see the loop).
+    is_lead=bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
+    if not is_lead:
+        searchable_tables=[t for t in searchable_tables if t[0]!="suite_cases"]
     with cx() as c:
         for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
-                if table in {"suite_audit", "suite_events"} and not web.can_review_applications(ctx):
+                if table in {"suite_audit", "suite_events"}:
                     # Audit actions such as "application_updated" contain no German display
                     # keyword. Classify structured action names as sensitive as well as payloads.
                     recruiting_text = json.dumps(d, ensure_ascii=False).casefold()
@@ -1444,8 +1493,12 @@ def search_all(q,ctx):
                         term in recruiting_text
                         for term in ("bewerbung", "interview", "gespräch", "applicant", "recruit", "application")
                     )
-                    if sensitive_action or sensitive_payload:
+                    recruiting_row = sensitive_action or sensitive_payload
+                    can_recruit = web.can_review_applications(ctx)
+                    if not can_recruit and recruiting_row:
                         continue
+                    if table == "suite_audit" and not is_lead and not (can_recruit and recruiting_row):
+                        continue  # AUTHZ-9: no search oracle for the leadership audit trail
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
     if web.can_access_melonly(ctx):
         for x in web.get_melonly_repository().search_payload(q):
@@ -1912,6 +1965,19 @@ class PulseSuite(commands.Cog):
             return "Zielmitglied ist nicht in deiner zulässigen Rollen-Hierarchie."
         if role.id not in role_ids or role.is_default() or role.managed:
             return "Bitte wähle eine verwaltbare Team-Rangrolle aus."
+        # DISC-1: actor-side hierarchy (same rules as the Dashboard) before anything else.
+        web = __import__("webserver")
+        perms, _ = web.compute_perms(interaction.guild, interaction.user.id, web.load_config())
+        actor_problem = actor_rank_change_problem(
+            actor=interaction.user,
+            actor_is_admin=bool(perms.get("is_admin")),
+            target=member,
+            role=role,
+            ordered_team_role_ids=web.ordered_team_role_ids(interaction.guild, role_ids),
+            action=action,
+        )
+        if actor_problem:
+            return actor_problem
         bot_member = interaction.guild.me
         if not bot_member or not bot_member.guild_permissions.manage_roles:
             return "Dem Bot fehlt die Berechtigung „Rollen verwalten“."
@@ -2222,6 +2288,16 @@ class PulseSuite(commands.Cog):
             row=c.execute("SELECT * FROM suite_actions WHERE id=?",(action_id,)).fetchone()
             if not row or row["status"]!="awaiting_second" or row["created_by_id"]==str(i.user.id):
                 return await i.response.send_message("❌ Kein freigabefähiger Vorgang oder du bist dessen Ersteller.",ephemeral=True)
+            # DISC-2: pending actions expire, and the creator must still be entitled to the action at approval time
+            # (a stale request from a since-demoted/removed creator must not be executed by a second person).
+            if action_expired(row["created_at"]):
+                c.execute("UPDATE suite_actions SET status='expired',updated_at=? WHERE id=? AND status='awaiting_second'",(iso(),action_id))
+                return await i.response.send_message(f"❌ Dieser Vorgang ist nach {ACTION_TTL_HOURS} Stunden abgelaufen und wurde ungültig. Bitte neu anlegen.",ephemeral=True)
+            creator=i.guild.get_member(int(row["created_by_id"])) if str(row["created_by_id"]).isdigit() else None
+            creator_perms,_c=web.compute_perms(i.guild,int(row["created_by_id"]),web.load_config()) if creator else ({},None)
+            if not creator or not (creator_perms.get("can_promote") or creator_perms.get("is_admin")):
+                c.execute("UPDATE suite_actions SET status='cancelled',updated_at=? WHERE id=? AND status='awaiting_second'",(iso(),action_id))
+                return await i.response.send_message("❌ Der Ersteller ist nicht mehr berechtigt oder nicht mehr auf dem Server – der Vorgang wurde verworfen.",ephemeral=True)
             try:
                 payload=json.loads(row["payload_json"])
                 target_id=int(payload["target_id"])
@@ -2258,6 +2334,11 @@ class PulseSuite(commands.Cog):
                 if any(r.position>=bot_member.top_role.position for r in team_roles):
                     return await i.response.send_message("❌ Mindestens eine Teamrolle liegt auf oder über der Bot-Rolle.",ephemeral=True)
 
+            if operation=="kick_member":
+                # DISC-6: per-moderator kick/ban limit at the source (Anti-Nuke trusts the bot's own actions).
+                import pulse_sanction_guard
+                _lim_ok,_lim_msg=pulse_sanction_guard.reserve(i.guild.id,i.user.id,"kick",owner_id=i.guild.owner_id)
+                if not _lim_ok:return await i.response.send_message("❌ "+_lim_msg,ephemeral=True)
             claimed=c.execute(
                 "UPDATE suite_actions SET status='executing',approved_by_id=?,approved_by_name=?,updated_at=? WHERE id=? AND status='awaiting_second'",
                 (str(i.user.id),i.user.display_name,iso(),action_id),
@@ -2276,6 +2357,8 @@ class PulseSuite(commands.Cog):
                     target,
                     web.load_config(),
                     f"Pulse Team-Kick {action_id} · {reason}",
+                    actor=i.user,
+                    actor_is_admin=bool(p.get("is_admin")),
                 )
                 if not kick_result.get("ok"):
                     failure = str(kick_result.get("message") or "Rollen konnten nicht sicher zurückgesetzt werden.")

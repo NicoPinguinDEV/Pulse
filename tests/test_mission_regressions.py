@@ -189,7 +189,9 @@ class PromotionApprovalTests(_TempDb):
         from unittest.mock import AsyncMock
         self.roles = {rid: _Role(rid, pos) for rid, pos in ((self.SUPPORTER, 1), (self.MODERATOR, 2), (self.LEAD, 3),
                                                              (self.ADMIN_ROLE, 4), (self.BOT_ROLE, 9))}
-        self.person = SimpleNamespace(id=55, display_name="Max", add_roles=AsyncMock(), remove_roles=AsyncMock())
+        self.person = SimpleNamespace(id=55, display_name="Max", add_roles=AsyncMock(), remove_roles=AsyncMock(),
+                                      roles=[self.roles[self.SUPPORTER]], top_role=self.roles[self.SUPPORTER], bot=False,
+                                      guild_permissions=SimpleNamespace(administrator=False))
         self.guild = SimpleNamespace(get_member=lambda uid: self.person if uid == 55 else None,
                                      get_role=lambda rid: self.roles.get(rid), me=SimpleNamespace(top_role=self.roles[self.BOT_ROLE]))
         config = {"team_role_ids": [self.SUPPORTER, self.MODERATOR, self.LEAD]}
@@ -203,7 +205,9 @@ class PromotionApprovalTests(_TempDb):
     def ctx(self, admin=False, top=LEAD):
         from types import SimpleNamespace
         return SimpleNamespace(guild=self.guild, perms={"is_admin": admin, "can_approve": True},
-                               member=SimpleNamespace(top_role=self.roles[top]), user={"id": "9", "global_name": "Lead"})
+                               member=SimpleNamespace(id=9, top_role=self.roles[top], roles=[self.roles[top]], bot=False,
+                                                      guild_permissions=SimpleNamespace(administrator=False)),
+                               user={"id": "9", "global_name": "Lead"})
 
     def promote(self, ctx, target, old):
         import asyncio

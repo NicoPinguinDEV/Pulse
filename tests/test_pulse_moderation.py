@@ -1,5 +1,8 @@
 """Pure policy tests for the configurable AutoMod and anti-nuke rules."""
 import asyncio
+import os
+
+os.environ["PULSE_ALLOWED_GUILD_IDS"] = "*"  # DISC-8: these tests use fake guild ids (explicit operator opt-out)
 import unittest
 from collections import deque
 from types import SimpleNamespace
@@ -108,7 +111,7 @@ class AntiNukePolicyTests(unittest.TestCase):
                 "window_seconds": 10,
             }
 
-            with patch("builtins.print"), patch.object(pulse_db, "record_event") as record_event:
+            with patch("builtins.print"), patch("cogs.antinuke.AUDIT_LOOKUP_DELAYS", (0.0,)), patch.object(pulse_db, "record_event") as record_event:
                 await cog._handle_event(guild, "ban", target.id)
                 await cog._handle_event(guild, "ban", target.id)
                 await cog._handle_event(guild, "ban", target.id)
@@ -151,7 +154,7 @@ class AntiNukePolicyTests(unittest.TestCase):
             cog._config = lambda: {"enabled": True, "events": ["ban"], "action_limit": 2, "window_seconds": 10}
             cog._alert = AsyncMock()
 
-            with patch("builtins.print"), patch.object(pulse_db, "record_event"):
+            with patch("builtins.print"), patch("cogs.antinuke.AUDIT_LOOKUP_DELAYS", (0.0,)), patch.object(pulse_db, "record_event"):
                 await cog._handle_event(guild, "ban", target.id)
                 await cog._handle_event(guild, "ban", target.id)
 

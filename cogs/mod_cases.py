@@ -209,6 +209,15 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     ) -> None:
         """Creates the case, sends the DM first (kick/ban remove the person), then acts on Discord."""
         import webserver
+        if action in ("kick", "ban"):
+            # DISC-6: Anti-Nuke trusts the bot itself, so Pulse limits kicks/bans per moderator at the source
+            # (refused before any case, DM or Discord action).
+            import pulse_sanction_guard
+            allowed, limit_message = pulse_sanction_guard.reserve(
+                interaction.guild.id, interaction.user.id, action, owner_id=interaction.guild.owner_id)
+            if not allowed:
+                await respond("❌ " + limit_message)
+                return
         try:
             case = mc.create_case(interaction.guild.id, target, action, grund, beweis, minutes, interaction.user,
                                  reason_template_id=reason_template_id, reason_template_version=reason_template_version)
@@ -241,6 +250,9 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             elif action == "ban":
                 await interaction.guild.ban(target, reason=reason, delete_message_seconds=0)
         except (discord.Forbidden, discord.HTTPException) as exc:
+            if action in ("kick", "ban"):
+                import pulse_sanction_guard
+                pulse_sanction_guard.release(interaction.guild.id, interaction.user.id)  # nothing was executed
             mc.mark(case["id"], status="failed", close_note=type(exc).__name__)
             await respond(f"❌ Discord hat die Aktion verweigert ({type(exc).__name__}). Fall {case['id']} ist als fehlgeschlagen vermerkt.")
             return

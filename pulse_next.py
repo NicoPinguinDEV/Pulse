@@ -483,13 +483,16 @@ def get_search_results(ctx, q):
     q = q.strip()[:100]
     if not q:
         return {}
-    result={"team":[],"cases":get_cases_for_search(q),"roblox":[],"ideas":[],"announcements":[],"tasks":[],"tickets":[]}
+    # AUTHZ-9: cases and Roblox profiles are manager-only pages -> the search must not be an oracle for them.
+    _sp=getattr(ctx,"perms",{}) or {}
+    _lead=bool(_sp.get("can_promote") or _sp.get("is_admin"))
+    result={"team":[],"cases":get_cases_for_search(q) if _lead else [],"roblox":[],"ideas":[],"announcements":[],"tasks":[],"tickets":[]}
     ql=q.lower()
     for m in members(ctx.guild):
         if ql in m.display_name.lower() or ql in m.name.lower() or q in str(m.id):
             result["team"].append({"id":m.id,"name":m.display_name,"roles":role_names(m)})
     with u.cx() as c:
-        result["roblox"]=[dict(r) for r in c.execute(
+        result["roblox"]=[] if not _lead else [dict(r) for r in c.execute(
             "SELECT roblox_id,username,display_name,status FROM ultimate_roblox_profiles WHERE username LIKE ? OR display_name LIKE ? OR roblox_id LIKE ? LIMIT 20",
             (f"%{q}%",f"%{q}%",f"%{q}%"),
         ).fetchall()]
@@ -505,7 +508,11 @@ def get_search_results(ctx, q):
         result["tasks"]=[t for t in db.list_tasks(limit=500,include_archived=True) if ql in str(t.get("title","")).lower()][:20]
     except Exception: pass
     try:
-        result["tickets"]=[t for t in db.list_tickets(limit=5000) if ql in str(t).lower()][:20]
+        # AUTHZ-1/9: only ticket managers, and only tickets whose category the viewer may see.
+        from pulse_ticket_access import filter_tickets
+        _perms=getattr(ctx,"perms",{}) or {}
+        _mgr=_perms.get("can_manage_tickets") or _perms.get("can_promote") or _perms.get("is_admin")
+        result["tickets"]=[t for t in filter_tickets(ctx,db.list_tickets(limit=5000)) if ql in str(t).lower()][:20] if _mgr else []
     except Exception: pass
     return result
 
@@ -532,21 +539,38 @@ async def promote_now(ctx, row):
     if role.id not in team_ids:
         return "Zielrolle ist keine Teamrolle – nichts vergeben."
     approver = getattr(ctx, "member", None)
-    if not ctx.perms.get("is_admin") and (approver is None or role >= approver.top_role):
-        return "Du kannst nicht auf deinen eigenen Rang oder höher befördern – nichts vergeben."
+    # AUTHZ-3: same actor-side rules as /promote and the Dashboard (target rank below the approver, no admin
+    # targets/roles, no self-change) – shared in pulse_rank_guard.
+    from pulse_rank_guard import actor_rank_change_problem, team_rank_index
+    ordered_ids = webserver.ordered_team_role_ids(guild, list(team_ids))
+    problem = actor_rank_change_problem(
+        actor=approver, actor_is_admin=bool(ctx.perms.get("is_admin")), target=member, role=role,
+        ordered_team_role_ids=ordered_ids, action="promote",
+    )
+    if problem:
+        return problem + " – nichts vergeben."
+    old_role_to_remove = None
+    if old_role_id.isdigit() and old_role_id != role_id:
+        old = guild.get_role(int(old_role_id))
+        # The old role comes from the request form: only remove it when the target really holds it, it is a
+        # team role below the bot and (non-admin) strictly below the approver's own rank.
+        if old and old.id in team_ids and any(r.id == old.id for r in member.roles) and (not me or old < me.top_role):
+            if ctx.perms.get("is_admin") or (
+                approver is not None and old < approver.top_role
+                and ordered_ids.index(old.id) < team_rank_index(approver, ordered_ids)
+            ):
+                old_role_to_remove = old
     try:
         await member.add_roles(role, reason=f"Pulse Beförderung {row['id']}")
     except discord.Forbidden:
         return "Discord hat die Rollenvergabe abgelehnt (Bot-Rolle/Berechtigung prüfen) – nichts geändert."
     except discord.HTTPException as exc:
         return f"Rolle konnte nicht vergeben werden (HTTP {exc.status}) – nichts geändert."
-    if old_role_id.isdigit() and old_role_id != role_id:
-        old = guild.get_role(int(old_role_id))
-        if old and old.id in team_ids and (not me or old < me.top_role):
-            try:
-                await member.remove_roles(old, reason=f"Pulse Beförderung {row['id']}")
-            except discord.HTTPException as exc:
-                print(f"⚠️ Alte Rolle nach Beförderung {row['id']} nicht entfernt: HTTP {exc.status}")
+    if old_role_to_remove is not None:
+        try:
+            await member.remove_roles(old_role_to_remove, reason=f"Pulse Beförderung {row['id']}")
+        except discord.HTTPException as exc:
+            print(f"⚠️ Alte Rolle nach Beförderung {row['id']} nicht entfernt: HTTP {exc.status}")
     event(str(member.id),"promotion","Beförderung abgeschlossen",f"{row['from_rank']} → {row['to_rank']}",actor_id(ctx),actor_name(ctx))
     db.notify(member.id,"🏆 Beförderung",f"Du wurdest zu {row['to_rank']} befördert.","success","/ultimate/person/"+str(member.id))
     return "Beförderung angewendet."
@@ -886,6 +910,13 @@ def register(app):
             with cx() as c:
                 target_row=c.execute("SELECT * FROM next_promotions WHERE id=?",(appr["object_id"],)).fetchone()
             if not target_row: raise HTTPException(404,"Beförderung nicht gefunden.")
+        if final=="approved" and target_row:
+            # AUTHZ-5: an active Teamler-Schutz lockout must also block this alternative promotion path.
+            import webserver as _ws
+            _ok,_msg=await _ws.enforce_team_safety_action_lockout(
+                ctx.guild,getattr(ctx,"member",None),ctx.guild.get_member(int(target_row["user_id"])) if str(target_row["user_id"]).isdigit() else None,
+                "promote",source="Freigaben")
+            if not _ok: raise HTTPException(403,_msg)
         with cx() as c:
             c.execute("UPDATE next_approvals SET status=?,approver_id=?,approver_name=?,note=?,decided_at=? WHERE id=?",
                       (final,actor_id(ctx),actor_name(ctx),note[:2000],iso(),approval_id))
@@ -1167,7 +1198,7 @@ def register(app):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
         for m,s in await asyncio.to_thread(all_stats, ctx.guild):
-            writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"])])
+            writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],(s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms,ctx.user.get("id"),m.id) else ""),s["training_passed"])])
         return HTMLResponse(output.getvalue(),headers={"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=pulse_team_report.csv"})
 
     @app.get("/ultimate/backup", response_class=HTMLResponse)
@@ -1361,7 +1392,7 @@ def register(app):
         shared=u.stats_context()
         for m in members(ctx.guild):
             s=u.member_stats(m, shared)
-            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
+            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":(s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms,ctx.user.get("id"),m.id) else None),"training_passed":s["training_passed"]})
         with cx() as c:
             payload["goals"]=[dict(r) for r in c.execute("SELECT * FROM next_goals ORDER BY created_at DESC").fetchall()]
             payload["ideas"]=[dict(r) for r in c.execute("SELECT * FROM next_ideas ORDER BY created_at DESC").fetchall()]

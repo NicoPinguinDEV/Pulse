@@ -37,6 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import pulse_public_site
 import pulse_summaries
+import pulse_ticket_access
 import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
@@ -740,8 +741,13 @@ async def _cleanup_absence_after_team_exit(guild, member) -> None:
         print(f"⚠️ Abmeldungs-Bereinigung nach Team-Kick übersprungen ({type(exc).__name__}).")
 
 
-async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick") -> dict:
-    """Keep only the configured citizen/ex-team roles; never remove the member from Discord."""
+async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick",
+                                     actor=None, actor_is_admin: bool = True) -> dict:
+    """Keep only the configured citizen/ex-team roles; never remove the member from Discord.
+
+    AUTHZ-6: when a human ``actor`` who is not an administrator triggers the reset, a target holding an
+    administrator role or any role at/above the actor's own top role is refused (nothing is changed).
+    Automated callers pass no actor and keep the previous behaviour."""
     if not guild or not member:
         return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
 
@@ -776,6 +782,19 @@ async def apply_team_kick_role_reset(guild, member, config: dict | None = None, 
         role for role in member.roles
         if not role.is_default() and role.id not in keep_role_ids
     ]
+    if actor is not None and not actor_is_admin:
+        actor_top = getattr(getattr(actor, "top_role", None), "position", None)
+        protected = [
+            role for role in roles_to_remove
+            if getattr(getattr(role, "permissions", None), "administrator", False)
+            or actor_top is None or role.position >= actor_top
+        ]
+        if protected or getattr(getattr(member, "guild_permissions", None), "administrator", False):
+            return {
+                "ok": False, "changed": False,
+                "message": "Team-Kick abgebrochen: Das Zielmitglied besitzt Administrator- oder höhere Rollen, "
+                           "die du nicht verwalten darfst. Das kann nur ein Administrator durchführen.",
+            }
     blocked_roles = [
         role for role in roles_to_remove
         if role.managed or role.position >= bot_member.top_role.position
@@ -5087,6 +5106,9 @@ def safe_log_return_to(value: str) -> str:
     value = str(value or "/dashboard").strip()
     if value in {"/dashboard", "/melonly"}:
         return value
+    player_file = re.fullmatch(r"/melonly\?player_file=(\d{1,15})", value)
+    if player_file:  # personal Melonly player file of one Roblox player id
+        return f"/melonly?player_file={player_file.group(1)}"
     for base in ("/dashboard", "/melonly"):
         prefix = base + "?player_history="
         if value.startswith(prefix):
@@ -5313,7 +5335,10 @@ def csv_safe(value) -> str:
 
 @app.get("/export/logs")
 async def export_logs(request: Request, user_session: str = Cookie(None)):
-    auth(request, user_session, perm="can_view_analytics")
+    ctx = auth(request, user_session, perm="can_view_analytics")
+    # AUTHZ-8: the export contains every Melonly record (notes, bans, BOLOs) -> same read gate as the Melonly page.
+    if not can_access_melonly(ctx):
+        raise HTTPException(status_code=403, detail="Daf\u00fcr fehlt dir die Berechtigung.")
     output = io.StringIO()
     output.write("\ufeff")  # BOM: Excel zeigt Umlaute korrekt an
     writer = csv.writer(output, delimiter=';')
@@ -6619,7 +6644,7 @@ async def pulse_ticket_category_delete(
 async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
     transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
     if not transcript_name or transcript_name != f"{ticket_id}.txt":
@@ -6647,7 +6672,7 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
     from pulse_pro import render_pro_page
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
     path = _ticket_transcript_file(ticket)
     if path is None:
@@ -7187,7 +7212,7 @@ async def pulse_tickets_dashboard_action(
 ):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
-    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+    if not pulse_ticket_access.can_access_ticket(ctx, ticket):
         return back("/tickets", "Ticket nicht gefunden oder gehört zu einem anderen Server.", False)
 
     bot = getattr(request.app.state, "bot", None)
@@ -7955,6 +7980,13 @@ async def team_role_manager_save(
     target_idx = team_rank(member, team_role_ids, guild)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         return back(f"/team/{user_id}/roles", "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
+
+    # AUTHZ-5: the role manager is an alternative rank-change path – an active Teamler-Schutz lockout applies here too.
+    safety_ok, safety_message = await enforce_team_safety_action_lockout(
+        guild, ctx.member, member, "promote", config, source="Rollenmanager",
+    )
+    if not safety_ok:
+        return back(f"/team/{user_id}/roles", safety_message, False)
 
     action_reason = (action_reason or "").strip()[:500]
     if not action_reason:
@@ -12614,7 +12646,8 @@ async def handle_action(
                 # One shared, fail-closed implementation performs every role and hierarchy check
                 # before making the single role update. It never calls Member.kick().
                 kick_result = await apply_team_kick_role_reset(
-                    guild, member, config, f"Dashboard durch {actor}: {action_reason}"
+                    guild, member, config, f"Dashboard durch {actor}: {action_reason}",
+                    actor=ctx.member, actor_is_admin=bool(ctx.perms.get("is_admin")),  # AUTHZ-6
                 )
                 if not kick_result.get("ok"):
                     return back(

@@ -112,7 +112,11 @@ class ReplayTests(unittest.TestCase):
             await cog.on_member_update(before, SimpleNamespace(roles=[safe], guild=guild, id=900))  # harmless role
             await cog.on_member_update(before, SimpleNamespace(roles=[admin_role], guild=guild, id=900))
         asyncio.run(run())
-        self.assertEqual(guild.audit_calls, 1, "harmlose Rollen lösen keine Audit-Log-Abfrage aus")
+        # Harmless roles never reach the normal rule engine (no alert, no rule counter). Since the mass role
+        # assignment protection every new role is counted, so each member update does one extra audit read:
+        # harmless (1) + dangerous: rule engine (1) + grant counter (1).
+        self.assertEqual(guild.audit_calls, 3)
+        self.assertEqual(len(cog._alert.await_args_list), 1, "nur die gefährliche Rolle löst die Regel aus")
         self.assertTrue(any("Anti-Nuke-Schwelle" in c.args[2] for c in cog._alert.await_args_list))
 
     def test_rate_limited_ban_is_not_retried_in_a_loop(self):
@@ -197,3 +201,69 @@ class AutomationChainReplayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuditLookupRetryTests(unittest.TestCase):
+    """DISC-7: a delayed audit-log entry is found by bounded retries; errors are never retried; a missing
+    'view audit log' permission is reported (once per hour) instead of silently disabling the protection."""
+    setUp = base.RuleEngineTests.setUp
+    tearDown = base.RuleEngineTests.tearDown
+    cog = base.RuleEngineTests.cog
+    config = base.RuleEngineTests.config
+
+    class DelayedGuild(base.FakeGuild):
+        """The entry only becomes visible from the Nth audit-log read on (Discord writes entries with a delay)."""
+        def __init__(self, visible_from_call, **kw):
+            super().__init__(**kw)
+            self.visible_from_call = visible_from_call
+            self.hidden = []
+
+        async def audit_logs(self, **kwargs):
+            self.audit_calls += 1
+            if self.audit_calls >= self.visible_from_call:
+                for item in list(self.hidden):
+                    yield item
+
+    def run_event(self, guild, cog):
+        with patch.object(antinuke, "AUDIT_LOOKUP_DELAYS", (0.0, 1.0, 2.0)), \
+                patch.object(antinuke.asyncio, "sleep", new_callable=AsyncMock) as sleeper:
+            asyncio.run(cog._handle_event(guild, "channel_delete", 900))
+        return sleeper
+
+    def test_entry_appearing_on_the_second_read_is_still_counted(self):
+        cog = self.cog(self.config(base.rule("kanal", ["channel_delete"], 3, 10, ["log"])))
+        guild = self.DelayedGuild(2)
+        guild.hidden.append(base.entry(1, ATTACKER, KINDS["channel_delete"], target=900))
+        sleeper = self.run_event(guild, cog)
+        self.assertEqual(guild.audit_calls, 2)
+        self.assertIn(1, cog._seen(guild.id), "the entry must have been counted")
+        sleeper.assert_awaited_once_with(1.0)
+
+    def test_lookup_is_bounded(self):
+        cog = self.cog(self.config(base.rule("kanal", ["channel_delete"], 3, 10, ["log"])))
+        guild = self.DelayedGuild(99)  # never visible
+        sleeper = self.run_event(guild, cog)
+        self.assertEqual(guild.audit_calls, 3)
+        self.assertEqual([c.args[0] for c in sleeper.await_args_list], [1.0, 2.0])
+
+    def test_http_error_is_not_retried(self):
+        cog = self.cog(self.config(base.rule("kanal", ["channel_delete"], 3, 10, ["log"])))
+        guild = self.DelayedGuild(1)
+
+        async def boom(**kwargs):
+            guild.audit_calls += 1
+            raise discord.HTTPException(SimpleNamespace(status=429, reason="rate"), "limited")
+            yield  # pragma: no cover
+        guild.audit_logs = boom
+        sleeper = self.run_event(guild, cog)
+        self.assertEqual(guild.audit_calls, 1)
+        sleeper.assert_not_awaited()
+
+    def test_missing_audit_permission_is_reported_once(self):
+        cog = self.cog(self.config(base.rule("kanal", ["channel_delete"], 3, 10, ["log"])))
+        guild = self.DelayedGuild(1)
+        guild.me.guild_permissions.view_audit_log = False
+        self.run_event(guild, cog)
+        self.run_event(guild, cog)
+        self.assertEqual(cog._alert.await_count, 1)
+        self.assertIn("Audit-Log", cog._alert.await_args.args[2])

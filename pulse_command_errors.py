@@ -67,5 +67,20 @@ async def handle_app_command_error(interaction: discord.Interaction, error: Exce
 
 
 class PulseCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """DISC-8: Pulse commands only run in explicitly allowed guilds (home, configured backup server)."""
+        import pulse_guild_guard
+        if pulse_guild_guard.is_allowed_guild(getattr(interaction, "guild_id", None)):
+            return True
+        print(f"🛡️ Befehl in nicht freigegebenem Server {interaction.guild_id} abgelehnt.")
+        try:
+            await interaction.response.send_message(
+                "❌ Pulse ist auf diesem Server nicht freigegeben. Bitte die Serverleitung des Pulse-Servers kontaktieren.",
+                ephemeral=True,
+            )
+        except Exception:  # noqa: BLE001 - the refusal itself must never raise
+            pass
+        return False
+
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         await handle_app_command_error(interaction, error)

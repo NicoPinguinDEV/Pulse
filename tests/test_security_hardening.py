@@ -585,6 +585,43 @@ class SecondApprovalTests(TempDb):
         role_reset.assert_awaited_once()
         self.target.kick.assert_not_awaited()
 
+    # ---- DISC-2: lifetime, creator re-validation, no second execution ----
+    def _age_action(self, hours):
+        from datetime import datetime, timedelta, timezone
+        old = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+        with self.suite.cx() as c:
+            c.execute("UPDATE suite_actions SET created_at=? WHERE id=?", (old, self.aid))
+
+    def test_expired_action_is_invalidated_and_not_executed(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        self._age_action(self.suite.ACTION_TTL_HOURS + 1)
+        self.assertEqual(self._approve(), "expired")
+        self.target.kick.assert_not_awaited()
+        self.assertIn("abgelaufen", self.sent[-1])
+
+    def test_action_within_lifetime_can_still_be_approved(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        self._age_action(self.suite.ACTION_TTL_HOURS - 1)
+        self.assertEqual(self._approve(), "approved")
+
+    def test_unreadable_timestamp_fails_closed(self):
+        self.assertTrue(self.suite.action_expired("kaputt"))
+        self.assertTrue(self.suite.action_expired(None))
+
+    def test_creator_without_current_entitlement_cancels_the_action(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        no_rights = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True}
+        yes_rights = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True, "can_promote": True}
+        with patch.object(ws, "compute_perms", lambda guild, uid, cfg: (no_rights if int(uid) == 1 else yes_rights, None)):
+            self.assertEqual(self._approve(), "cancelled")
+        self.target.kick.assert_not_awaited()
+
+    def test_repeated_approval_executes_once(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        self.assertEqual(self._approve(), "approved")
+        self.assertEqual(self._approve(), "approved")  # replay: no longer awaiting, nothing happens again
+        self.target.kick.assert_awaited_once()
+
 # ---------------------------------------------------------------------------------------------------------
 # SEC-14 – SSRF guard of the social feeds: only globally routable targets, also inside IPv6 wrappers.
 # ---------------------------------------------------------------------------------------------------------
