@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections import deque
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
@@ -73,11 +74,35 @@ class HealthcheckAccessFilter(logging.Filter):
         return True
 
 
+_SENSITIVE_QUERY = re.compile(r"([?&](?:code|state|access_token|refresh_token|token|session|user_session)=)[^&#\s]*", re.IGNORECASE)
+
+
+def mask_sensitive_query(path: str) -> str:
+    """AUTH-6: OAuth `code`/`state` (and token-like parameters) must not end up in the access log, which the
+    admin live console can show. Only the values are replaced; the rest of the request line stays readable."""
+    return _SENSITIVE_QUERY.sub(r"\1***", str(path))
+
+
+class SensitiveQueryAccessFilter(logging.Filter):
+    """Masks sensitive query values in uvicorn's access-log request line (never drops the line)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and "?" in args[2]:
+            masked = mask_sensitive_query(args[2])
+            if masked != args[2]:
+                record.args = (*args[:2], masked, *args[3:])
+        return True
+
+
 def quiet_healthcheck_access_log() -> None:
-    """Install HealthcheckAccessFilter once on uvicorn's access logger (after uvicorn.Config set it up)."""
+    """Install the access-log filters once on uvicorn's access logger (after uvicorn.Config set it up):
+    healthcheck noise reduction and masking of OAuth codes/tokens in query strings (AUTH-6)."""
     access = logging.getLogger("uvicorn.access")
     if not any(isinstance(f, HealthcheckAccessFilter) for f in access.filters):
         access.addFilter(HealthcheckAccessFilter())
+    if not any(isinstance(f, SensitiveQueryAccessFilter) for f in access.filters):
+        access.addFilter(SensitiveQueryAccessFilter())
 
 
 def get(name: str) -> logging.Logger:

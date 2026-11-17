@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import html
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -1236,10 +1237,20 @@ def _load_secret() -> bytes:
             if key:
                 return key
     key = secrets.token_hex(32).encode()
-    with open(SECRET_FILE, "wb") as f:
+    # AUTH-7: create the file exclusively and with owner-only permissions from the start (no window with the
+    # default umask, no overwriting a file another process created in the meantime).
+    try:
+        descriptor = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        with open(SECRET_FILE, "rb") as f:
+            existing = f.read().strip()
+        if existing:
+            return existing
+        raise
+    with os.fdopen(descriptor, "wb") as f:
         f.write(key)
     try:
-        os.chmod(SECRET_FILE, 0o600)
+        os.chmod(SECRET_FILE, 0o600)  # keeps the mode on platforms where the creation mode is ignored
     except Exception:
         pass
     return key
@@ -1457,7 +1468,10 @@ def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
                     _rate_hits.pop(stale_key, None)
                 _rate_last_full_sweep = now
             if len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
-                return True
+                # AUTH-4: a full table must not lock out every NEW client (login DoS with ~5000 fake sources).
+                # Evict the key that was active longest ago instead (bounded memory, scan only when full).
+                oldest = min(_rate_hits, key=lambda k: max(_rate_hits[k], default=0.0))
+                _rate_hits.pop(oldest, None)
 
         hits.append(now)
         _rate_hits[key] = hits
@@ -1468,7 +1482,21 @@ def request_rate_key(request: Request, action: str) -> str:
     """Use the connection peer, not an untrusted forwarding header, for abuse limits."""
     client = getattr(request, "client", None)
     host = getattr(client, "host", None) or "unknown"
-    return f"{action}:{host}"
+    return f"{action}:{_rate_limit_source(host)}"
+
+
+def _rate_limit_source(host: str) -> str:
+    """AUTH-4: one limit bucket per IPv4 address but per /64 for IPv6 (a single customer owns a whole /64 and could
+    otherwise rotate through billions of addresses); IPv4-mapped IPv6 addresses count as the IPv4 address."""
+    try:
+        address = ipaddress.ip_address(str(host))
+    except ValueError:
+        return str(host)
+    if address.version == 6:
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
 
 
 def rate_limit_response(message: str) -> HTMLResponse:
@@ -3977,6 +4005,15 @@ async def logout(user_session: str = Cookie(None)):
             pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
+    response.delete_cookie(key="apply_session")  # AUTH-5: signing out of the dashboard also ends a shared-device application session
+    return response
+
+
+@app.post("/apply/logout")
+async def apply_logout():
+    """AUTH-5: applicants can end their (stateless, max. 12 h) application session on a shared device."""
+    response = RedirectResponse(url="/apply", status_code=303)
+    response.delete_cookie(key="apply_session")
     return response
 
 
