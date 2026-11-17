@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import html
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ import sys
 from contextlib import closing
 import threading
 import time
+import weakref
 import uuid
 import zipfile
 from datetime import date as date_cls, datetime, timedelta, timezone
@@ -697,6 +699,51 @@ def audit_probe_finish(probe, method: str, path: str, route: str, status: int) -
     return True
 
 
+AUDIT_MAX_ENTRIES = 5000
+
+# DATA-3: per-member lock for dashboard rank actions + short replay window (bounded: locks are weakly referenced,
+# the replay table drops entries after the window).
+_RANK_REPLAY_SECONDS = 8.0
+_rank_locks: "weakref.WeakValueDictionary[tuple, asyncio.Lock]" = weakref.WeakValueDictionary()
+_rank_recent: dict[tuple, float] = {}
+
+
+def _rank_target_lock(guild_id, member_id) -> asyncio.Lock:
+    key = (int(guild_id), int(member_id))
+    lock = _rank_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _rank_locks[key] = lock
+    return lock
+
+
+def _rank_action_replayed(guild_id, member_id, action: str, now: float | None = None) -> bool:
+    """True when the same rank action for this member was started within the replay window; otherwise records it."""
+    current = time.monotonic() if now is None else now
+    for key in [k for k, ts in _rank_recent.items() if current - ts > _RANK_REPLAY_SECONDS]:
+        _rank_recent.pop(key, None)
+    key = (int(guild_id), int(member_id), str(action))
+    if key in _rank_recent:
+        return True
+    _rank_recent[key] = current
+    return False
+
+
+def _archive_audit_entries(entries: list) -> None:
+    """DATA-2: audit entries that rotate out of the live file are appended (JSON lines, never rewritten) to
+    audit_logs_archive.jsonl next to it, so the history is not truncated. Best effort: a problem here must never
+    break the audited action itself."""
+    try:
+        archive = Path(AUDIT_FILE).with_name("audit_logs_archive.jsonl")
+        with open(archive, "a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ Audit-Archiv nicht beschreibbar: {type(exc).__name__}")
+
+
 def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
     probe = _AUDIT_PROBE.get()
     if isinstance(probe, dict):
@@ -711,7 +758,10 @@ def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
         "details": details,
         "timestamp": now_de().strftime("%d.%m.%Y %H:%M:%S")
     })
-    save_json(AUDIT_FILE, audit_data[-5000:])  # Datei wächst nicht unendlich
+    dropped_entries = audit_data[:-AUDIT_MAX_ENTRIES]
+    save_json(AUDIT_FILE, audit_data[-AUDIT_MAX_ENTRIES:])  # the live file does not grow forever ...
+    if dropped_entries:
+        _archive_audit_entries(dropped_entries)  # ... but nothing is lost: append-only archive (DATA-2)
     listener = _shell_hooks.get("audit_listener")
     if listener is not None:
         try:
@@ -1236,10 +1286,20 @@ def _load_secret() -> bytes:
             if key:
                 return key
     key = secrets.token_hex(32).encode()
-    with open(SECRET_FILE, "wb") as f:
+    # AUTH-7: create the file exclusively and with owner-only permissions from the start (no window with the
+    # default umask, no overwriting a file another process created in the meantime).
+    try:
+        descriptor = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        with open(SECRET_FILE, "rb") as f:
+            existing = f.read().strip()
+        if existing:
+            return existing
+        raise
+    with os.fdopen(descriptor, "wb") as f:
         f.write(key)
     try:
-        os.chmod(SECRET_FILE, 0o600)
+        os.chmod(SECRET_FILE, 0o600)  # keeps the mode on platforms where the creation mode is ignored
     except Exception:
         pass
     return key
@@ -1343,9 +1403,9 @@ def dashboard_session(user_session) -> dict | None:
     try:
         import pulse_sessions  # revoked, idle or signed out everywhere → log in again
         valid = pulse_sessions.is_valid(data)
-    except Exception as exc:  # the signed cookie stays the primary check; a DB hiccup must not lock everyone out
+    except Exception as exc:  # AUTH-3: fail closed – a session that cannot be checked is not accepted (like the login)
         print(f"⚠️ Sitzungsprüfung nicht möglich: {type(exc).__name__}")
-        valid = True
+        valid = False
     return data if valid else None
 
 
@@ -1457,7 +1517,10 @@ def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
                     _rate_hits.pop(stale_key, None)
                 _rate_last_full_sweep = now
             if len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
-                return True
+                # AUTH-4: a full table must not lock out every NEW client (login DoS with ~5000 fake sources).
+                # Evict the key that was active longest ago instead (bounded memory, scan only when full).
+                oldest = min(_rate_hits, key=lambda k: max(_rate_hits[k], default=0.0))
+                _rate_hits.pop(oldest, None)
 
         hits.append(now)
         _rate_hits[key] = hits
@@ -1468,7 +1531,21 @@ def request_rate_key(request: Request, action: str) -> str:
     """Use the connection peer, not an untrusted forwarding header, for abuse limits."""
     client = getattr(request, "client", None)
     host = getattr(client, "host", None) or "unknown"
-    return f"{action}:{host}"
+    return f"{action}:{_rate_limit_source(host)}"
+
+
+def _rate_limit_source(host: str) -> str:
+    """AUTH-4: one limit bucket per IPv4 address but per /64 for IPv6 (a single customer owns a whole /64 and could
+    otherwise rotate through billions of addresses); IPv4-mapped IPv6 addresses count as the IPv4 address."""
+    try:
+        address = ipaddress.ip_address(str(host))
+    except ValueError:
+        return str(host)
+    if address.version == 6:
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
 
 
 def rate_limit_response(message: str) -> HTMLResponse:
@@ -3977,6 +4054,15 @@ async def logout(user_session: str = Cookie(None)):
             pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
+    response.delete_cookie(key="apply_session")  # AUTH-5: signing out of the dashboard also ends a shared-device application session
+    return response
+
+
+@app.post("/apply/logout")
+async def apply_logout():
+    """AUTH-5: applicants can end their (stateless, max. 12 h) application session on a shared device."""
+    response = RedirectResponse(url="/apply", status_code=303)
+    response.delete_cookie(key="apply_session")
     return response
 
 
@@ -12634,6 +12720,16 @@ async def handle_action(
         if action == "promote" and probation_days not in VALID_PROBATION_DAYS:
             return back(member_url, "Für jede Beförderung muss eine Probezeit von 3 oder 7 Tagen ausgewählt werden.", False)
 
+        # DATA-3: one rank action per member at a time (per-target lock, no global lock) and no replay of the same
+        # action right after it ran – a double click or repeated POST must not promote/demote twice, because the rank
+        # is derived from the (possibly stale) member cache. Check + acquire have no await in between (atomic).
+        rank_lock = _rank_target_lock(guild.id, member.id)
+        if rank_lock.locked():
+            return back(member_url, "Für dieses Mitglied läuft gerade eine Rang-Aktion. Bitte kurz warten.", False)
+        if _rank_action_replayed(guild.id, member.id, action):
+            return back(member_url, "Diese Aktion wurde für dieses Mitglied gerade erst ausgeführt. "
+                                    "Zur Sicherheit bitte einen Moment warten und das Ergebnis prüfen.", False)
+        await rank_lock.acquire()
         try:
             if action == "team_kick":
                 if not guild.me:
@@ -12741,6 +12837,8 @@ async def handle_action(
         except Exception as e:
             print(f"Rang-Aktion fehlgeschlagen: {e}")
             return back(member_url, "Aktion fehlgeschlagen (Details in der Bot-Konsole).", False)
+        finally:
+            rank_lock.release()
 
     # ---------- Verwarnungen ----------
     if action == "warn_with_proof":

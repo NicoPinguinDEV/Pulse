@@ -55,7 +55,7 @@ class SessionTests(TempDb):
     def test_lifecycle_and_old_cookies(self):
         sid = pulse_sessions.create("7", "Firefox Linux")
         self.assertTrue(pulse_sessions.is_valid(token(sid=sid)[1]))
-        self.assertTrue(pulse_sessions.is_valid(token()[1]))  # cookie from before U-14 stays valid
+        self.assertFalse(pulse_sessions.is_valid(token()[1]))  # AUTH-1: no session id -> never valid
         self.assertFalse(pulse_sessions.is_valid(token(sid="unknown")[1]))
         self.assertFalse(pulse_sessions.is_valid(token(uid="8", sid=sid)[1]))  # sid belongs to someone else
         self.assertEqual([s["device"] for s in pulse_sessions.list_for("7")], ["Firefox · Linux"])
@@ -70,11 +70,11 @@ class SessionTests(TempDb):
     def test_revoke_all_also_ends_old_cookies_keep_current(self):
         a, b = pulse_sessions.create("7"), pulse_sessions.create("7")
         old = token(iat=int(time.time()) - 5)[1]
-        self.assertTrue(pulse_sessions.is_valid(old))
+        self.assertFalse(pulse_sessions.is_valid(old))  # AUTH-1: cookies without sid are never accepted
         self.assertEqual(pulse_sessions.revoke_all("7", keep_sid=a), 1)
         self.assertTrue(pulse_sessions.is_valid(token(sid=a)[1]))
         self.assertFalse(pulse_sessions.is_valid(token(sid=b)[1]))
-        self.assertFalse(pulse_sessions.is_valid(old))  # review: "andere Geräte" must also end pre-U-14 cookies
+        self.assertFalse(pulse_sessions.is_valid(old))
         pulse_sessions.revoke_all("7")
         self.assertFalse(pulse_sessions.is_valid(token(sid=a)[1]))
         fresh = pulse_sessions.create("7")              # review: a login in the same second stays valid
@@ -192,3 +192,40 @@ class ApiKeyTests(TempDb):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SessionHardeningTests(TempDb):
+    """AUTH-1 / AUTH-3: a forged cookie without server-side session never works, sessions have an absolute
+    server-side lifetime, and a session that cannot be checked is refused (fail closed)."""
+
+    def test_forged_far_future_token_without_sid_is_useless(self):
+        forged = ws.sign_payload({"id": "7", "exp": int(time.time() + 10 * 365 * 86400), "iat": int(time.time() + 86400)},
+                                 typ=ws.TOKEN_DASHBOARD)
+        self.assertIsNone(ws.dashboard_session(forged))
+        with self.assertRaises(ws.HTTPException):
+            ws.get_current_user(forged)
+
+    def test_token_with_unknown_sid_is_useless(self):
+        signed, _ = token(sid="nie-vergeben")
+        self.assertIsNone(ws.dashboard_session(signed))
+
+    def test_absolute_lifetime_ends_a_session_that_stays_active(self):
+        long_ago = time.time() - pulse_sessions.MAX_SESSION_SECONDS - 60
+        sid = pulse_sessions.create("7", now=long_ago)
+        with pulse_sessions._db().connect() as db:  # keep it "active": the idle limit must not be what ends it
+            db.execute("UPDATE dashboard_sessions SET last_seen=? WHERE sid=?", (time.time(), sid))
+        self.assertFalse(pulse_sessions.is_valid(token(sid=sid)[1]))
+        self.assertEqual(pulse_sessions.list_for("7"), [])
+
+    def test_session_within_lifetime_stays_valid(self):
+        sid = pulse_sessions.create("7", now=time.time() - pulse_sessions.MAX_SESSION_SECONDS + 3600)
+        with pulse_sessions._db().connect() as db:
+            db.execute("UPDATE dashboard_sessions SET last_seen=? WHERE sid=?", (time.time(), sid))
+        self.assertTrue(pulse_sessions.is_valid(token(sid=sid)[1]))
+
+    def test_database_error_fails_closed(self):
+        sid = pulse_sessions.create("7")
+        signed, _ = token(sid=sid)
+        self.assertIsNotNone(ws.dashboard_session(signed))
+        with patch.object(pulse_sessions, "is_valid", side_effect=RuntimeError("database is locked")):
+            self.assertIsNone(ws.dashboard_session(signed))

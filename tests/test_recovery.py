@@ -1,4 +1,5 @@
 """Opt-in recovery token storage and role safety tests."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ class RecoveryTests(unittest.TestCase):
         self.patches = [
             patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db")),
             patch.object(ws, "SESSION_KEY", b"p" * 32),
+            patch.dict(os.environ, {"PULSE_RECOVERY_KEY": "unit-test-recovery-key-0123456789-ABCDEFGH"}),  # AUTH-2
         ]
         for patcher in self.patches:
             patcher.start()

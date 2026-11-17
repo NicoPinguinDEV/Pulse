@@ -46,18 +46,44 @@ class OAuthRateLimitTests(unittest.TestCase):
         self.assertEqual(results.count(False), 3)
         self.assertEqual(results.count(True), 21)
 
-    def test_rate_limiter_rejects_new_keys_at_capacity_without_growing(self):
+    def test_rate_limiter_evicts_the_oldest_key_at_capacity_instead_of_locking_out_new_clients(self):
+        # AUTH-4: filling the table with fake sources must not block every NEW client (login DoS); memory stays bounded.
         now = ws.time.time()
         with ws._rate_lock:
             ws._rate_hits.update({
-                f"client-{index}": [now]
+                f"client-{index}": [now + index / 1000.0]
                 for index in range(ws._RATE_LIMIT_MAX_KEYS)
             })
             ws._rate_last_full_sweep = now
 
-        self.assertTrue(ws.rate_limited("unseen-client", limit=3, window=60))
+        self.assertFalse(ws.rate_limited("unseen-client", limit=3, window=60))
         self.assertEqual(len(ws._rate_hits), ws._RATE_LIMIT_MAX_KEYS)
-        self.assertNotIn("unseen-client", ws._rate_hits)
+        self.assertIn("unseen-client", ws._rate_hits)
+        self.assertNotIn("client-0", ws._rate_hits)  # the least recently active key made room
+        self.assertIn(f"client-{ws._RATE_LIMIT_MAX_KEYS - 1}", ws._rate_hits)
+
+    def test_new_client_is_still_limited_after_its_own_attempts_at_capacity(self):
+        now = ws.time.time()
+        with ws._rate_lock:
+            ws._rate_hits.update({f"client-{i}": [now] for i in range(ws._RATE_LIMIT_MAX_KEYS)})
+            ws._rate_last_full_sweep = now
+        results = [ws.rate_limited("newcomer", limit=3, window=60) for _ in range(5)]
+        self.assertEqual(results, [False, False, False, True, True])
+
+    def test_ipv6_clients_share_one_bucket_per_64_prefix(self):
+        from types import SimpleNamespace as NS
+        same_64 = [NS(client=NS(host=f"2001:db8:1:2::{i:x}")) for i in (1, 2, 0xffff)]
+        keys = {ws.request_rate_key(r, "login") for r in same_64}
+        self.assertEqual(len(keys), 1)
+        other = ws.request_rate_key(NS(client=NS(host="2001:db8:1:3::1")), "login")
+        self.assertNotIn(other, keys)
+
+    def test_ipv4_and_mapped_ipv4_and_unknown_hosts(self):
+        from types import SimpleNamespace as NS
+        self.assertEqual(ws.request_rate_key(NS(client=NS(host="203.0.113.9")), "x"), "x:203.0.113.9")
+        self.assertEqual(ws.request_rate_key(NS(client=NS(host="::ffff:203.0.113.9")), "x"), "x:203.0.113.9")
+        self.assertEqual(ws.request_rate_key(NS(client=None), "x"), "x:unknown")
+        self.assertEqual(ws.request_rate_key(NS(client=NS(host="testclient")), "x"), "x:testclient")
 
     def test_rate_limiter_reclaims_expired_keys_at_capacity(self):
         with ws._rate_lock:

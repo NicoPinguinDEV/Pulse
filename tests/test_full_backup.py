@@ -652,3 +652,168 @@ class CoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RestoreSafetyTests(unittest.TestCase):
+    """DATA-1 / DATA-2: complete verified safety backup, real rollback incl. created files, audit history kept."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name) / "app"
+        self.backups = Path(self.tmp.name) / "backups"
+        self.base.mkdir()
+        db_patch = patch.object(pulse_db, "DB_PATH", str(self.base / "pulse.db"))
+        db_patch.start()
+        self.addCleanup(db_patch.stop)
+        con = make_db(self.base / "pulse.db", ["a"])
+        self.addCleanup(con.close)
+        (self.base / "team_data.json").write_text(json.dumps({"v": "alt"}), encoding="utf-8")
+        (self.base / "uploads").mkdir()
+        (self.base / "uploads" / "keep.png").write_bytes(b"keep" * 50)
+
+    def team_data(self):
+        return json.loads((self.base / "team_data.json").read_text(encoding="utf-8"))
+
+    def fail_first_apply(self, then=None):
+        """Patch _apply: the forward restore writes everything and then fails; later calls (rollback) use `then`."""
+        real_apply = pulse_backup._apply
+        calls = [0]
+
+        def apply(staged, report):
+            calls[0] += 1
+            if calls[0] == 1:
+                real_apply(staged, report)
+                raise OSError("Datentraeger voll")
+            real_apply(staged, report)
+            if then:
+                then()
+
+        return patch.object(pulse_backup, "_apply", side_effect=apply)
+
+    # ---- DATA-1 ----
+    def test_incomplete_safety_backup_aborts_before_anything_changes(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        (self.base / "team_data.json").write_text(json.dumps({"v": "live"}), encoding="utf-8")
+        with patch.object(pulse_backup, "SAFETY_BACKUP_BUDGET_BYTES", 10):  # forces size-budget skips
+            with self.assertRaises(ValueError) as caught:
+                pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertIn("unvollständig", str(caught.exception))
+        self.assertEqual(self.team_data(), {"v": "live"})
+        self.assertFalse(pulse_backup.maintenance_active())
+
+    def test_failed_restore_rolls_back_and_removes_files_it_created(self):
+        (self.base / "uploads" / "only_in_backup.png").write_bytes(b"y" * 20)
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        (self.base / "uploads" / "only_in_backup.png").unlink()  # the live system does not have it any more
+        (self.base / "team_data.json").write_text(json.dumps({"v": "live"}), encoding="utf-8")
+        with self.fail_first_apply():
+            with self.assertRaises(ValueError) as caught:
+                pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertIn("zurückgespielt und geprüft", str(caught.exception))
+        self.assertEqual(self.team_data(), {"v": "live"})
+        self.assertFalse((self.base / "uploads" / "only_in_backup.png").exists(), "file created by the failed restore must go")
+        self.assertTrue((self.base / "uploads" / "keep.png").exists())
+        self.assertFalse(pulse_backup.maintenance_active())
+
+    def test_incomplete_rollback_is_reported_honestly(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        (self.base / "team_data.json").write_text(json.dumps({"v": "live"}), encoding="utf-8")
+
+        def corrupt():
+            (self.base / "team_data.json").write_text(json.dumps({"v": "kaputt"}), encoding="utf-8")
+
+        with self.fail_first_apply(then=corrupt):
+            with self.assertRaises(ValueError) as caught:
+                pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertIn("UNVOLLSTÄNDIG", str(caught.exception))
+        self.assertNotIn("zurückgespielt und geprüft", str(caught.exception))
+
+    # ---- DATA-2 ----
+    @staticmethod
+    def audit(*ids):
+        return [{"id": i, "actor": "Admin", "action": "x", "details": i, "timestamp": "t"} for i in ids]
+
+    def audit_ids(self):
+        return [e["id"] for e in json.loads((self.base / "audit_logs.json").read_text(encoding="utf-8"))]
+
+    def write_audit(self, *ids):
+        (self.base / "audit_logs.json").write_text(json.dumps(self.audit(*ids)), encoding="utf-8")
+
+    def test_restore_keeps_audit_entries_written_after_the_backup(self):
+        self.write_audit("a1", "a2")
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        self.write_audit("a1", "a2", "a3", "restore_started")
+        pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertEqual(self.audit_ids(), ["a1", "a2", "a3", "restore_started"])
+
+    def test_restore_adds_entries_only_the_backup_has_and_never_duplicates(self):
+        self.write_audit("a1", "a2")
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        self.write_audit("a2", "a9")
+        pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertEqual(sorted(self.audit_ids()), ["a1", "a2", "a9"])
+
+    def test_unreadable_live_audit_log_does_not_block_the_restore(self):
+        self.write_audit("a1")
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        (self.base / "audit_logs.json").write_text("{kaputt", encoding="utf-8")
+        pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertEqual(self.audit_ids(), ["a1"])
+
+    def test_rollback_restores_the_pre_restore_audit_log_exactly(self):
+        self.write_audit("a1")
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        self.write_audit("a1", "b2")
+        with self.fail_first_apply():
+            with self.assertRaises(ValueError):
+                pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertEqual(self.audit_ids(), ["a1", "b2"])
+
+
+class AuditArchiveTests(unittest.TestCase):
+    """DATA-2: audit entries that rotate out of the 5000-entry live file are archived append-only, never lost."""
+
+    def setUp(self):
+        import webserver as ws
+        self.ws = ws
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.audit_file = str(Path(self.tmp.name) / "audit_logs.json")
+        p = patch.object(ws, "AUDIT_FILE", self.audit_file)
+        p.start()
+        self.addCleanup(p.stop)
+        self.archive = Path(self.tmp.name) / "audit_logs_archive.jsonl"
+
+    def seed(self, count):
+        entries = [{"id": f"old{i}", "actor": "A", "action": "x", "details": "", "timestamp": "t"} for i in range(count)]
+        Path(self.audit_file).write_text(json.dumps(entries), encoding="utf-8")
+
+    def test_overflow_is_archived_not_dropped(self):
+        self.seed(self.ws.AUDIT_MAX_ENTRIES)
+        self.ws.log_audit("Admin", "1", "Test", "neu")
+        live = json.loads(Path(self.audit_file).read_text(encoding="utf-8"))
+        self.assertEqual(len(live), self.ws.AUDIT_MAX_ENTRIES)
+        self.assertEqual(live[-1]["details"], "neu")
+        archived = [json.loads(line) for line in self.archive.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([e["id"] for e in archived], ["old0"])
+
+    def test_archive_is_append_only_across_calls(self):
+        self.seed(self.ws.AUDIT_MAX_ENTRIES)
+        self.ws.log_audit("Admin", "1", "Test", "eins")
+        self.ws.log_audit("Admin", "1", "Test", "zwei")
+        ids = [json.loads(line)["id"] for line in self.archive.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(ids, ["old0", "old1"])
+
+    def test_no_archive_below_the_limit(self):
+        self.seed(10)
+        self.ws.log_audit("Admin", "1", "Test", "x")
+        self.assertFalse(self.archive.exists())
+
+    def test_unwritable_archive_never_breaks_the_audited_action(self):
+        self.seed(self.ws.AUDIT_MAX_ENTRIES)
+        with patch("builtins.open", side_effect=PermissionError("kein Zugriff")):
+            with patch.object(self.ws, "save_json"), patch.object(self.ws, "load_json",
+                                                                  return_value=[{"id": str(i)} for i in range(self.ws.AUDIT_MAX_ENTRIES)]):
+                audit_id = self.ws.log_audit("Admin", "1", "Test", "x")
+        self.assertTrue(audit_id.startswith("audit_"))

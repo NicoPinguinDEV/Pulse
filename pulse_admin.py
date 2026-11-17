@@ -650,6 +650,8 @@ def register(app) -> None:
             raise HTTPException(status_code=404, detail="Die Backup-Wiederherstellung ist nicht aktiviert.")
         if not ws.CLIENT_ID or not ws.CLIENT_SECRET:
             raise HTTPException(status_code=503, detail="Discord OAuth ist nicht vollständig konfiguriert.")
+        if not pulse_recovery.key_configured():  # AUTH-2: fail closed before the person authorizes anything
+            raise HTTPException(status_code=503, detail="Die Backup-Freigabe ist nicht verfügbar: Der Recovery-Schlüssel ist nicht konfiguriert.")
         redirect_uri = ws.oauth_redirect_uri(request)
         if not redirect_uri.startswith("https://"):
             raise HTTPException(status_code=503, detail="Die Backup-Freigabe benötigt eine registrierte HTTPS-Callback-URL.")

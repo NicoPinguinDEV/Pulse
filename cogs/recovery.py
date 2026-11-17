@@ -357,6 +357,17 @@ class RecoveryCog(commands.Cog):
         uid = str(interaction.user.id)
         refresh_token = pulse_recovery.get_refresh_token(uid)
         if not refresh_token:
+            if pulse_recovery.has_stored_consent(uid):
+                # AUTH-2: the consent exists but cannot be decrypted (key missing/rotated). Withdrawing is the
+                # person's right: delete it locally and say clearly that Discord could not be told.
+                pulse_recovery.unlink(uid)
+                await interaction.response.send_message(
+                    "✅ Dein gespeicherter Recovery-Zugang wurde gelöscht. Er war nicht mehr lesbar, deshalb konnte "
+                    "Discord nicht informiert werden. Entferne Pulse zusätzlich unter Discord → Einstellungen → "
+                    "Autorisierte Apps, damit die Freigabe auch dort endet.",
+                    ephemeral=True,
+                )
+                return
             await interaction.response.send_message(
                 "Für dein Konto ist keine aktive Recovery-Freigabe gespeichert.", ephemeral=True
             )

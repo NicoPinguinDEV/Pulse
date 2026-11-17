@@ -1,10 +1,10 @@
 """U-14: server-side dashboard sessions – list with device and last activity, sign out everywhere,
 idle timeout, automatic revocation when someone leaves the team.
 
-The signed cookie stays the carrier; new logins additionally get a session id (`sid`) that must exist
-here and must not be revoked or idle. Cookies issued before this update have no `sid`: they stay valid
-until their own expiry unless the person signs out other devices or everywhere (both end them through
-`revoked_before`, which only applies to cookies without `sid`). Nothing secret is stored – only a
+The signed cookie stays the carrier; every login gets a session id (`sid`) that must exist here and must
+not be revoked, idle or older than the absolute lifetime (SESSION_DAYS). AUTH-1: a token without `sid` is
+never accepted (the former fallback for cookies from before U-14 is gone), so a forged cookie cannot bypass
+the session list, "sign out everywhere" or the lifetime limits. Nothing secret is stored – only a
 shortened user agent.
 """
 from __future__ import annotations
@@ -14,6 +14,10 @@ import secrets
 import time
 
 IDLE_SECONDS = max(900, int(float(os.getenv("PULSE_SESSION_IDLE_HOURS", "24")) * 3600))
+try:  # absolute lifetime: same setting as the cookie (SESSION_DAYS, default 7), enforced server-side as well
+    MAX_SESSION_SECONDS = max(3600, int(float(os.getenv("SESSION_DAYS", "7")) * 86400))
+except ValueError:
+    MAX_SESSION_SECONDS = 7 * 86400
 TOUCH_EVERY = 60          # last_seen is written at most once a minute per session
 KEEP_DAYS = 30            # revoked/expired rows are cleaned up after this
 MAX_PER_USER = 20         # oldest sessions beyond this are revoked on login
@@ -63,17 +67,17 @@ def is_valid(token: dict, now: float | None = None) -> bool:
     user_id = str(token.get("id"))
     sid = token.get("sid")
     if not sid:
-        # Cookie from before U-14: valid until its own expiry unless the person signed out elsewhere.
-        # (Only these cookies use revoked_before – new logins always have their own revocable session.)
-        try:
-            revoked_before = float(_db().get_setting(f"sessions_revoked_before:{user_id}", "0") or 0)
-        except (TypeError, ValueError):
-            revoked_before = 0.0
-        return not (revoked_before and float(token.get("iat") or 0) <= revoked_before)
+        # AUTH-1: a dashboard token without a server-side session id is never accepted. The former fallback for
+        # cookies from before U-14 let anybody holding the signing key mint admin cookies that no session list,
+        # "sign out everywhere" or idle/lifetime limit could ever end. Such (long expired) cookies just log in again.
+        return False
     with _db().connect() as db:
         _init(db)
-        row = db.execute("SELECT user_id,last_seen,revoked_at FROM dashboard_sessions WHERE sid=?", (str(sid),)).fetchone()
+        row = db.execute("SELECT user_id,last_seen,revoked_at,created_at FROM dashboard_sessions WHERE sid=?", (str(sid),)).fetchone()
         if not row or str(row[0]) != user_id or row[2] is not None:
+            return False
+        if now - float(row[3]) > MAX_SESSION_SECONDS:  # AUTH-1: absolute server-side lifetime, independent of the cookie
+            db.execute("UPDATE dashboard_sessions SET revoked_at=?, revoke_reason='abgelaufen' WHERE sid=?", (now, str(sid)))
             return False
         if now - float(row[1]) > IDLE_SECONDS:
             db.execute("UPDATE dashboard_sessions SET revoked_at=?, revoke_reason='inaktiv' WHERE sid=?", (now, str(sid)))

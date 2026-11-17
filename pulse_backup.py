@@ -53,6 +53,7 @@ EXCLUDED = {"backups": "Sicherungen selbst (keine Rekursion)", ".session_secret"
 
 DEFAULT_BUDGET_BYTES = int(float(os.getenv("PULSE_BACKUP_MAX_MB", "500")) * 1024 * 1024)
 _CHUNK = 1024 * 1024
+SAFETY_BACKUP_BUDGET_BYTES = 1 << 50  # DATA-1: the safety backup before a restore has no size budget (it must be complete)
 _MAINTENANCE = threading.Event()
 _RESTORE_LOCK = threading.Lock()
 
@@ -184,7 +185,7 @@ def _json_io_lock():
 
 def _sqlite_snapshot_metadata(path) -> dict:
     """Metadata needed to prove that a pulse.db snapshot contains the declared Melonly generation."""
-    with sqlite3.connect(path, timeout=15) as con:
+    with contextlib.closing(sqlite3.connect(path, timeout=15)) as con:  # DATA-10: "with connect()" never closes the handle
         integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
         if integrity.lower() != "ok":
             raise sqlite3.DatabaseError("PRAGMA integrity_check ist nicht OK")
@@ -544,7 +545,34 @@ def restore_sqlite_file(extracted, target) -> None:
         raise ValueError(f"{target.name} nach der Wiederherstellung fehlerhaft ({check})")
 
 
-def _stage(zf, manifest, base_dir, tmp, include_files: bool) -> list[tuple]:
+AUDIT_LOG_FILE = "audit_logs.json"
+
+
+def _entry_key(entry) -> str:
+    return str(entry.get("id")) if isinstance(entry, dict) and entry.get("id") else json.dumps(entry, sort_keys=True, default=str)
+
+
+def _merge_audit_logs(extracted: Path, live: Path) -> dict:
+    """DATA-2: a restore must not erase the audit history. The staged (backup) audit log is merged with the live one:
+    every backup entry stays, entries that exist only in the live log (written after the backup – including the
+    admin actions around the restore itself) are appended. Nothing is dropped; the result replaces the staged copy."""
+    backup_entries = json.loads(extracted.read_text(encoding="utf-8"))
+    if not isinstance(backup_entries, list):
+        backup_entries = []
+    try:
+        live_entries = json.loads(live.read_text(encoding="utf-8")) if live.exists() else []
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        live_entries = []  # an unreadable live log cannot be merged; the safety backup still holds its bytes
+    if not isinstance(live_entries, list):
+        live_entries = []
+    known = {_entry_key(e) for e in backup_entries}
+    newer = [e for e in live_entries if _entry_key(e) not in known]
+    merged = backup_entries + newer
+    extracted.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"from_backup": len(backup_entries), "kept_newer": len(newer)}
+
+
+def _stage(zf, manifest, base_dir, tmp, include_files: bool, *, merge_audit: bool = True) -> list[tuple]:
     """Phase 1: extract every entry to a temp dir and check it. Nothing live is touched."""
     staged = []
     for entry in manifest["files"]:
@@ -564,6 +592,8 @@ def _stage(zf, manifest, base_dir, tmp, include_files: bool) -> list[tuple]:
                 json.loads(extracted.read_text(encoding="utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise ValueError(f"{Path(name).name} im Backup ist kein gültiges JSON") from exc
+            if merge_audit and target.name == AUDIT_LOG_FILE:
+                _merge_audit_logs(extracted, target)
         staged.append((kind, extracted, target))
     return staged
 
@@ -571,6 +601,8 @@ def _stage(zf, manifest, base_dir, tmp, include_files: bool) -> list[tuple]:
 def _apply(staged, report) -> None:
     """Phase 2: write the checked files into place (databases via backup API, files atomically)."""
     for kind, extracted, target in staged:
+        if not target.exists():  # DATA-1: remember what this run creates so a rollback can remove it again
+            report.setdefault("created", []).append(str(target))
         if kind == "sqlite":
             restore_sqlite_file(extracted, target)
             report["databases"].append(target.name)
@@ -589,14 +621,47 @@ def _apply(staged, report) -> None:
                 report["files"] += 1
 
 
-def _restore_from(path, base_dir, include_files, lock) -> dict:
+def _restore_from(path, base_dir, include_files, lock, report=None, *, merge_audit: bool = True) -> dict:
     manifest = read_manifest(path)
-    report = {"databases": [], "json": [], "files": 0, "pulse_version": manifest.get("pulse_version")}
+    if report is None:
+        report = {}
+    report.update({"databases": [], "json": [], "files": 0, "pulse_version": manifest.get("pulse_version")})
     with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restore-") as tmp:
-        staged = _stage(zf, manifest, base_dir, tmp, include_files)
+        staged = _stage(zf, manifest, base_dir, tmp, include_files, merge_audit=merge_audit)
         with (lock if lock is not None else contextlib.nullcontext()):
             _apply(staged, report)
     return report
+
+
+def _incomplete_safety_reasons(manifest: dict) -> list[str]:
+    """DATA-1: a safety backup is only a safety net when nothing was left out of it."""
+    reasons = [f"{s.get('name')}: {s.get('reason')}" for s in manifest.get("skipped", [])
+               if s.get("reason") in {"Größenbudget", "nicht lesbar"}]
+    reasons += [str(w) for w in manifest.get("warnings", [])]
+    return reasons
+
+
+def _differences_to_backup(path, base_dir, include_files: bool) -> list[str]:
+    """DATA-1: after a rollback, compare the live files with the safety backup instead of trusting that the copy
+    worked. JSON/uploaded files are compared byte for byte (SHA-256), databases by integrity check. The audit log is
+    only checked for presence of every safety entry (a restore never removes audit entries)."""
+    manifest = read_manifest(path)
+    problems: list[str] = []
+    for entry in manifest.get("files", []):
+        name = entry["name"]
+        kind, target = kind_of(name), _target_for(base_dir, name)
+        if target is None or (kind == "file" and not include_files):
+            continue
+        if not target.exists():
+            problems.append(f"{target.name}: fehlt")
+        elif kind == "sqlite":
+            if _integrity(target) != "ok":
+                problems.append(f"{target.name}: Integritätsprüfung fehlgeschlagen")
+        elif target.name == AUDIT_LOG_FILE:
+            continue
+        elif _sha256(target) != entry.get("sha256"):
+            problems.append(f"{target.name}: Inhalt weicht vom Sicherheits-Backup ab")
+    return problems
 
 
 def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = True, lock=None) -> dict:
@@ -612,26 +677,45 @@ def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = Tru
         problems = verify_full_backup(path)
         if problems:
             raise ValueError("Backup unvollständig oder verändert: " + "; ".join(problems[:5]))
-        safety, _ = create_full_backup(base_dir, backup_dir, prefix="pre_restore_")
+        # DATA-1: maintenance mode first (no JSON write can slip in between the safety copy and the restore), a
+        # COMPLETE safety backup (no size budget) that is verified – an incomplete one aborts before anything changes.
         _MAINTENANCE.set()
         try:
+            safety, safety_manifest = create_full_backup(base_dir, backup_dir, prefix="pre_restore_",
+                                                         budget_bytes=SAFETY_BACKUP_BUDGET_BYTES)
+            reasons = _incomplete_safety_reasons(safety_manifest)
+            safety_problems = verify_full_backup(safety)
+            if reasons or safety_problems:
+                raise ValueError("Wiederherstellung nicht gestartet: Das Sicherheits-Backup vor dem Restore ist unvollständig "
+                                 "oder fehlerhaft (" + "; ".join((reasons + safety_problems)[:4]) + "). Es wurde nichts verändert.")
+            report: dict = {}
             try:
-                report = _restore_from(path, base_dir, include_files, lock)
+                _restore_from(path, base_dir, include_files, lock, report)
                 expected_sqlite = (read_manifest(path).get("sqlite_metadata") or {}).get("db/pulse.db")
                 if expected_sqlite is not None:
                     actual_sqlite = _sqlite_snapshot_metadata(sqlite_path(base_dir, "pulse.db"))
                     if actual_sqlite != expected_sqlite:
                         raise ValueError("Wiederhergestellte Melonly-Metadaten stimmen nicht mit dem Backup überein.")
             except Exception as exc:
+                created = list(report.get("created", []))
                 try:
-                    _restore_from(safety, base_dir, include_files, lock)
+                    _restore_from(safety, base_dir, include_files, lock, {}, merge_audit=False)
+                    for leftover in created:  # files this failed restore created and the old state never had
+                        with contextlib.suppress(OSError):
+                            Path(leftover).unlink()
+                    differences = _differences_to_backup(safety, base_dir, include_files)
                 except Exception as rollback_exc:
                     raise ValueError(f"Wiederherstellung abgebrochen ({exc}); automatisches Zurücksetzen fehlgeschlagen "
                                      f"({type(rollback_exc).__name__}) – bitte Sicherheitskopie {safety.name} wiederherstellen.") from exc
+                if differences:
+                    raise ValueError(f"Wiederherstellung abgebrochen ({exc}); das Zurücksetzen aus {safety.name} ist "
+                                     "UNVOLLSTÄNDIG (" + "; ".join(differences[:4]) + ") – bitte Sicherheitskopie manuell "
+                                     "wiederherstellen.") from exc
                 raise ValueError(f"Wiederherstellung abgebrochen ({exc}); der vorherige Stand wurde aus {safety.name} "
-                                 "zurückgespielt.") from exc
+                                 "zurückgespielt und geprüft.") from exc
         finally:
             _MAINTENANCE.clear()
+        report.pop("created", None)
         report["safety_backup"] = safety.name
         report["sqlite_metadata"] = read_manifest(path).get("sqlite_metadata", {})
         return report

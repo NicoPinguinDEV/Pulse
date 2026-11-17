@@ -29,7 +29,9 @@ class StartPageTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def session(self, uid="123"):
-        return ws.sign_payload({"id": uid, "exp": int(time.time() + 60)}, typ=ws.TOKEN_DASHBOARD)
+        import pulse_sessions  # AUTH-1: a dashboard cookie needs its server-side session
+        sid = pulse_sessions.create(uid)
+        return ws.sign_payload({"id": uid, "sid": sid, "exp": int(time.time() + 60)}, typ=ws.TOKEN_DASHBOARD)
 
     def test_default_is_mein_pulse_and_choice_is_used_only_after_team_login(self):
         self.client.cookies.set("user_session", self.session())
