@@ -79,7 +79,7 @@ class ReproducibleToolingTests(unittest.TestCase):
         for workflow in WORKFLOWS.glob("*.yml"):
             lines = workflow.read_text(encoding="utf-8").splitlines()
             for index, line in enumerate(lines):
-                if not re.search(r"uses:\\s*actions/checkout@", line):
+                if not re.search(r"uses:\s*actions/checkout@", line):
                     continue
                 indent = len(line) - len(line.lstrip())
                 step_indent = indent if line.lstrip().startswith("- uses:") else indent - 2
