@@ -658,6 +658,7 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
         try:
             store_refresh_token(uid, tokens["refresh_token"])
         except RecoveryBlockedError as exc:
+            await revoke_refresh_token(tokens["refresh_token"])
             if joined.status_code == 201:
                 await _remove_backup_member_after_consent_revocation(guild, uid)
             return False, str(exc), uid

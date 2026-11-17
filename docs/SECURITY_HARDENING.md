@@ -60,6 +60,7 @@ Bestehende Garantien (geprüft, unverändert): atomares `save_json`, K-04-Merge 
 
 ## 5. Netzwerk und Infrastruktur
 
+- Produktions-Base-Images sind unveränderlich gepinnt: `python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928` und `caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0`; Dependabot prüft Docker-Updates wöchentlich.
 - Container: **neu** `cap_drop: [ALL]`, `security_opt: no-new-privileges:true`, `pids_limit: 256` (Pulse); `no-new-privileges` für Caddy.
 - Boot-Update (`scripts/pulse-vps-boot-update.sh`): **neu** `safe.directory` wie in `remote_deploy.sh` – sonst bricht das als root laufende Skript bei „dubious ownership“ ab und Pulse startet nach einem Reboot nicht (lokal simuliert).
 - Host-Agent-Unit: **neu** `ReadWritePaths=… -/run/lock` – unter `ProtectSystem=strict` war die gemeinsame Deploy-Sperre nicht beschreibbar, der Deploy lief ohne Sperre.
