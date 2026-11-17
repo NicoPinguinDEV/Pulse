@@ -76,6 +76,26 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("Bann im Hauptserver", message)
 
+
+    def test_user_unlink_tombstone_prevents_inflight_sync_from_restoring_consent(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-unlink", now=100)
+        self.assertTrue(pulse_recovery.unlink(uid, now=200))
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertEqual(pulse_recovery.recovery_consent_block_reason(uid), "user_revoked")
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "stale-in-flight-refresh", now=201)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=202))
+        self.assertFalse(pulse_recovery.is_recovery_consent_blocked(uid))
+
+    def test_unlink_tombstone_wins_against_oauth_flow_started_before_withdrawal(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-unlink", now=100)
+        self.assertTrue(pulse_recovery.unlink(uid, now=200))
+        self.assertFalse(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=199))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+
     def test_invalid_ids_are_not_stored(self):
         with self.assertRaises(ValueError):
             pulse_recovery.store_refresh_token("short", "token")

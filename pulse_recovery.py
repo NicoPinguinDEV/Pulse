@@ -101,7 +101,8 @@ def _init(db) -> None:
     # A ban tombstone survives token deletion and blocks stale in-flight sync snapshots.
     db.execute(
         "CREATE TABLE IF NOT EXISTS recovery_primary_ban_blocks ("
-        "user_id TEXT PRIMARY KEY, blocked_at REAL NOT NULL)"
+        "user_id TEXT PRIMARY KEY, blocked_at REAL NOT NULL, "
+        "reason TEXT NOT NULL DEFAULT 'primary_ban')"
     )
 
 
@@ -280,8 +281,8 @@ def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None
         ).fetchone()
         if blocked:
             raise RecoveryBlockedError(
-                "Recovery ist wegen eines Banns im Hauptserver gesperrt. Eine neue Freigabe ist erst nach "
-                "Wiederaufnahme in den Hauptserver und erneuter ausdrücklicher OAuth-Zustimmung möglich."
+                "Die Recovery-Einwilligung wurde widerrufen oder gesperrt. Eine erneute Freigabe ist nur durch "
+                "eine neue ausdrückliche OAuth-Zustimmung möglich."
             )
         db.execute(
             "INSERT INTO recovery_oauth_tokens(user_id, refresh_token_enc, consented_at, last_sync_at, last_status) "
@@ -293,23 +294,28 @@ def store_refresh_token(user_id, refresh_token: str, *, now: float | None = None
 
 
 
-def is_primary_ban_blocked(user_id) -> bool:
+def recovery_consent_block_reason(user_id) -> str:
     uid = _snowflake(user_id)
     if not uid:
-        return True
+        return "invalid"
     with _db().connect() as db:
         _init(db)
-        return db.execute(
-            "SELECT 1 FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
-        ).fetchone() is not None
+        row = db.execute(
+            "SELECT reason FROM recovery_primary_ban_blocks WHERE user_id=?", (uid,)
+        ).fetchone()
+    return str(row[0]) if row else ""
 
 
-def block_primary_ban(user_id, *, now: float | None = None) -> tuple[str | None, bool]:
-    """Persist a ban tombstone and atomically delete the old consent.
+def is_recovery_consent_blocked(user_id) -> bool:
+    return bool(recovery_consent_block_reason(user_id))
 
-    Return (decryptable_refresh_token, had_consent_row). The tombstone remains even when the
-    token cannot be decrypted, so a stale sync page cannot recreate the old consent.
-    """
+
+def is_primary_ban_blocked(user_id) -> bool:
+    return recovery_consent_block_reason(user_id) == "primary_ban"
+
+
+def _block_consent(user_id, reason: str, *, now: float | None = None) -> tuple[str | None, bool]:
+    """Persist a revocation tombstone and delete the old consent atomically."""
     uid = _snowflake(user_id)
     if not uid:
         return None, False
@@ -320,20 +326,25 @@ def block_primary_ban(user_id, *, now: float | None = None) -> tuple[str | None,
             "SELECT refresh_token_enc FROM recovery_oauth_tokens WHERE user_id=?", (uid,)
         ).fetchone()
         db.execute(
-            "INSERT INTO recovery_primary_ban_blocks(user_id, blocked_at) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET blocked_at=MAX(blocked_at, excluded.blocked_at)",
-            (uid, blocked_at),
+            "INSERT INTO recovery_primary_ban_blocks(user_id, blocked_at, reason) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "blocked_at=MAX(blocked_at, excluded.blocked_at), reason=excluded.reason",
+            (uid, blocked_at, reason),
         )
         db.execute("DELETE FROM recovery_oauth_tokens WHERE user_id=?", (uid,))
     token = _decrypt(str(row[0])) if row else None
     return token, row is not None
 
 
-def clear_primary_ban_block_for_new_consent(user_id, *, consent_started_at: float) -> bool:
-    """Clear an older tombstone only for an OAuth flow started after the ban event.
+def block_primary_ban(user_id, *, now: float | None = None) -> tuple[str | None, bool]:
+    """Persist a primary-server ban tombstone and remove the previous consent."""
+    return _block_consent(user_id, "primary_ban", now=now)
 
-    A ban received during an in-flight OAuth flow has a newer timestamp and wins. This prevents
-    a delayed callback from restoring the old recovery entitlement.
+
+def clear_primary_ban_block_for_new_consent(user_id, *, consent_started_at: float) -> bool:
+    """Clear an older revocation only for an explicit OAuth flow begun after it.
+
+    A ban or withdrawal received during an in-flight OAuth flow has a newer timestamp and wins.
     """
     uid = _snowflake(user_id)
     if not uid:
@@ -351,8 +362,8 @@ def clear_primary_ban_block_for_new_consent(user_id, *, consent_started_at: floa
         return True
 
 
-async def _remove_backup_member_after_primary_ban(guild, user_id) -> bool:
-    """Compensate when a main-guild ban lands during an in-flight Discord join request."""
+async def _remove_backup_member_after_consent_revocation(guild, user_id) -> bool:
+    """Compensate when a ban or user withdrawal lands during an in-flight Discord join request."""
     try:
         member = await guild.fetch_member(int(user_id))
     except Exception:
@@ -474,11 +485,10 @@ def mark_sync(user_id, status: str, *, now: float | None = None) -> None:
                    (time.time() if now is None else float(now), safe_status, str(user_id)))
 
 
-def unlink(user_id) -> bool:
-    with _db().connect() as db:
-        _init(db)
-        cur = db.execute("DELETE FROM recovery_oauth_tokens WHERE user_id=?", (str(user_id),))
-        return cur.rowcount > 0
+def unlink(user_id, *, now: float | None = None) -> bool:
+    """Persist withdrawal so a token already held by a running sync cannot recreate consent."""
+    _token, had_consent = _block_consent(user_id, "user_revoked", now=now)
+    return had_consent
 
 
 def target_status(bot, settings: dict | None = None) -> tuple[Any | None, Any | None, list[str]]:
@@ -597,16 +607,24 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
                 return False, f"Discord konnte den Beitritt nicht abschließen (HTTP {joined.status_code}).", uid
             # A ban can arrive after the live primary-guild lookup and before/while Discord joins the backup.
             # The tombstone is authoritative; remove any just-added membership before returning.
-            if is_primary_ban_blocked(uid):
-                await _remove_backup_member_after_primary_ban(guild, uid)
-                return False, "Recovery wurde während der Anmeldung durch einen Bann im Hauptserver gesperrt.", uid
+            if is_recovery_consent_blocked(uid):
+                reason = recovery_consent_block_reason(uid)
+                if reason == "primary_ban" or joined.status_code == 201:
+                    await _remove_backup_member_after_consent_revocation(guild, uid)
+                detail = "Bann im Hauptserver" if reason == "primary_ban" else "Widerruf der Recovery-Freigabe"
+                return False, f"Recovery wurde während der Anmeldung durch {detail} gesperrt.", uid
             # If the person was already there, Discord returns 204 without changing roles.
             # Add only the citizen role; never copy roles from the primary guild or remove existing roles.
             if joined.status_code == 204:
                 member = await guild.fetch_member(int(uid))
                 if role.id not in {r.id for r in getattr(member, "roles", [])}:
                     await member.add_roles(role, reason="Pulse Recovery: ausdrücklich freigegebene Bürgerrolle")
-        store_refresh_token(uid, tokens["refresh_token"])
+        try:
+            store_refresh_token(uid, tokens["refresh_token"])
+        except RecoveryBlockedError as exc:
+            if joined.status_code == 201:
+                await _remove_backup_member_after_consent_revocation(guild, uid)
+            return False, str(exc), uid
         mark_sync(uid, "Backup-Zugriff freigeschaltet")
         return True, "Freigabe erfolgreich. Du bist dem Backup-Server mit der konfigurierten Bürgerrolle beigetreten. Es werden keine Team- oder Moderationsrollen übernommen.", uid
     except Exception as exc:
@@ -639,8 +657,10 @@ async def rejoin_user(
     uid = _snowflake(user_id)
     if not uid:
         return False, "ungültige Benutzer-ID"
-    if is_primary_ban_blocked(uid):
-        return False, "Recovery wegen eines Banns im Hauptserver gesperrt; eine alte Freigabe wird nicht wiederverwendet."
+    if is_recovery_consent_blocked(uid):
+        reason = recovery_consent_block_reason(uid)
+        detail = "Bann im Hauptserver" if reason == "primary_ban" else "widerrufene Recovery-Freigabe"
+        return False, f"Recovery wegen {detail} gesperrt; eine alte Freigabe wird nicht wiederverwendet."
     selected_settings = normalize_settings(settings if settings is not None else load_settings())
     current_settings = load_settings()
     if settings is not None and (
@@ -687,8 +707,10 @@ async def rejoin_user(
         # Discord can rotate refresh tokens, so save the replacement before the next API request.
         store_refresh_token(uid, tokens["refresh_token"])
         # Re-check after rotating the token; a ban may have arrived during the OAuth exchange.
-        if is_primary_ban_blocked(uid):
-            return False, "Recovery während des Syncs wegen eines Banns im Hauptserver gesperrt."
+        if is_recovery_consent_blocked(uid):
+            reason = recovery_consent_block_reason(uid)
+            detail = "Bann im Hauptserver" if reason == "primary_ban" else "widerrufene Recovery-Freigabe"
+            return False, f"Recovery während des Syncs wegen {detail} gesperrt."
         joined = await _request_with_429_retry(lambda: client.put(
             f"https://discord.com/api/v10/guilds/{guild.id}/members/{uid}",
             headers={"Authorization": f"Bot {bot_token}", "Content-Type": "application/json"},
@@ -698,9 +720,12 @@ async def rejoin_user(
             mark_sync(uid, f"Beitritt fehlgeschlagen HTTP {joined.status_code}")
             return False, f"Beitritt fehlgeschlagen (HTTP {joined.status_code})"
         # The ban listener may have run before this in-flight join completed. Re-check and compensate.
-        if is_primary_ban_blocked(uid):
-            await _remove_backup_member_after_primary_ban(guild, uid)
-            return False, "Recovery während des Syncs wegen eines Banns im Hauptserver gesperrt."
+        if is_recovery_consent_blocked(uid):
+            reason = recovery_consent_block_reason(uid)
+            if reason == "primary_ban" or joined.status_code == 201:
+                await _remove_backup_member_after_consent_revocation(guild, uid)
+            detail = "Bann im Hauptserver" if reason == "primary_ban" else "Widerruf der Recovery-Freigabe"
+            return False, f"Recovery während des Syncs wegen {detail} gesperrt."
         if joined.status_code == 204:
             member = await guild.fetch_member(int(uid))
             if role.id not in {r.id for r in getattr(member, "roles", [])}:
