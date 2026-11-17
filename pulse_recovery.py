@@ -715,7 +715,7 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
                 return False, f"Discord konnte den Beitritt nicht abschließen (HTTP {joined.status_code}).", uid
             # A ban can arrive after the live primary-guild lookup and before/while Discord joins the backup.
             # The tombstone is authoritative; remove any just-added membership before returning.
-            if is_recovery_consent_blocked(uid):
+            if not can_replace_revocation_with_new_consent(uid, consent_started_at=consent_started_at):
                 reason = recovery_consent_block_reason(uid)
                 if reason == "primary_ban" or joined.status_code == 201:
                     await _remove_backup_member_after_consent_revocation(guild, uid)
