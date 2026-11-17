@@ -1222,8 +1222,24 @@ class AIModeration(commands.Cog):
                             self._save_cases()
                             await interaction.followup.send(gate, ephemeral=True)
                             return
-                    result = await self._apply_citizen_action(guild, member, interaction.user, case, action)
-                    if action in CRITICAL_REVIEW_ACTIONS and result.get("ok"):
+                    critical = action in CRITICAL_REVIEW_ACTIONS
+                    if critical:
+                        # DISC-6: per-moderator kick/ban limit (Anti-Nuke trusts the bot's own actions).
+                        import pulse_sanction_guard
+                        limit_ok, limit_message = pulse_sanction_guard.reserve(
+                            guild.id, interaction.user.id, action, owner_id=guild.owner_id)
+                        if not limit_ok:
+                            await interaction.followup.send(f"❌ {limit_message} Fall bleibt offen.", ephemeral=True)
+                            return
+                    try:
+                        result = await self._apply_citizen_action(guild, member, interaction.user, case, action)
+                    except BaseException:
+                        if critical:
+                            pulse_sanction_guard.release(guild.id, interaction.user.id)
+                        raise
+                    if critical and not result.get("ok"):
+                        pulse_sanction_guard.release(guild.id, interaction.user.id)
+                    if critical and result.get("ok"):
                         self._record_critical_action(case, action, interaction.user, member)
                 else:
                     await interaction.followup.send("Unbekannte Aktion.", ephemeral=True)

@@ -2328,6 +2328,11 @@ class PulseSuite(commands.Cog):
                 if any(r.position>=bot_member.top_role.position for r in team_roles):
                     return await i.response.send_message("❌ Mindestens eine Teamrolle liegt auf oder über der Bot-Rolle.",ephemeral=True)
 
+            if operation=="kick_member":
+                # DISC-6: per-moderator kick/ban limit at the source (Anti-Nuke trusts the bot's own actions).
+                import pulse_sanction_guard
+                _lim_ok,_lim_msg=pulse_sanction_guard.reserve(i.guild.id,i.user.id,"kick",owner_id=i.guild.owner_id)
+                if not _lim_ok:return await i.response.send_message("❌ "+_lim_msg,ephemeral=True)
             claimed=c.execute(
                 "UPDATE suite_actions SET status='executing',approved_by_id=?,approved_by_name=?,updated_at=? WHERE id=? AND status='awaiting_second'",
                 (str(i.user.id),i.user.display_name,iso(),action_id),
