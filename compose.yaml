@@ -86,7 +86,7 @@ services:
   # O-02: optional HTTPS with automatic certificates. Start with:  docker compose --profile https up -d
   # Needs PULSE_DOMAIN in .env and DNS pointing to this server; ports 80/443 open.
   caddy:
-    image: caddy:2.8-alpine
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     profiles: ["https"]
     restart: unless-stopped
     depends_on: [pulse]

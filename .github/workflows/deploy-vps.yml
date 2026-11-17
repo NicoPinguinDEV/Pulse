@@ -221,6 +221,7 @@ jobs:
         if: steps.verified.outputs.ready == 'true' && steps.setup.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+            persist-credentials: false
           ref: ${{ steps.verified.outputs.sha }}
 
       - name: SSH vorbereiten

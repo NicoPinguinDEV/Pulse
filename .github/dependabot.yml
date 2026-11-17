@@ -15,5 +15,5 @@ updates:
   - package-ecosystem: docker
     directory: "/"
     schedule:
-      interval: monthly
+      interval: weekly
     labels: ["abhaengigkeiten"]

@@ -120,6 +120,37 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(len(pulse_alerts.pending()), 1)
         pulse_alerts.reset()
 
+    def test_ticket_attachment_ceiling_and_private_file_permissions(self):
+        channel = FakeChannel()
+        attachments = [FakeAttachment(f"beweis-{i}.txt", 100) for i in range(pulse_transcripts.MAX_TICKET_ATTACHMENTS + 1)]
+        async def history(**_):
+            author = SimpleNamespace(id=7, __str__=lambda s: "max")
+            yield SimpleNamespace(id=99, created_at=datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc),
+                                  content="Viele Anhänge", author=author, embeds=[], components=[], attachments=attachments)
+        channel.history = history
+        base = os.path.join(self.tmp.name, "private-data")
+        text, saved = asyncio.run(pulse_transcripts.build_transcript(channel, "T-CAP", base_dir=base))
+        self.assertEqual(saved, pulse_transcripts.MAX_TICKET_ATTACHMENTS)
+        self.assertIn("Ticketlimit", text)
+        files_dir = os.path.join(base, "transcripts", "T-CAP_anhaenge")
+        self.assertEqual(len(os.listdir(files_dir)), pulse_transcripts.MAX_TICKET_ATTACHMENTS)
+        if os.name == "posix":
+            self.assertEqual(os.stat(files_dir).st_mode & 0o777, 0o700)
+            first = os.path.join(files_dir, os.listdir(files_dir)[0])
+            self.assertEqual(os.stat(first).st_mode & 0o777, 0o600)
+
+    def test_transcript_message_limit_fails_without_returning_partial_archive(self):
+        channel = FakeChannel()
+        async def history(**_):
+            author = SimpleNamespace(id=7, __str__=lambda s: "max")
+            for i in range(2):
+                yield SimpleNamespace(id=i, created_at=datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc),
+                                      content="Nachricht", author=author, embeds=[], components=[], attachments=[])
+        channel.history = history
+        with patch.object(pulse_transcripts, "MAX_TRANSCRIPT_MESSAGES", 1):
+            with self.assertRaises(pulse_transcripts.TranscriptError):
+                asyncio.run(pulse_transcripts.build_transcript(channel, "T-LIMIT", base_dir=self.tmp.name))
+
     def test_channel_already_gone_is_fine(self):
         channel = FakeChannel(delete_error=discord.NotFound(SimpleNamespace(status=404, reason="x"), "gone"))
         self.assertTrue(asyncio.run(tickets.archive_ticket(channel, dict(TICKET), 1, "Leitung", "erledigt")))

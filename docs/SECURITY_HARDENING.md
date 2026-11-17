@@ -113,17 +113,17 @@ Legende: `[x]` behoben und getestet · `[ ]` offen · `[!]` blockiert · `[-]` n
 - [x] **SEC-16** Host-Agent: negatives `Content-Length` blockierte einen Handler-Thread (nur mit gültigem Token). Test: `HostAgentBodyTests`.
 
 ### Offen / bewusst nicht geändert
-- [ ] **R-01** `dashboard_session` ist bei einer Ausnahme der Sitzungsprüfung (DB gesperrt/defekt) fail-open (dokumentierte Entscheidung: DB-Schluckauf soll nicht alle aussperren; Rechte werden trotzdem live geprüft). Empfehlung: für Admin-/Schreibrouten fail-closed – erfordert Produktentscheidung.
+- [x] **R-01** Sitzungsprüfung ist fail-closed: jede Ausnahme aus `pulse_sessions.is_valid` verwirft das Dashboard-Cookie; die Anmeldung ohne speicherbare serverseitige Sitzung wird mit HTTP 503 abgebrochen.
 - [ ] **R-02** DNS-Rebinding zwischen Prüfung und Verbindung bei Social-Feeds bleibt theoretisch möglich; praktisch stark begrenzt durch HTTPS-Pflicht mit Zertifikatsprüfung (ein internes Ziel bräuchte ein gültiges Zertifikat für den Angreifer-Host) und Einstellbarkeit nur durch Admins/`can_manage_announcements`.
 - [ ] **R-03** CSP ohne `script-src`/`style-src` (Inline-UI). Jede künftige HTML-Injection wäre direkt ausnutzbar; Nonces erst nach Auslagerung des Inline-JS (U-03). Escaping (`esc`) bleibt die primäre Verteidigung.
 - [ ] **R-04** Gebannte Mitglieder behalten ihre Recovery-Einwilligung (kein `unlink` bei Bann). Policy-Entscheidung nötig (Datenschutz vs. Wiederherstellung).
 - [x] **R-05** ~~`./:/app` ist im Container beschreibbar~~ — **erledigt in Phase 13** (`docs/PHASE13_BERICHT.md`): Code nur im Image (root-eigen, `read_only: true`), beschreibbar sind nur `/data` und ein 64-MB-`/tmp`; der Checkout wird nicht mehr eingebunden. Tests: `tests/test_phase13_data_isolation.py`, CI startet den Read-only-Container.
 - [x] **R-06** — **erledigt in Phase 13:** `.env` liegt nicht mehr im Container (nur `env_file`), Pulse kann sie weder lesen noch ändern. Ursprünglicher Befund: `.env` ist vom Container beschreibbar und steuert die Compose-Interpolation (z. B. `PULSE_PUBLISH_HOST=0.0.0.0`). Nicht automatisch überschrieben, weil eine bewusste Direktfreigabe sonst nach einem Reboot verschwände; Empfehlung: Port-Bindung fest eintragen, wenn keine Direktfreigabe benötigt wird.
-- [ ] **R-07** Base-Images nur per Tag (`python:3.15-slim`, `caddy:2.8-alpine`), kein Digest; Caddy-Image in `compose.yaml` wird von Dependabot (`docker`) vermutlich nicht erfasst.
-- [ ] **R-08** Transkripte: kein Gesamtlimit für Anhänge pro Ticket (je Datei 8 MB). Speicher-DoS durch Ticket-Ersteller möglich.
-- [ ] **R-09** `/ultimate/team/{id}/update`: Führungskräfte (`can_promote`) können Profilfelder (internes Rating/Status) auch höherrangiger Mitglieder ändern (keine Rangprüfung, niedriger Schaden).
-- [ ] **R-10** Laufzeitdaten in der Git-Historie (Commit `f1e83a4`: `pulse.db`, `audit_logs.json`, in `2103599` entfernt). Bereinigung nur per History-Rewrite (Force-Push) – nicht ohne ausdrückliche Freigabe.
-- [ ] **R-11** `actions/checkout` ohne `persist-credentials: false` (Token nur `contents: read`).
+- [x] **R-07** Produktions-Base-Images sind auf verifizierte Multi-Platform-Digests festgelegt; Dependabot prüft Docker-Images wöchentlich. Updates werden als PRs vorgeschlagen, nicht automatisch übernommen.
+- [x] **R-08** Transkriptarchiv: 8 MB pro Datei, 50 Dateien und 32 MB Anhangdaten pro Ticket, 10.000 Nachrichten und 8 MB Text; Transkriptdateien sind 0600, Anhangordner 0700.
+- [x] **R-09** `/ultimate/team/{id}/update` prüft das Zielmitglied live und erlaubt Nicht-Admins nur bei einem niedrigeren konfigurierten Teamrang; Selbstbearbeitung, gleiche/höhere Ränge, Nicht-Teammitglieder und Discord-Administratoren werden abgewiesen.
+- [!] **R-10** Laufzeitdaten wurden aus dem aktuellen Baum entfernt, sind aber in älteren Git-Commits weiter abrufbar. Vollständige Bereinigung erfordert ein koordiniertes History-Rewrite/Force-Push und anschließendes Rotieren potenziell offengelegter Schlüssel.
+- [x] **R-11** Alle `actions/checkout`-Schritte setzen `persist-credentials: false`; der kurzlebige Checkout-Token bleibt nicht in der lokalen Git-Konfiguration des Runners.
 
 ### Geprüft – kein Befund (Auswahl)
 - [-] OAuth-State/Login-CSRF, Open Redirect (`local_path`/`back`), `msg`-Parameter, JSON in `<script>`: geschützt.
