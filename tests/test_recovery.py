@@ -1,4 +1,5 @@
 """Opt-in recovery token storage and role safety tests."""
+import asyncio
 import os
 import tempfile
 import unittest
@@ -40,6 +41,40 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(pulse_recovery.unlink(uid))
         self.assertIsNone(pulse_recovery.get_refresh_token(uid))
         self.assertEqual(pulse_recovery.count_linked_users(), 0)
+
+
+    def test_primary_ban_tombstone_deletes_token_and_blocks_stale_refresh_writes(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-ban", now=100)
+        token, had_consent = pulse_recovery.block_primary_ban(uid, now=200)
+        self.assertEqual(token, "refresh-before-ban")
+        self.assertTrue(had_consent)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "stale-in-flight-refresh", now=201)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+
+    def test_only_a_new_consent_started_after_the_ban_can_clear_the_tombstone(self):
+        uid = "123456789012345678"
+        pulse_recovery.block_primary_ban(uid, now=200)
+        self.assertFalse(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=199))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        self.assertTrue(pulse_recovery.clear_primary_ban_block_for_new_consent(uid, consent_started_at=201))
+        self.assertFalse(pulse_recovery.is_primary_ban_blocked(uid))
+
+    def test_rejoin_user_rejects_stale_sync_snapshot_for_banned_member(self):
+        uid = "123456789012345678"
+        pulse_recovery.block_primary_ban(uid, now=200)
+
+        async def run():
+            return await pulse_recovery.rejoin_user(
+                uid, "stale-refresh-token", bot=object(), client=object(),
+            )
+
+        ok, message = asyncio.run(run())
+        self.assertFalse(ok)
+        self.assertIn("Bann im Hauptserver", message)
 
     def test_invalid_ids_are_not_stored(self):
         with self.assertRaises(ValueError):

@@ -105,7 +105,8 @@ class ArchiveTests(unittest.TestCase):
         with open(os.path.join("transcripts", "T-42.txt"), encoding="utf-8") as fh:
             text = fh.read()
         self.assertIn("T-42_anhaenge/11_beweis.png (gesichert)", text)
-        self.assertIn("video.mp4 (zu groß, nicht gesichert)", text)
+        self.assertIn("video.mp4", text)
+        self.assertIn("zu groß oder ungültige Größenangabe, nicht gesichert", text)
         self.assertTrue(os.path.isfile(os.path.join("transcripts", "T-42_anhaenge", "11_beweis.png")))
         self.assertIn("file", channel.sent[0][1])
 

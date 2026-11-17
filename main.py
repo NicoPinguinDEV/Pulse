@@ -73,6 +73,7 @@ class CustomBot(commands.Bot):
         MESSAGE_CACHE_SIZE = message_cache_size()
         intents = discord.Intents.default()
         intents.members = True  # Rollen & Teamler erkennen
+        intents.moderation = True  # Hauptserver-Banns müssen Recovery-Einwilligungen sofort sperren
         intents.presences = True
         intents.message_content = True
 

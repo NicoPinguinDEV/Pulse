@@ -29,6 +29,75 @@ class RecoveryCog(commands.Cog):
         self._limited_sync_running = False
         self._stop_requested = False  # Phase 9: set by cog_unload – the full sync ends between two users
 
+
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user: discord.User) -> None:
+        """A main-guild ban revokes the old opt-in and prevents stale recovery syncs."""
+        import pulse_recovery
+        import webserver as ws
+
+        if int(getattr(guild, "id", 0) or 0) != int(ws.GUILD_ID):
+            return
+
+        uid = str(user.id)
+        # Tombstone first: the database operation atomically stores the block and deletes consent.
+        refresh_token, had_consent = pulse_recovery.block_primary_ban(uid)
+        revoked = False
+        if refresh_token and ws.CLIENT_ID and ws.CLIENT_SECRET:
+            try:
+                async with httpx.AsyncClient(timeout=TOKEN_TIMEOUT, follow_redirects=False) as client:
+                    response = await client.post(
+                        "https://discord.com/api/v10/oauth2/token/revoke",
+                        data={
+                            "client_id": ws.CLIENT_ID,
+                            "client_secret": ws.CLIENT_SECRET,
+                            "token": refresh_token,
+                            "token_type_hint": "refresh_token",
+                        },
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    revoked = response.status_code in (200, 204)
+            except httpx.HTTPError:
+                pass
+
+        backup_removed = False
+        if had_consent:
+            settings = pulse_recovery.load_settings()
+            backup_id = settings.get("backup_guild_id", "")
+            try:
+                backup = self.bot.get_guild(int(backup_id)) if backup_id else None
+            except (TypeError, ValueError):
+                backup = None
+            if backup is not None:
+                member = backup.get_member(int(uid))
+                if member is None:
+                    try:
+                        member = await backup.fetch_member(int(uid))
+                    except discord.NotFound:
+                        member = None
+                    except (discord.Forbidden, discord.HTTPException):
+                        member = None
+                if member is not None:
+                    try:
+                        await backup.kick(
+                            member,
+                            reason="Pulse Recovery: Recovery-Freigabe nach Bann im Hauptserver gesperrt",
+                        )
+                        backup_removed = True
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+        try:
+            ws.log_audit(
+                "Pulse Recovery",
+                "system",
+                "Recovery nach Hauptserver-Bann gesperrt",
+                f"Betroffener Nutzer {uid}; gespeicherte Zustimmung vorhanden={had_consent}; "
+                f"Discord-OAuth widerrufen={revoked}; Backup-Mitglied entfernt={backup_removed}",
+            )
+        except Exception:
+            pass
+
     async def cog_unload(self) -> None:
         """Phase 9: a running full sync must not outlive the cog (reload/shutdown). It stops between two users,
         so no refresh token is cut off mid-exchange; only if that takes too long the task is cancelled."""
