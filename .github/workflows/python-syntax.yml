@@ -24,7 +24,7 @@ jobs:
       - name: Repository inklusive Historie auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-            persist-credentials: false
+          persist-credentials: false
           fetch-depth: 0
       - name: Gitleaks ausführen
         # Third-party action with GITHUB_TOKEN: pinned to the immutable commit of v3.0.0 (Dependabot keeps it current).
@@ -38,8 +38,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Python einrichten
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -55,8 +55,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Python einrichten
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -99,8 +99,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Python-Version aus dem Dockerfile lesen
         id: image
         run: |
@@ -137,7 +137,7 @@ jobs:
       - name: Repository inklusive Historie auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-            persist-credentials: false
+          persist-credentials: false
           fetch-depth: 0
       - name: Geänderte Dateien bewerten (tools/ci_e2e_needed.py)
         id: scope
@@ -166,8 +166,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Python einrichten
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -198,8 +198,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Compose-Konfiguration prüfen (Phase 13 – read-only, nur /data; leere .env nur für die Prüfung)
         run: |
           touch .env
@@ -245,8 +245,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Compose-Stack mit isolierten Testdaten starten, prüfen und stoppen
         env:
           PULSE_GIT_SHA: ${{ github.sha }}
@@ -261,8 +261,8 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-          with:
-            persist-credentials: false
+        with:
+          persist-credentials: false
       - name: Python einrichten
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
