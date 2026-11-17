@@ -1,6 +1,8 @@
 """Pure helpers for Melonly search ranking and access decisions."""
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Iterable, Mapping, Any
 
@@ -93,3 +95,77 @@ def can_manage_melonly_type(
         "Ban BOLO": can_moderate_bolo,
     }
     return bool(permissions.get(log_type, False))
+
+
+# --------------------------------------------------------------------------- personal player file (Spielerakte)
+_PLAYER_ID = re.compile(r"\d{1,15}")
+_LOG_TIME_FORMAT = "%d.%m.%Y %H:%M"
+
+
+def is_player_id(value: object) -> bool:
+    """A usable Roblox player id (digits only); "N/A", empty or None are not."""
+    return bool(_PLAYER_ID.fullmatch(str(value or "").strip()))
+
+
+def parse_log_time(value: object) -> datetime | None:
+    try:
+        return datetime.strptime(str(value or "").strip(), _LOG_TIME_FORMAT)
+    except ValueError:
+        return None
+
+
+def entry_matches_player(entry: Mapping[str, Any], roblox_id: str, username: str = "") -> str | None:
+    """How a stored entry belongs to a player: "id", "name" or None.
+
+    The Roblox player id is authoritative: an entry with a numeric id belongs to that id and to nobody else - even
+    if it carries the same (possibly reused or changed) name. Only legacy entries WITHOUT a usable id ("N/A") are
+    assigned by an exact, case-insensitive name match, because they cannot be assigned any other way."""
+    if not isinstance(entry, Mapping) or not is_player_id(roblox_id):
+        return None
+    stored_id = str(entry.get("roblox_id") or "").strip()
+    if is_player_id(stored_id):
+        return "id" if stored_id == str(roblox_id).strip() else None
+    name = _normalize_username(username)
+    if name and _normalize_username(entry.get("target_user")) == name:
+        return "name"
+    return None
+
+
+def build_player_file(rows: Iterable[Mapping[str, Any]], roblox_id: str, username: str = "") -> dict[str, Any]:
+    """Personal record of exactly one player from already loaded rows (see entry_matches_player).
+
+    Entries are returned newest first (by their recorded date, store order as tie-breaker); the counts use the
+    stored action types: Ban + Ban BOLO together, Warn, Kick, Notiz."""
+    matched: list[tuple[datetime, int, dict[str, Any], str]] = []
+    for index, entry in enumerate(rows):
+        how = entry_matches_player(entry, roblox_id, username)
+        if how:
+            matched.append((parse_log_time(entry.get("created_at")) or datetime.min, index, dict(entry), how))
+    matched.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    entries = [item[2] for item in matched]
+    types = [str(entry.get("type") or "Log") for entry in entries]
+    current = _normalize_username(username)
+    names: list[str] = []
+    for entry in entries:  # earlier spellings of the same player id, newest first
+        name = str(entry.get("target_user") or "").strip().lstrip("@")
+        if name and _normalize_username(name) != current and name.casefold() not in {n.casefold() for n in names}:
+            names.append(name)
+    display = str(username or "").strip().lstrip("@") or (
+        str(entries[0].get("target_user") or "").strip().lstrip("@") if entries else "")
+    dated = [item[0] for item in matched if item[0] != datetime.min]
+    return {
+        "roblox_id": str(roblox_id).strip(),
+        "username": display,
+        "entries": entries,
+        "counts": {
+            "bans": sum(1 for t in types if t in ("Ban", "Ban BOLO")),
+            "kicks": types.count("Kick"),
+            "warns": types.count("Warn"),
+            "notes": types.count("Notiz"),
+            "total": len(entries),
+        },
+        "other_names": names[:10],
+        "name_matched": sum(1 for item in matched if item[3] == "name"),
+        "first_at": min(dated).strftime(_LOG_TIME_FORMAT) if dated else "",
+        "last_at": max(dated).strftime(_LOG_TIME_FORMAT) if dated else "",
+    }
