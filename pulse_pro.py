@@ -1193,12 +1193,108 @@ def register(app):
             return None
 
     # ---------------- Melonly / Roblox Moderation ----------------
+    ALL_MELONLY_TYPES=(("Warn","⚠️ Warn"),("Kick","🚪 Kick"),("Ban","🚫 Ban"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
+
+    def melonly_types_for(c):
+        """Action types this member may manage - the same rule for the page and the player-file API."""
+        return tuple((key,label) for key,label in ALL_MELONLY_TYPES if ws.can_manage_melonly_entry(c,{"type":key}))
+
+    def melonly_entry_html(c, x, melonly_types, edit_log_id, file_id=""):
+        """One stored entry (global list or personal file). Edit/delete stay permission-checked per entry."""
+        lt=x.get("type","Log")
+        log_id=str(x.get("id") or "")
+        kind={"Ban":"bad","Kick":"warn","Notiz":"","Ban BOLO":"bad"}.get(lt,"")
+        # Inside a personal file the player file stays open after editing/deleting.
+        back_url="/melonly?player_file="+file_id if file_id else "/melonly"
+        edit_query=("player_file="+file_id+"&" if file_id else "")+"edit_log="+quote(log_id,safe="")
+        can_edit=bool(log_id and ws.can_manage_melonly_entry(c,x))
+        actions=""
+        if can_edit:
+            edit_url="/melonly?"+edit_query+"#melonly-entry-"+quote(log_id,safe="")
+            actions=f'<div class="flex flex-wrap items-center gap-2 mt-2"><a href="{e(edit_url)}" class="pulse-btn ghost">✏️ Bearbeiten</a><form action="/log/delete" method="post" data-confirm="Diesen Melonly-Eintrag wirklich dauerhaft löschen?"><input type="hidden" name="log_id" value="{e(log_id)}"><input type="hidden" name="return_to" value="{e(back_url)}"><button type="submit" class="pulse-btn bad">🗑️ Löschen</button></form></div>'
+        edit_form=""
+        if can_edit and edit_log_id==log_id:
+            edit_options="".join(f'<option value="{e(key)}" {"selected" if lt==key else ""}>{e(label)}</option>' for key,label in melonly_types)
+            edit_form=f"""
+              <form action="/log/edit" method="post" class="mt-3 pt-3 border-t space-y-3" id="edit-melonly-{e(log_id)}">
+                <input type="hidden" name="log_id" value="{e(log_id)}">
+                <input type="hidden" name="return_to" value="{e(back_url)}">
+                <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Username</label><input class="pulse-input mt-1" name="target_user" maxlength="50" value="{e(x.get('target_user',''))}" required></div>
+                <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Player ID</label><input class="pulse-input mt-1" name="roblox_id" maxlength="15" value="{e(x.get('roblox_id','N/A'))}" inputmode="numeric" pattern="[0-9]+" required></div>
+                <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Aktion</label><select class="pulse-input mt-1" name="log_type" required>{edit_options}</select></div>
+                <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Grund</label><textarea class="pulse-input pulse-textarea mt-1" name="reason" maxlength="1000" required>{e(x.get('reason',''))}</textarea></div>
+                <div class="flex flex-wrap gap-2"><button class="pulse-btn primary" type="submit">💾 Änderungen speichern</button><a class="pulse-btn ghost" href="{e(back_url)}#melonly-entry-{quote(log_id,safe='')}">Abbrechen</a></div>
+              </form>"""
+        return (
+            f'<article id="melonly-entry-{e(log_id)}" class="pulse-row items-start"><div class="flex items-start gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e(initials(x.get("target_user") or "?"))}</div><div class="pulse-row-main min-w-0"><div class="pulse-row-title"><span class="pulse-pill {kind}">{e(lt)}</span> {e(x.get("target_user"))}</div><div class="pulse-row-meta">Roblox ID: {e(x.get("roblox_id","N/A"))} · {e(x.get("created_at"))}</div><div class="pulse-row-meta break-words">{e(x.get("reason"))}</div><div class="pulse-row-meta">von {e(x.get("moderator"))}</div>{actions}{edit_form}</div></div></article>'
+        )
+
+    def melonly_player_file(roblox_id, username=""):
+        """Personal file of exactly one player: filtered on the server by the Roblox player id (see pulse_melonly)."""
+        from pulse_melonly import build_player_file
+        repository=ws.get_melonly_repository()
+        name=str(username or "").strip().lstrip("@")[:50]
+        file=build_player_file(repository.roblox_user_history(roblox_id,name),roblox_id,name)
+        if not name and file["username"]:
+            # Opened by id only (e.g. after saving): pick up older entries that only carry the same name.
+            name=file["username"]
+            file=build_player_file(repository.roblox_user_history(roblox_id,name),roblox_id,name)
+        return file
+
+    def melonly_player_file_html(c, file, melonly_types, edit_log_id=""):
+        counts=file["counts"]
+        pid=file["roblox_id"]
+        name=file["username"] or "Unbekannt"
+        tiles=(("🚫","Bans / BOLOs",counts["bans"]),("🚪","Kicks",counts["kicks"]),("⚠️","Verwarnungen",counts["warns"]),("📝","Notizen",counts["notes"]),("📚","Alle Vorgänge",counts["total"]))
+        stats="".join(f'<div class="pulse-stat"><div class="icon">{icon}</div><div class="label">{e(label)}</div><div class="value">{value}</div></div>' for icon,label,value in tiles)
+        if file["entries"]:
+            entries="".join(melonly_entry_html(c,x,melonly_types,edit_log_id,pid) for x in file["entries"])
+        else:
+            entries='<div class="pulse-empty">Für diesen Spieler liegen noch keine Vorgänge vor.</div>'
+        facts=[f"Roblox ID: {pid}"]
+        if file["first_at"]:
+            facts.append(f"Erster Vorgang: {file['first_at']}")
+        if file["last_at"] and file["last_at"]!=file["first_at"]:
+            facts.append(f"Letzter Vorgang: {file['last_at']}")
+        notes=""
+        if file["other_names"]:
+            notes+=f'<div class="pulse-row-meta">Früher eingetragene Namen: {e(", ".join(file["other_names"]))}</div>'
+        if file["name_matched"]:
+            notes+=f'<div class="pulse-row-meta text-amber-500">{file["name_matched"]} ältere(r) Eintrag/Einträge ohne Player ID wurde(n) über den exakten Namen zugeordnet.</div>'
+        return (
+            f'<section class="pulse-card" id="melonlyFileCard" data-roblox-id="{e(pid)}" data-username="{e(name)}">'
+            f'<div class="pulse-card-h"><div><div class="pulse-section-title">🗂️ Spielerakte – {e(name)}</div><div class="pulse-section-sub">{e(" · ".join(facts))}</div></div>'
+            f'<a href="/melonly" class="pulse-btn ghost">Akte schließen</a></div>'
+            f'<div class="pulse-card-b"><div class="pulse-stat-grid" style="margin:0 0 14px">{stats}</div>{notes}'
+            f'<div class="pulse-section-sub" style="margin:10px 0 8px">Vorgangshistorie · neueste zuerst · nur dieser Spieler</div>'
+            f'<div class="space-y-2">{entries}</div></div></section>'
+        )
+
+    async def melonly_player_file_api(request: Request, roblox_id: str="", username: str="", user_session: str=Cookie(None)):
+        c=cctx(request,user_session)
+        if not ws.can_access_melonly(c):
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
+        melonly_types=melonly_types_for(c)
+        if not melonly_types:
+            raise HTTPException(403,"Dafür fehlt dir eine Melonly-Berechtigung. Bitte wende dich an die Führungsebene.")
+        client_key=f"melonly-file:{c.user.get('id')}:{request.client.host if request.client else 'unknown'}"
+        if ws.rate_limited(client_key,limit=120,window=60):
+            return JSONResponse({"success":False,"message":"Zu viele Abfragen. Bitte kurz warten."},status_code=429)
+        from pulse_melonly import is_player_id
+        rid=str(roblox_id or "").strip()
+        if not is_player_id(rid):
+            return JSONResponse({"success":False,"message":"Ungültige Roblox Player ID."},status_code=400)
+        file=melonly_player_file(rid,username)
+        edit_log_id=str(request.query_params.get("edit_log") or "")
+        return JSONResponse({"success":True,"roblox_id":rid,"username":file["username"],"counts":file["counts"],
+                             "html":melonly_player_file_html(c,file,melonly_types,edit_log_id)},
+                            headers={"Cache-Control":"no-store"})
+
     async def melonly_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
         if not ws.can_access_melonly(c):
             raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
-        all_melonly_types=(("Warn","⚠️ Warn"),("Kick","🚪 Kick"),("Ban","🚫 Ban"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
-        melonly_types=tuple((key,label) for key,label in all_melonly_types if ws.can_manage_melonly_entry(c,{"type":key}))
+        melonly_types=melonly_types_for(c)
         if not melonly_types:
             raise HTTPException(403,"Dafür fehlt dir eine Melonly-Berechtigung. Bitte wende dich an die Führungsebene.")
 
@@ -1206,36 +1302,20 @@ def register(app):
             ("Warn","Ban","Kick","Notiz","Ban BOLO"), 120
         )
         edit_log_id=str(request.query_params.get("edit_log") or "")
-        items=[]
-        for x in relevant:
-            lt=x.get("type","Log")
-            log_id=str(x.get("id") or "")
-            kind={"Ban":"bad","Kick":"warn","Notiz":"","Ban BOLO":"bad"}.get(lt,"")
-            can_edit=bool(log_id and ws.can_manage_melonly_entry(c,x))
-            actions=""
-            if can_edit:
-                edit_url="/melonly?edit_log="+quote(log_id,safe="")+"#melonly-entry-"+quote(log_id,safe="")
-                actions=f'<div class="flex flex-wrap items-center gap-2 mt-2"><a href="{e(edit_url)}" class="pulse-btn ghost">✏️ Bearbeiten</a><form action="/log/delete" method="post" data-confirm="Diesen Melonly-Eintrag wirklich dauerhaft löschen?"><input type="hidden" name="log_id" value="{e(log_id)}"><input type="hidden" name="return_to" value="/melonly"><button type="submit" class="pulse-btn bad">🗑️ Löschen</button></form></div>'
-            edit_form=""
-            if can_edit and edit_log_id==log_id:
-                edit_options="".join(f'<option value="{e(key)}" {"selected" if lt==key else ""}>{e(label)}</option>' for key,label in melonly_types)
-                edit_form=f"""
-                  <form action="/log/edit" method="post" class="mt-3 pt-3 border-t space-y-3" id="edit-melonly-{e(log_id)}">
-                    <input type="hidden" name="log_id" value="{e(log_id)}">
-                    <input type="hidden" name="return_to" value="/melonly">
-                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Username</label><input class="pulse-input mt-1" name="target_user" maxlength="50" value="{e(x.get('target_user',''))}" required></div>
-                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Player ID</label><input class="pulse-input mt-1" name="roblox_id" maxlength="15" value="{e(x.get('roblox_id','N/A'))}" inputmode="numeric" pattern="[0-9]+" required></div>
-                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Aktion</label><select class="pulse-input mt-1" name="log_type" required>{edit_options}</select></div>
-                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Grund</label><textarea class="pulse-input pulse-textarea mt-1" name="reason" maxlength="1000" required>{e(x.get('reason',''))}</textarea></div>
-                    <div class="flex flex-wrap gap-2"><button class="pulse-btn primary" type="submit">💾 Änderungen speichern</button><a class="pulse-btn ghost" href="/melonly#melonly-entry-{quote(log_id,safe='')}">Abbrechen</a></div>
-                  </form>"""
-            items.append(
-                f'<article id="melonly-entry-{e(log_id)}" class="pulse-row items-start"><div class="flex items-start gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e(initials(x.get("target_user") or "?"))}</div><div class="pulse-row-main min-w-0"><div class="pulse-row-title"><span class="pulse-pill {kind}">{e(lt)}</span> {e(x.get("target_user"))}</div><div class="pulse-row-meta">Roblox ID: {e(x.get("roblox_id","N/A"))} · {e(x.get("created_at"))}</div><div class="pulse-row-meta break-words">{e(x.get("reason"))}</div><div class="pulse-row-meta">von {e(x.get("moderator"))}</div>{actions}{edit_form}</div></div></article>'
-            )
+        items=[melonly_entry_html(c,x,melonly_types,edit_log_id) for x in relevant]
         history="".join(items) or '<div class="pulse-empty">Noch keine Spieler-Vorgänge eingetragen.</div>'
+
+        # Personal player file: opened by id (e.g. after saving an entry). Without the parameter the global list stays.
+        from pulse_melonly import is_player_id
+        file_id=str(request.query_params.get("player_file") or "").strip()
+        file_html=""
+        if is_player_id(file_id):
+            file_html=melonly_player_file_html(c,melonly_player_file(file_id),melonly_types,edit_log_id)
+        file_open=bool(file_html)
 
         form_html=f'''
         <form action="/log/create" method="post" id="melonlyForm" class="space-y-4">
+          <input type="hidden" name="return_to" value="/melonly" id="melonlyReturnTo">
           <div class="relative">
             <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Username</label>
             <input id="melonlyName" name="target_user" required maxlength="50" autocomplete="off" class="pulse-input mt-1" placeholder="@Username">
@@ -1275,7 +1355,10 @@ def register(app):
         </div>
         <div class="pulse-grid">
           <div>{card("Spieler eintragen",form_html,"🛡️")}</div>
-          <div>{card("Letzte Spieler-Vorgänge",history,"▣")}</div>
+          <div>
+            <div id="melonlyFile" class="{'' if file_open else 'hidden'}" aria-live="polite">{file_html}</div>
+            <div id="melonlyGlobal" class="{'hidden' if file_open else ''}"{' data-lazy="1"' if file_open else ''}>{'' if file_open else card("Letzte Spieler-Vorgänge",history,"▣")}</div>
+          </div>
         </div>
         '''
 
@@ -1299,6 +1382,7 @@ def register(app):
             name.value=u.name || "";
             id.value=u.id || "";
             hideSuggestions();
+            fileCtl.typing(norm(u.name || ""));
             loadExact(u.name || "");
           }
           function showSuggestions(users){
@@ -1344,6 +1428,71 @@ def register(app):
                 .catch(function(){if(requestId===latestSearchRequest)hideSuggestions();});
             },220);
           }
+          // Personal player file: while a player name is typed the global list is hidden and only the file of the
+          // resolved Roblox player id is shown. Every change bumps fileToken, so a late answer for an earlier
+          // name can never overwrite the current one.
+          const globalPanel=document.getElementById("melonlyGlobal");
+          const filePanel=document.getElementById("melonlyFile");
+          const returnTo=document.getElementById("melonlyReturnTo");
+          const form=document.getElementById("melonlyForm");
+          let fileToken=0;
+          function fileStatus(text,isError){
+            if(!filePanel||!globalPanel)return;
+            filePanel.innerHTML="";
+            const box=document.createElement("div");
+            box.className="pulse-empty"+(isError ? " text-rose-500" : "");
+            box.textContent=text;
+            filePanel.appendChild(box);
+            filePanel.classList.remove("hidden");
+            globalPanel.classList.add("hidden");
+          }
+          const fileCtl={
+            global:function(){
+              fileToken++;
+              if(!filePanel||!globalPanel)return;
+              if(globalPanel.dataset.lazy){location.assign("/melonly");return;}  // opened as a player file: the list was not sent
+              filePanel.classList.add("hidden");
+              filePanel.innerHTML="";
+              globalPanel.classList.remove("hidden");
+            },
+            typing:function(q){
+              fileToken++;
+              if(!q){fileCtl.global();return;}
+              fileStatus(q.length<3 ? "Bitte mindestens 3 Zeichen des Roblox-Namens eingeben …" : "Spieler wird gesucht …",false);
+            },
+            failed:function(message){
+              fileToken++;
+              fileStatus(message || "Roblox-Nutzer nicht gefunden.",true);
+            },
+            resolved:function(user){
+              const rid=String(user.id||"");
+              if(!/^\d{1,15}$/.test(rid)){fileCtl.failed("Roblox-Nutzer nicht gefunden.");return;}
+              const token=++fileToken;
+              fileStatus("Spielerakte wird geladen …",false);
+              fetch("/api/melonly/player-file?roblox_id="+encodeURIComponent(rid)+"&username="+encodeURIComponent(user.username||user.name||""),{cache:"no-store",credentials:"same-origin"})
+                .then(function(r){return r.json().catch(function(){return {success:false};});})
+                .then(function(d){
+                  if(token!==fileToken)return;
+                  if(!d.success){fileStatus(d.message || "Die Spielerakte konnte nicht geladen werden.",true);return;}
+                  filePanel.innerHTML=d.html;
+                  filePanel.classList.remove("hidden");
+                  globalPanel.classList.add("hidden");
+                })
+                .catch(function(){if(token===fileToken)fileStatus("Die Spielerakte konnte nicht geladen werden. Bitte erneut versuchen.",true);});
+            }
+          };
+          // Opened with ?player_file=<id>: the server already rendered the file, mirror it in the form.
+          const openCard=document.getElementById("melonlyFileCard");
+          if(openCard&&name&&id){
+            if(openCard.dataset.username)name.value=openCard.dataset.username;
+            id.value=openCard.dataset.robloxId||"";
+          }
+          // After saving, return to the personal file of the entered player id.
+          if(form&&returnTo){
+            form.addEventListener("submit",function(){
+              returnTo.value=/^\d{1,15}$/.test(id.value.trim()) ? "/melonly?player_file="+id.value.trim() : "/melonly";
+            });
+          }
           function loadExact(v){
             clearTimeout(exactTimer);
             const q=norm(v), requestId=++latestExactRequest;
@@ -1356,8 +1505,9 @@ def register(app):
                 .then(function(r){return r.json();})
                 .then(function(d){
                   if(requestId!==latestExactRequest || norm(name.value).toLowerCase()!==q.toLowerCase())return;
-                  if(!d.success)return;
+                  if(!d.success){fileCtl.failed(d.message);return;}
                   id.value=d.id || "";
+                  fileCtl.resolved(d);
                   if(preview){
                     preview.innerHTML="";
                     const row=document.createElement("div");
@@ -1385,13 +1535,16 @@ def register(app):
                     preview.classList.remove("hidden");
                   }
                 })
-                .catch(function(){});
+                .catch(function(){
+                  if(requestId===latestExactRequest)fileCtl.failed("Roblox ist gerade nicht erreichbar – bitte kurz warten und erneut versuchen.");
+                });
             },300);
           }
           name.addEventListener("input",function(){
             const q=norm(name.value);
             if(name.value!==q)name.value=q;
             searchUsers(q);
+            fileCtl.typing(q);
             loadExact(q);
           });
           name.addEventListener("blur",function(){setTimeout(hideSuggestions,180);});
@@ -3794,6 +3947,7 @@ def register(app):
     remove_and_add(app,'/meetings-history',{'GET'},meetings_history_v5,response_class=HTMLResponse)
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
+    app.get('/api/melonly/player-file',response_class=JSONResponse)(melonly_player_file_api)
     app.post('/shift/admin-end')(admin_end_shift)
     app.post('/shift/history/confirm-duration')(confirm_auto_closed_shift_duration)
     app.post('/shift/notes')(add_shift_note_dashboard)

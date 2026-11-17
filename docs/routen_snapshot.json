@@ -39,6 +39,7 @@
  "GET /api/events/stream -> pulse_live.register.<locals>.events_stream",
  "GET /api/live/feed -> pulse_live.register.<locals>.live_feed",
  "GET /api/live/status -> pulse_live.register.<locals>.live_status",
+ "GET /api/melonly/player-file -> pulse_pro.register.<locals>.melonly_player_file_api",
  "GET /api/pulse/live -> pulse_pro.register.<locals>.api_live",
  "GET /api/roblox-search -> webserver.roblox_search",
  "GET /api/roblox-user -> webserver.roblox_user_lookup",

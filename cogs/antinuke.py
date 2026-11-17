@@ -22,6 +22,12 @@ Mode "alert" (and a rule in test mode) only reports what would have happened. A 
 remaining steps and is reported as failed, never as done. Deleted channels/roles are NOT restored – Discord
 reports the action after it happened.
 
+Mass role assignment (independent of all rules above): every newly granted role - harmless or not - counts for
+the person responsible according to the audit log (never the recipient), per server, in a 10 s window. At 9 roles
+only a warning is logged; at 10 the full role quarantine runs (all removable roles, never @everyone, managed roles
+or roles at/above the bot; partial results are reported as partial; restorable like every quarantine). Neither the
+global default nor an individual rule can lower or bypass this fixed threshold (ROLE_GRANT_LIMIT).
+
 Optionally, a bot added by an untrusted person is kicked right away (kick_unverified_bots).
 All per-guild counters and sliding windows are bounded; the container RAM budget is defined in compose.yaml.
 """
@@ -77,6 +83,11 @@ LOCKDOWN_KEY = "pulse_antinuke_lockdown"
 MAX_QUARANTINE_ENTRIES = 200
 RESPONSE_COOLDOWN_SECONDS = 600  # default of rule_cooldown_seconds
 MAX_TRACKED_ACTORS = 2000
+# Mass role assignment: fixed, independent of the global rule and of individual rules (they can neither lower
+# nor bypass it). Counted per guild and actor: every newly granted role, harmless or not.
+ROLE_GRANT_LIMIT = 10          # this many new roles inside the window -> full role quarantine
+ROLE_GRANT_WARN_AT = 9         # one short of the limit -> warning and log only
+ROLE_GRANT_WINDOW = 10         # seconds
 # Permissions a lockdown denies for @everyone (text and voice separately – Discord rejects nothing, but
 # only these are meaningful per channel type).
 LOCK_TEXT_PERMS = ("send_messages", "send_messages_in_threads", "create_public_threads", "add_reactions")
@@ -272,6 +283,9 @@ class PulseAntiNuke(commands.Cog):
         # ("rule"|"action", guild, rule|action, actor) -> monotonic expiry; prevents repeated chains and double bans.
         self._cooldowns: OrderedDict[tuple, float] = OrderedDict()
         self._event_count = 0
+        # Mass role assignment (separate from the rule engine): (guild, actor) -> [(monotonic, roles)] in the window.
+        self._role_grants: OrderedDict[tuple[int, int], deque[tuple[float, int]]] = OrderedDict()
+        self._seen_role_grants: dict[int, deque[int]] = {}
 
     async def cog_load(self):
         self.lockdown_expiry.start()  # needs the running event loop, so not in __init__
@@ -311,8 +325,12 @@ class PulseAntiNuke(commands.Cog):
             seen = self._seen_entries[guild_id] = deque(maxlen=1000)
         return seen
 
-    async def _find_entry(self, guild: discord.Guild, action, target_id: int | None):
-        """Oldest not yet counted audit-log entry of the last 20 s for one or several action kinds."""
+    async def _find_entry(self, guild: discord.Guild, action, target_id: int | None, *, seen=None, accept=None):
+        """Oldest not yet counted audit-log entry of the last 20 s for one or several action kinds.
+
+        `seen` is the deque of already counted entry ids (default: the shared one of the normal rules) and
+        `accept` an optional predicate that filters further entries out (they stay uncounted)."""
+        seen = self._seen(guild.id) if seen is None else seen
         names = list(action) if isinstance(action, (list, tuple, set)) else [action]
         wanted = {AUDIT_ACTIONS[a] for a in names}
         for name in names:
@@ -331,8 +349,10 @@ class PulseAntiNuke(commands.Cog):
                 async for entry in guild.audit_logs(**kwargs):
                     if getattr(entry, "action", single) not in wanted:
                         continue
-                    if entry.id in self._seen(guild.id):
+                    if entry.id in seen:
                         continue  # already counted – keep looking, a burst has several entries in 20 s
+                    if accept is not None and not accept(entry):
+                        continue
                     target = getattr(entry, "target", None)
                     entry_target_id = getattr(target, "id", None)
                     if target_id is None or entry_target_id == target_id:
@@ -734,6 +754,187 @@ class PulseAntiNuke(commands.Cog):
         names = ", ".join(r.name for r in strip)[:600]
         return {"status": "ok", "detail": f"entzogen: {names}. Wiederherstellen: Dashboard → Verwaltung → Sicherheit."}
 
+    # ---------------------------------------------------------------- mass role assignment
+    @staticmethod
+    def _grant_entry_roles(entry) -> int | None:
+        """Number of roles the audit-log entry ADDED; None if the entry does not say (counted by the event instead)."""
+        roles = getattr(getattr(entry, "after", None), "roles", None)
+        if roles is None:
+            return None
+        try:
+            return len(list(roles))
+        except TypeError:
+            return None
+
+    def _role_grant_total(self, key: tuple[int, int], now: float, count: int) -> int:
+        events = self._role_grants.pop(key, None)
+        if events is None:
+            events = deque()
+        while events and now - events[0][0] > ROLE_GRANT_WINDOW:
+            events.popleft()
+        events.append((now, count))
+        self._role_grants[key] = events
+        while len(self._role_grants) > MAX_TRACKED_ACTORS:
+            self._role_grants.popitem(last=False)
+        return sum(n for _t, n in events)
+
+    async def _handle_role_grants(self, guild: discord.Guild, member, added: list) -> None:
+        """Count newly granted roles per responsible actor (audit log); 9 -> warning, 10 -> role quarantine."""
+        try:
+            config = normalize_antinuke(self._config())
+        except Exception as exc:
+            print(f"⚠️ Anti-Nuke-Konfiguration nicht lesbar: {type(exc).__name__}.")
+            return
+        if not config["enabled"]:
+            return
+        import pulse_guild_guard
+        if not pulse_guild_guard.is_allowed_guild(getattr(guild, "id", None)):
+            return
+        bot_member = getattr(guild, "me", None)
+        if not getattr(getattr(bot_member, "guild_permissions", None), "view_audit_log", False):
+            return  # the missing permission is reported once per hour by _handle_event
+
+        seen = self._seen_role_grants.get(guild.id)
+        if seen is None:
+            seen = self._seen_role_grants[guild.id] = deque(maxlen=1000)
+        member_id = int(getattr(member, "id", 0) or 0)
+        entry = await self._find_entry(
+            guild, "member_role_grant", member_id, seen=seen,
+            accept=lambda e: self._grant_entry_roles(e) != 0,  # removals (no added role) never count
+        )
+        if entry is None or entry.id in seen:
+            return
+        seen.append(entry.id)  # every audit-log entry is counted exactly once
+        actor = getattr(entry, "user", None)  # the responsible person - never the recipient of the roles
+        if actor is None:
+            return
+        actor_id = int(actor.id)
+        count = self._grant_entry_roles(entry)
+        if count is None:
+            count = len(added)
+        count = max(1, count)
+
+        bot_id = int(getattr(self.bot.user, "id", 0) or 0)
+        actor_member = guild.get_member(actor_id)
+        role_ids = [role.id for role in getattr(actor_member, "roles", []) or []]
+        if is_trusted_actor(actor_id, owner_id=guild.owner_id, bot_id=bot_id, role_ids=role_ids,
+                            trusted_user_ids=config["trusted_user_ids"], trusted_role_ids=config["trusted_role_ids"]):
+            return
+
+        now = time.monotonic()
+        total = self._role_grant_total((guild.id, actor_id), now, count)
+        if total < ROLE_GRANT_WARN_AT:
+            return
+        if total < ROLE_GRANT_LIMIT:
+            warn_key = ("rolegrant-warn", guild.id, actor_id)
+            if not self._cooldown_active(warn_key, now):
+                self._set_cooldown(warn_key, now, ROLE_GRANT_WINDOW)
+                self._record("Anti-Nuke: Rollenvergabe-Warnung", actor_id, str(actor),
+                             {"guild_id": guild.id, "roles_in_window": total, "limit": ROLE_GRANT_LIMIT,
+                              "window_seconds": ROLE_GRANT_WINDOW, "target_id": member_id, "audit_entry_id": entry.id})
+                await self._alert(guild, config, f"⚠️ Anti-Nuke: <@{actor_id}> (`{actor_id}`) hat {total}/{ROLE_GRANT_LIMIT} "
+                                                 f"Rollen innerhalb von {ROLE_GRANT_WINDOW} s vergeben. Noch keine Sanktion.")
+            return
+
+        cooldown_key = ("rolegrant", guild.id, actor_id)
+        if self._cooldown_active(cooldown_key, now):
+            return  # the quarantine already ran for this person - no repetition
+        self._set_cooldown(cooldown_key, now, config.get("action_cooldown_seconds", RESPONSE_COOLDOWN_SECONDS))
+        self._role_grants.pop((guild.id, actor_id), None)
+        payload = {"guild_id": guild.id, "roles_in_window": total, "limit": ROLE_GRANT_LIMIT, "window_seconds": ROLE_GRANT_WINDOW,
+                   "recipient_id": member_id, "audit_entry_id": entry.id, "mode": config["mode"], "last_action": "member_role_grant"}
+        headline = (f"🚨 Anti-Nuke: <@{actor_id}> (`{actor_id}`) hat {total} Rollen innerhalb von {ROLE_GRANT_WINDOW} s vergeben "
+                    f"(Schwelle {ROLE_GRANT_LIMIT}).")
+        if config["mode"] != "protect":
+            result = {"status": "skipped", "detail": "Alarmmodus – nicht ausgeführt"}
+            text = headline + " **Alarmmodus** – die Rollen-Quarantäne wurde NICHT ausgeführt."
+        else:
+            try:
+                result = await self._full_role_quarantine(guild, config, actor, actor_member, payload)
+            except Exception as exc:
+                result = {"status": "failed", "detail": f"unerwarteter Fehler ({type(exc).__name__})"}
+            icon = {"ok": "✅", "partial": "🟠", "failed": "❌", "skipped": "⏭️"}.get(result["status"], "•")
+            text = headline + f"\n{icon} Vollständige Rollen-Quarantäne: {result['detail']}"
+        self._notify_admins(guild, config, "🚨 Anti-Nuke: Massen-Rollenvergabe",
+                            f"{total} Rollen in {ROLE_GRANT_WINDOW} s durch {actor} – {result['detail']}"[:300], force=True)
+        await self._alert(guild, config, text)
+        self._record("Anti-Nuke: Massen-Rollenvergabe", actor_id, "Pulse Anti-Nuke",
+                     {**payload, "result": result["detail"][:500], "status": result["status"]})
+        await self._dispatch("antinuke_rule", {"rule_id": "role_grant_mass", "rule_label": "Massen-Rollenvergabe",
+                                               "events": ["member_role_grant"], "actor_id": actor_id,
+                                               "actor_name": str(actor)[:80], "dry_run": config["mode"] != "protect",
+                                               "result": result["detail"][:300]})
+
+    async def _full_role_quarantine(self, guild, config: dict, actor, member, payload: dict) -> dict:
+        """Remove ALL removable roles of the responsible person (not only dangerous ones); restorable in the dashboard.
+
+        Never touches @everyone, managed/integration roles or roles at/above the bot's top role. Roles that could
+        not be removed are listed separately - a partial result is reported as partial, never as complete."""
+        actor_id = int(actor.id)
+        bot_member = getattr(guild, "me", None)
+        if member is None and hasattr(guild, "fetch_member"):
+            try:
+                member = await guild.fetch_member(actor_id)
+            except (discord.NotFound, discord.HTTPException):
+                member = None
+        if member is None:
+            return {"status": "failed", "detail": "Die Person ist nicht mehr auf dem Server."}
+        if self._above_bot(member, bot_member):
+            return {"status": "failed", "detail": "Pulse kann nicht eingreifen: die Person steht in der Rollenhierarchie "
+                                                  "über oder gleich der Bot-Rolle."}
+        if not getattr(getattr(bot_member, "guild_permissions", None), "manage_roles", False):
+            return {"status": "failed", "detail": "Quarantäne nicht möglich: Bot-Berechtigung „Rollen verwalten“ fehlt."}
+        bot_top = int(getattr(getattr(bot_member, "top_role", None), "position", 0))
+        removable, blocked = [], []
+        for role in getattr(member, "roles", []) or []:
+            if hasattr(role, "is_default") and role.is_default():
+                continue  # @everyone
+            if getattr(role, "managed", False):
+                blocked.append((role, "verwaltet/Integration"))
+            elif int(getattr(role, "position", 0)) >= bot_top:
+                blocked.append((role, "auf/über der Bot-Rolle"))
+            else:
+                removable.append(role)
+        if not removable:
+            return {"status": "skipped", "detail": "Keine entziehbare Rolle gefunden – bitte Rechte manuell prüfen."}
+        reason = "Pulse Anti-Nuke: Massen-Rollenvergabe – vollständige Rollen-Quarantäne"
+        removed, failed = [], []
+        try:
+            await member.remove_roles(*removable, reason=reason)
+            removed = list(removable)
+        except (discord.Forbidden, discord.HTTPException):
+            for role in removable:  # single removals, so a partial success is documented exactly
+                try:
+                    await member.remove_roles(role, reason=reason)
+                    removed.append(role)
+                except (discord.Forbidden, discord.HTTPException):
+                    failed.append((role, "Discord hat abgelehnt"))
+        failed.extend(blocked)
+        at = _now_iso()
+        if removed:
+            data = load_quarantine()
+            previous = data.get(str(actor_id), {}) if isinstance(data.get(str(actor_id)), dict) else {}
+            role_ids = list(dict.fromkeys([*previous.get("role_ids", []), *[r.id for r in removed]]))
+            role_names = list(dict.fromkeys([*previous.get("role_names", []), *[r.name[:60] for r in removed]]))
+            data[str(actor_id)] = {
+                "name": str(actor)[:80], "role_ids": role_ids, "role_names": role_names, "at": at,
+                "kind": "full_roles", "last_action": "member_role_grant", "rule_id": "role_grant_mass",
+                "removed_roles": [{"id": r.id, "name": r.name[:60], "at": at} for r in removed],
+                "failed_roles": [{"id": r.id, "name": r.name[:60], "reason": why} for r, why in failed],
+                "permissions": sorted({p for r in removed for p in dangerous_names(r.permissions)}),
+            }
+            save_quarantine(data)
+        payload.update(removed_roles=[{"id": r.id, "name": r.name[:60]} for r in removed],
+                       failed_roles=[{"id": r.id, "name": r.name[:60], "reason": why} for r, why in failed], at=at)
+        if not removed:
+            return {"status": "failed", "detail": "Keine Rolle konnte entzogen werden (Discord hat abgelehnt)."}
+        names = ", ".join(r.name for r in removed)[:500]
+        if failed:
+            missing = ", ".join(f"{r.name} ({why})" for r, why in failed)[:300]
+            return {"status": "partial", "detail": f"TEILWEISE – entzogen: {names}. Nicht entziehbar: {missing}. "
+                                                   "Wiederherstellen: Dashboard → Verwaltung → Sicherheit."}
+        return {"status": "ok", "detail": f"entzogen: {names}. Wiederherstellen: Dashboard → Verwaltung → Sicherheit."}
+
     # ---------------------------------------------------------------- listeners
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
@@ -755,6 +956,11 @@ class PulseAntiNuke(commands.Cog):
         added = [role for role in getattr(after, "roles", []) or [] if role.id not in before_ids]
         if any(pm.has_dangerous_permission(getattr(role, "permissions", None)) for role in added):
             await self._handle_event(after.guild, "member_role_grant", after.id)
+        if added:  # every new role counts for the mass-assignment protection, dangerous or not
+            try:
+                await self._handle_role_grants(after.guild, after, added)
+            except Exception as exc:  # never break the listeners
+                print(f"⚠️ Anti-Nuke-Rollenvergabe-Erkennung fehlgeschlagen: {type(exc).__name__}.")
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role):

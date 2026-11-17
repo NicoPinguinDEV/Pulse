@@ -112,7 +112,11 @@ class ReplayTests(unittest.TestCase):
             await cog.on_member_update(before, SimpleNamespace(roles=[safe], guild=guild, id=900))  # harmless role
             await cog.on_member_update(before, SimpleNamespace(roles=[admin_role], guild=guild, id=900))
         asyncio.run(run())
-        self.assertEqual(guild.audit_calls, 1, "harmlose Rollen lösen keine Audit-Log-Abfrage aus")
+        # Harmless roles never reach the normal rule engine (no alert, no rule counter). Since the mass role
+        # assignment protection every new role is counted, so each member update does one extra audit read:
+        # harmless (1) + dangerous: rule engine (1) + grant counter (1).
+        self.assertEqual(guild.audit_calls, 3)
+        self.assertEqual(len(cog._alert.await_args_list), 1, "nur die gefährliche Rolle löst die Regel aus")
         self.assertTrue(any("Anti-Nuke-Schwelle" in c.args[2] for c in cog._alert.await_args_list))
 
     def test_rate_limited_ban_is_not_retried_in_a_loop(self):

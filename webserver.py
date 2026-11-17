@@ -5192,6 +5192,9 @@ def safe_log_return_to(value: str) -> str:
     value = str(value or "/dashboard").strip()
     if value in {"/dashboard", "/melonly"}:
         return value
+    player_file = re.fullmatch(r"/melonly\?player_file=(\d{1,15})", value)
+    if player_file:  # personal Melonly player file of one Roblox player id
+        return f"/melonly?player_file={player_file.group(1)}"
     for base in ("/dashboard", "/melonly"):
         prefix = base + "?player_history="
         if value.startswith(prefix):

@@ -20,6 +20,11 @@ How a message is checked
 Word list entries: ``wort`` (whole word), ``stamm*`` (word start), ``*ende`` (word end), ``zwei woerter``
 (phrase of consecutive words). Defaults are shipped here and are never written into config.json; admins add
 their own words and may switch single default words off (``removed_terms``).
+
+The own list is stored in config.json and is practically unlimited (MAX_CUSTOM_TERMS = 50,000 entries of at most
+MAX_TERM_LENGTH = 100 characters; these are safety limits, exceeding them is reported when saving, nothing is cut
+silently). The matcher is built once per word list (small LRU cache), whole-word lookups are hash based and
+stems/wildcards are indexed, so message checks stay fast for big lists.
 """
 from __future__ import annotations
 
@@ -39,9 +44,13 @@ CATEGORY_LABELS = {
     "gaming": "Gaming- und Discord-Beleidigungen",
     "custom": "Eigene Wörter",
 }
-MAX_CUSTOM_TERMS = 200
-MAX_REMOVED_TERMS = 400
-MAX_TERM_LENGTH = 60
+# Safety limits (not a feature limit): the own list is practically unlimited. 50,000 entries are far more than
+# any server needs, keep config.json small (< ~1.5 MB) and the matcher below ~25 MB. Exceeding a limit is always
+# reported to the admin - nothing is cut silently when saving.
+MAX_CUSTOM_TERMS = 50_000
+MAX_REMOVED_TERMS = 2_000
+MAX_TERM_LENGTH = 100
+MAX_INPUT_CHARS = 2_500_000  # accepted size of one submitted word list (characters)
 _MAX_TEXT = 4000
 _MAX_TOKENS = 400
 
@@ -146,14 +155,16 @@ def _entry_key(raw: str) -> str:
 @dataclass(frozen=True)
 class _Matcher:
     exact: dict = field(default_factory=dict)       # collapsed word → category
-    prefix: tuple = ()                               # (collapsed stem, category)
-    suffix: tuple = ()
+    prefix: dict = field(default_factory=dict)      # collapsed stem → (insertion order, category)
+    suffix: dict = field(default_factory=dict)
+    prefix_lengths: tuple = ()                       # distinct stem lengths (ascending) – lookups are O(lengths), not O(words)
+    suffix_lengths: tuple = ()
     phrases: dict = field(default_factory=dict)     # tuple of collapsed words → category
-    wild: dict = field(default_factory=dict)        # length → ((folded word, category), …)
+    wild: dict = field(default_factory=dict)        # (length, first letter, last letter) → ((folded word, category), …)
     max_phrase: int = 1
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=4)  # a built matcher of a big custom list is several MB: keep very few
 def _build(categories: tuple, custom: tuple, removed: tuple) -> _Matcher:
     removed_keys = {_entry_key(r) for r in removed}
     entries: list[tuple[str, str]] = []
@@ -162,11 +173,11 @@ def _build(categories: tuple, custom: tuple, removed: tuple) -> _Matcher:
     entries += [(entry, "custom") for entry in custom]
 
     exact: dict = {}
-    prefix: list = []
-    suffix: list = []
+    prefix: dict = {}
+    suffix: dict = {}
     phrases: dict = {}
     wild: dict = {}
-    for entry, category in entries:
+    for order, (entry, category) in enumerate(entries):
         entry = str(entry).strip()
         if not entry or _entry_key(entry) in removed_keys:
             continue
@@ -176,23 +187,26 @@ def _build(categories: tuple, custom: tuple, removed: tuple) -> _Matcher:
             continue
         if len(words) > 1:
             phrases[tuple(words)] = category
+            continue
         elif starts and ends:
             continue
         else:
             if starts:
-                prefix.append((words[0], category))
+                prefix.setdefault(words[0], (order, category))
             elif ends:
-                suffix.append((words[0], category))
+                suffix.setdefault(words[0], (order, category))
             exact.setdefault(words[0], category)  # the stem alone is a word too ("fuck", "arsch")
             plain = "".join(re.findall(r"[a-z]+", fold(entry)))
             if plain:
-                wild.setdefault(len(plain), []).append((plain, category))
+                wild.setdefault((len(plain), plain[0], plain[-1]), []).append((plain, category))
     return _Matcher(
         exact=exact,
-        prefix=tuple(prefix),
-        suffix=tuple(suffix),
+        prefix=prefix,
+        suffix=suffix,
+        prefix_lengths=tuple(sorted({len(k) for k in prefix})),
+        suffix_lengths=tuple(sorted({len(k) for k in suffix})),
         phrases=phrases,
-        wild={length: tuple(items) for length, items in wild.items()},
+        wild={key: tuple(items) for key, items in wild.items()},
         max_phrase=max([len(k) for k in phrases] or [1]),
     )
 
@@ -202,12 +216,22 @@ def _word_hit(matcher: _Matcher, word: str, *, compounds: bool = True) -> str | 
     if collapsed in matcher.exact:
         return matcher.exact[collapsed]
     if compounds:
-        for stem, category in matcher.prefix:
-            if collapsed.startswith(stem):
-                return category
-        for stem, category in matcher.suffix:
-            if collapsed.endswith(stem):
-                return category
+        # Same answer as scanning the stems in list order (first listed stem wins), without touching every stem.
+        best = None
+        for size in matcher.prefix_lengths:
+            if size > len(collapsed):
+                break
+            hit = matcher.prefix.get(collapsed[:size])
+            if hit and (best is None or hit[0] < best[0]):
+                best = hit
+        for size in matcher.suffix_lengths:
+            if size > len(collapsed):
+                break
+            hit = matcher.suffix.get(collapsed[len(collapsed) - size:])
+            if hit and (best is None or hit[0] < best[0]):
+                best = hit
+        if best is not None:
+            return best[1]
     return None
 
 
@@ -229,7 +253,7 @@ def _wildcard_hit(matcher: _Matcher, token: str) -> str | None:
         if not (letter.isalpha() and letter.isascii()):
             return None
         template.append(letter)
-    for word, category in matcher.wild.get(length, ()):
+    for word, category in matcher.wild.get((length, template[0], template[-1]), ()):
         if all(t is None or t == w for t, w in zip(template, word)):
             return category
     return None
@@ -295,20 +319,24 @@ def _scan(matcher: _Matcher, text: str) -> str | None:
 
 
 # --------------------------------------------------------------------------- public API
+@lru_cache(maxsize=4)
+def _clean_terms(values: tuple, limit: int) -> tuple:
+    """Trimmed, case-folded, de-duplicated (case-insensitive, order kept) terms; O(n) for any list size."""
+    out: dict[str, None] = {}
+    for value in values:
+        text = str(value or "").strip().casefold()[:MAX_TERM_LENGTH]
+        if text:
+            out.setdefault(text)
+    return tuple(out)[:limit]
+
+
 def normalize_profanity(raw) -> dict:
     """Bounded configuration (stored in config.json → pulse_automod → profanity). Defaults: all categories on."""
     raw = raw if isinstance(raw, dict) else {}
     stored = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
 
     def terms(values, limit):
-        if not isinstance(values, (list, tuple)):
-            return []
-        out = []
-        for value in values:
-            text = str(value or "").strip().casefold()[:MAX_TERM_LENGTH]
-            if text and text not in out:
-                out.append(text)
-        return out[:limit]
+        return list(_clean_terms(tuple(values), limit)) if isinstance(values, (list, tuple)) else []
 
     return {
         "categories": {key: bool(stored.get(key, True)) for key in CATEGORIES},
@@ -319,9 +347,16 @@ def normalize_profanity(raw) -> dict:
 
 def detect_category(text: str, config: dict | None = None) -> str | None:
     """Category key ("de", "en", "discrimination", "gaming", "custom") of the first banned word, else None."""
-    cfg = normalize_profanity(config)
-    categories = tuple(key for key in CATEGORIES if cfg["categories"][key])
-    matcher = _build(categories, tuple(cfg["custom_terms"]), tuple(cfg["removed_terms"]))
+    raw = config if isinstance(config, dict) else {}
+    stored = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
+    categories = tuple(key for key in CATEGORIES if bool(stored.get(key, True)))
+    custom = raw.get("custom_terms")
+    removed = raw.get("removed_terms")
+    matcher = _build(
+        categories,
+        _clean_terms(tuple(custom), MAX_CUSTOM_TERMS) if isinstance(custom, (list, tuple)) else (),
+        _clean_terms(tuple(removed), MAX_REMOVED_TERMS) if isinstance(removed, (list, tuple)) else (),
+    )
     return _scan(matcher, text)
 
 

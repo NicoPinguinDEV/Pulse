@@ -57,6 +57,94 @@ GUARD_CSS = """<style>
 section[id]{scroll-margin-top:80px}
 </style>"""
 
+# Chip/tag manager for the own profanity words (progressive enhancement: without JavaScript the textarea
+# "custom_terms" keeps working, with JavaScript it is replaced by chips; the submitted form field stays the same).
+TERM_CHIPS_ASSETS = """<style>
+.tc-ui{display:grid;gap:8px}
+.tc-row{display:flex;gap:8px;flex-wrap:wrap}
+.tc-row .pulse-input{flex:1 1 220px;min-width:0}
+.tc-list{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;max-height:260px;overflow:auto;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.tc-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 4px 3px 10px;border-radius:999px;font-size:12px;font-weight:650;background:var(--surface);border:1px solid var(--border)}
+.tc-chip .tc-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.tc-chip button{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;width:22px;height:22px;border-radius:50%}
+.tc-chip button:hover,.tc-chip button:focus-visible{background:var(--border);color:inherit}
+.tc-empty{font-size:12px;color:var(--muted)}
+.tc-count{font-weight:800}
+.tc-dirty{color:var(--p)}
+</style>
+<script>
+(function(){
+  function init(root){
+    var area=root.querySelector('textarea[name="custom_terms"]'),ui=root.querySelector('.tc-ui');
+    if(!area||!ui)return;
+    var MAX=+root.dataset.max||50000,MAXLEN=+root.dataset.maxlen||100,SHOW=+root.dataset.render||300;
+    var input=ui.querySelector('[data-input]'),addBtn=ui.querySelector('[data-add]'),filter=ui.querySelector('[data-filter]'),
+        list=ui.querySelector('[data-list]'),msg=ui.querySelector('[data-msg]'),count=root.querySelector('[data-count]');
+    var terms=[],seen=new Set();
+    area.value.split(/\\r?\\n/).forEach(function(t){t=t.trim();var k=t.toLowerCase();if(t&&!seen.has(k)){seen.add(k);terms.push(t)}});
+    var savedKey=terms.join('\\n');
+    area.hidden=true;ui.hidden=false;
+    function sync(){
+      area.value=terms.join('\\n');
+      if(count){count.textContent=terms.length.toLocaleString('de-DE');}
+      var dirty=area.value!==savedKey,d=root.querySelector('[data-dirty]');
+      if(d){d.textContent=dirty?' · ungespeicherte Änderungen':'';d.className=dirty?'tc-dirty':'';}
+    }
+    function render(){
+      var q=(filter.value||'').trim().toLowerCase(),out=[],i,total=0;
+      for(i=terms.length-1;i>=0;i--){
+        if(!q||terms[i].toLowerCase().indexOf(q)>=0){total++;if(out.length<SHOW)out.push(terms[i]);}
+      }
+      list.textContent='';
+      if(!out.length){var e=document.createElement('span');e.className='tc-empty';e.textContent=q?'Kein Treffer.':'Noch keine eigenen Wörter.';list.appendChild(e);return;}
+      var frag=document.createDocumentFragment();
+      out.forEach(function(t){
+        var c=document.createElement('span');c.className='tc-chip';c.setAttribute('role','listitem');
+        var s=document.createElement('span');s.className='tc-t';s.textContent=t;s.title=t;
+        var b=document.createElement('button');b.type='button';b.dataset.term=t;b.setAttribute('aria-label',t+' entfernen');b.textContent='×';
+        c.appendChild(s);c.appendChild(b);frag.appendChild(c);
+      });
+      list.appendChild(frag);
+      if(total>out.length){var m=document.createElement('span');m.className='tc-empty';m.textContent='… zeigt die neuesten '+out.length+' von '+total+'. Mit der Suche findest du jedes Wort.';list.appendChild(m);}
+    }
+    function add(raw){
+      var added=0,dup=0,long_=0,full=0;
+      String(raw).split(/\\r?\\n/).forEach(function(line){
+        var t=line.replace(/\\s+/g,' ').trim();if(!t)return;
+        var k=t.toLowerCase();
+        if(t.length>MAXLEN){long_++;return}
+        if(seen.has(k)){dup++;return}
+        if(terms.length>=MAX){full++;return}
+        seen.add(k);terms.push(t);added++;
+      });
+      var parts=[];
+      if(added)parts.push(added+' hinzugefügt');
+      if(dup)parts.push(dup+' schon vorhanden (Groß-/Kleinschreibung egal)');
+      if(long_)parts.push(long_+' zu lang (max. '+MAXLEN+' Zeichen)');
+      if(full)parts.push(full+' nicht aufgenommen (Höchstzahl '+MAX.toLocaleString('de-DE')+')');
+      msg.textContent=parts.join(' · ');
+      if(added){sync();render();}
+    }
+    function remove(t){
+      var i=terms.indexOf(t);
+      if(i<0)return;terms.splice(i,1);seen.delete(t.toLowerCase());msg.textContent='„'+t+'“ entfernt';sync();render();
+    }
+    function commit(){if(input.value.trim()){add(input.value);input.value='';}}
+    input.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();commit();}});
+    input.addEventListener('paste',function(ev){
+      var text=(ev.clipboardData||window.clipboardData).getData('text');
+      if(/\\r?\\n/.test(text)){ev.preventDefault();add(text);}
+    });
+    addBtn.addEventListener('click',function(){commit();input.focus();});
+    list.addEventListener('click',function(ev){var b=ev.target.closest('button[data-term]');if(b)remove(b.dataset.term);});
+    filter.addEventListener('input',render);
+    if(area.form)area.form.addEventListener('submit',commit);  // a typed but not yet added word is not lost
+    sync();render();
+  }
+  document.querySelectorAll('[data-term-chips]').forEach(init);
+})();
+</script>"""
+
 
 def _name(user: dict) -> str:
     return str(user.get("global_name") or user.get("username") or user.get("id") or "?")
@@ -72,10 +160,15 @@ def _parse_int(form, field: str, label: str, lo: int, hi: int) -> int:
     return value
 
 
-def _parse_lines(form, field: str, label: str, *, domains: bool = False, limit: int = pm.MAX_LIST_ITEMS) -> list[str]:
-    values = list(dict.fromkeys(line.strip().casefold() for line in str(form.get(field) or "").splitlines() if line.strip()))
-    if len(values) > limit or any(len(value) > 100 for value in values):
-        raise ValueError(f"{label}: Maximal {limit} Einträge mit höchstens 100 Zeichen sind erlaubt.")
+def _parse_lines(form, field: str, label: str, *, domains: bool = False, limit: int = pm.MAX_LIST_ITEMS,
+                 max_length: int = 100, max_chars: int = 0) -> list[str]:
+    raw = str(form.get(field) or "")
+    if max_chars and len(raw) > max_chars:
+        raise ValueError(f"{label}: Die Eingabe ist zu groß (höchstens {max_chars} Zeichen) – es wird nichts gekürzt.")
+    values = list(dict.fromkeys(line.strip().casefold() for line in raw.splitlines() if line.strip()))
+    if len(values) > limit or any(len(value) > max_length for value in values):
+        raise ValueError(f"{label}: Maximal {limit} Einträge mit höchstens {max_length} Zeichen sind erlaubt"
+                         + (" – es wird nichts gekürzt, bitte die Liste anpassen." if max_chars else "."))
     if domains:
         values = [value.removeprefix("www.") for value in values]
         bad = [value for value in values if not pm.valid_domain(value)]
@@ -458,7 +551,17 @@ def register(app) -> None:
  <div class="pulse-section-title" style="margin-top:6px">Wortlisten</div>
  <div class="guard-grid">{cat_boxes}</div>
  <div class="guard-grid">
-  <label class="guard-field">Eigene Wörter (zusätzlich zur Standardliste)<textarea class="pulse-input pulse-textarea" name="custom_terms" rows="5" maxlength="12000" placeholder="Ein Wort oder eine Wortgruppe pro Zeile">{e(chr(10).join(prof["custom_terms"]))}</textarea><span class="guard-hint">Nur ganze Wörter. Mit „stamm*“ am Ende zählt der Wortanfang, mit „*ende“ das Wortende (sparsam einsetzen).</span></label>
+  <div class="guard-field" data-term-chips data-max="{pp.MAX_CUSTOM_TERMS}" data-maxlen="{pp.MAX_TERM_LENGTH}" data-render="300">
+   <span>Eigene Wörter (zusätzlich zur Standardliste) · <span class="tc-count" data-count>{len(prof["custom_terms"])}</span> gespeichert<span data-dirty></span></span>
+   <textarea class="pulse-input pulse-textarea" name="custom_terms" rows="5" maxlength="{pp.MAX_INPUT_CHARS}" placeholder="Ein Wort oder eine Wortgruppe pro Zeile">{e(chr(10).join(prof["custom_terms"]))}</textarea>
+   <div class="tc-ui" hidden>
+    <div class="tc-row"><input class="pulse-input" type="text" data-input maxlength="{pp.MAX_TERM_LENGTH}" placeholder="Wort oder Wortgruppe eingeben – Enter zum Hinzufügen" autocomplete="off" aria-label="Neues Wort"><button type="button" class="pulse-btn" data-add>＋ Hinzufügen</button></div>
+    <input class="pulse-input" type="search" data-filter placeholder="Liste durchsuchen …" autocomplete="off" aria-label="Eigene Wörter durchsuchen">
+    <div class="tc-list" data-list role="list" aria-label="Eigene Wörter"></div>
+    <div class="guard-hint" data-msg role="status" aria-live="polite"></div>
+   </div>
+   <span class="guard-hint">Mehrere Zeilen auf einmal einfügen importiert alle Wörter. Doppelte Einträge (Groß-/Kleinschreibung egal) werden übersprungen, Wortgruppen wie „fick dich“ bleiben zusammen. Nur ganze Wörter; mit „stamm*“ am Ende zählt der Wortanfang, mit „*ende“ das Wortende (sparsam einsetzen). Bis zu {pp.MAX_CUSTOM_TERMS:,} eigene Wörter. Änderungen gelten erst nach „Schimpfwortfilter speichern“.</span>
+  </div>
   <label class="guard-field">Standardwörter deaktivieren (ein Wort pro Zeile)<textarea class="pulse-input pulse-textarea" name="removed_terms" rows="5" maxlength="24000" placeholder="Wort aus der Standardliste, das nicht gefiltert werden soll">{e(chr(10).join(prof["removed_terms"]))}</textarea><span class="guard-hint">Die Standardliste wird dadurch nie verändert; dein Eintrag schaltet das Wort nur ab.</span></label>
  </div>
  <details class="pulse-card" style="padding:12px"><summary style="cursor:pointer;font-weight:750">Standardlisten ansehen (enthalten Schimpfwörter)</summary>{default_lists}</details>
@@ -469,7 +572,7 @@ def register(app) -> None:
  <div class="guard-kv"><span>Verstöße (7 Tage)</span><span>{prof_stats["total"]} von {prof_stats["users"]} Personen · {prof_stats["timeouts"]} Timeouts</span></div>
  <div class="guard-hint">Die Zählung erfolgt je Server und Person dauerhaft in der Pulse-Datenbank. Spam, Massen-Erwähnungen, Links und andere Regeln fließen nicht ein. Serverinhaber, Personen mit „Nachrichten verwalten“, ausgenommene Rollen/Kanäle (Ausnahmen je Regel „Schimpfwort / Beleidigung“) werden nie geprüft.</div>
  <div><button class="pulse-btn primary" type="submit">💾 Schimpfwortfilter speichern</button></div>
-</form></div></section>'''
+</form></div>{TERM_CHIPS_ASSETS}</section>'''
 
         # ---- Anti-Nuke: global settings (the rest of the Control Center comes from pulse_antinuke_admin)
         from pulse_antinuke_admin import global_form_extras, render_sections
@@ -668,7 +771,8 @@ def register(app) -> None:
         old, _ = current()
         try:
             categories = {key: form.get(f"profanity_cat_{key}") in ("1", "on") for key in pp.CATEGORIES}
-            custom = _parse_lines(form, "custom_terms", "Eigene Wörter", limit=pp.MAX_CUSTOM_TERMS)
+            custom = _parse_lines(form, "custom_terms", "Eigene Wörter", limit=pp.MAX_CUSTOM_TERMS,
+                                  max_length=pp.MAX_TERM_LENGTH, max_chars=pp.MAX_INPUT_CHARS)
             removed = _parse_lines(form, "removed_terms", "Deaktivierte Standardwörter", limit=pp.MAX_REMOVED_TERMS)
             for label, values in (("Eigene Wörter", custom), ("Deaktivierte Standardwörter", removed)):
                 bad = [v for v in values if len(v) > pp.MAX_TERM_LENGTH or not pp.valid_term(v)]
