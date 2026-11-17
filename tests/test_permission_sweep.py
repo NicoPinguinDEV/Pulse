@@ -26,6 +26,7 @@ from tests.fakes import FakeChannel, FakeGuild, FakeMember, FakeRole
 # own dashboard preferences/layouts, shift handovers, ideas/votes, reading announcements, the read-only copilot).
 ALLOWED = {
     "/logout",
+    "/apply/logout",  # AUTH-5: only deletes the caller's own application cookie, no data access, same-origin POST
     "/me/sessions/revoke-all",
     "/me/layouts/save", "/me/layouts/activate", "/me/layouts/delete", "/me/layouts/default",
     "/me/favorites/add", "/me/favorites/remove",

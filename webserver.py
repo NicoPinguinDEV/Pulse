@@ -23,6 +23,7 @@ import sys
 from contextlib import closing
 import threading
 import time
+import weakref
 import uuid
 import zipfile
 from datetime import date as date_cls, datetime, timedelta, timezone
@@ -698,6 +699,51 @@ def audit_probe_finish(probe, method: str, path: str, route: str, status: int) -
     return True
 
 
+AUDIT_MAX_ENTRIES = 5000
+
+# DATA-3: per-member lock for dashboard rank actions + short replay window (bounded: locks are weakly referenced,
+# the replay table drops entries after the window).
+_RANK_REPLAY_SECONDS = 8.0
+_rank_locks: "weakref.WeakValueDictionary[tuple, asyncio.Lock]" = weakref.WeakValueDictionary()
+_rank_recent: dict[tuple, float] = {}
+
+
+def _rank_target_lock(guild_id, member_id) -> asyncio.Lock:
+    key = (int(guild_id), int(member_id))
+    lock = _rank_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _rank_locks[key] = lock
+    return lock
+
+
+def _rank_action_replayed(guild_id, member_id, action: str, now: float | None = None) -> bool:
+    """True when the same rank action for this member was started within the replay window; otherwise records it."""
+    current = time.monotonic() if now is None else now
+    for key in [k for k, ts in _rank_recent.items() if current - ts > _RANK_REPLAY_SECONDS]:
+        _rank_recent.pop(key, None)
+    key = (int(guild_id), int(member_id), str(action))
+    if key in _rank_recent:
+        return True
+    _rank_recent[key] = current
+    return False
+
+
+def _archive_audit_entries(entries: list) -> None:
+    """DATA-2: audit entries that rotate out of the live file are appended (JSON lines, never rewritten) to
+    audit_logs_archive.jsonl next to it, so the history is not truncated. Best effort: a problem here must never
+    break the audited action itself."""
+    try:
+        archive = Path(AUDIT_FILE).with_name("audit_logs_archive.jsonl")
+        with open(archive, "a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ Audit-Archiv nicht beschreibbar: {type(exc).__name__}")
+
+
 def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
     probe = _AUDIT_PROBE.get()
     if isinstance(probe, dict):
@@ -712,7 +758,10 @@ def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
         "details": details,
         "timestamp": now_de().strftime("%d.%m.%Y %H:%M:%S")
     })
-    save_json(AUDIT_FILE, audit_data[-5000:])  # Datei wächst nicht unendlich
+    dropped_entries = audit_data[:-AUDIT_MAX_ENTRIES]
+    save_json(AUDIT_FILE, audit_data[-AUDIT_MAX_ENTRIES:])  # the live file does not grow forever ...
+    if dropped_entries:
+        _archive_audit_entries(dropped_entries)  # ... but nothing is lost: append-only archive (DATA-2)
     listener = _shell_hooks.get("audit_listener")
     if listener is not None:
         try:
@@ -12668,6 +12717,16 @@ async def handle_action(
         if action == "promote" and probation_days not in VALID_PROBATION_DAYS:
             return back(member_url, "Für jede Beförderung muss eine Probezeit von 3 oder 7 Tagen ausgewählt werden.", False)
 
+        # DATA-3: one rank action per member at a time (per-target lock, no global lock) and no replay of the same
+        # action right after it ran – a double click or repeated POST must not promote/demote twice, because the rank
+        # is derived from the (possibly stale) member cache. Check + acquire have no await in between (atomic).
+        rank_lock = _rank_target_lock(guild.id, member.id)
+        if rank_lock.locked():
+            return back(member_url, "Für dieses Mitglied läuft gerade eine Rang-Aktion. Bitte kurz warten.", False)
+        if _rank_action_replayed(guild.id, member.id, action):
+            return back(member_url, "Diese Aktion wurde für dieses Mitglied gerade erst ausgeführt. "
+                                    "Zur Sicherheit bitte einen Moment warten und das Ergebnis prüfen.", False)
+        await rank_lock.acquire()
         try:
             if action == "team_kick":
                 if not guild.me:
@@ -12775,6 +12834,8 @@ async def handle_action(
         except Exception as e:
             print(f"Rang-Aktion fehlgeschlagen: {e}")
             return back(member_url, "Aktion fehlgeschlagen (Details in der Bot-Konsole).", False)
+        finally:
+            rank_lock.release()
 
     # ---------- Verwarnungen ----------
     if action == "warn_with_proof":

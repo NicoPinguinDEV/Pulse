@@ -201,6 +201,7 @@ LEAD_PERMS = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True, "ca
 class RoleEscalationTests(TempDb):
     def setUp(self):
         super().setUp()
+        ws._rank_recent.clear()  # DATA-3: the replay window is process-wide; every test starts without recent actions
         self.lead = member(100, "Lena", LEAD)
         self.alt = member(200, "Zweitaccount")
         self.support = member(300, "Sam", SUPPORT)
