@@ -859,7 +859,7 @@ async def rejoin_user(
         mark_sync_if_current(
             uid, f"Fehler: {type(exc).__name__}", expected_consented_at=expected_consented_at
         )
-        return False, f"Verbindung, Discord-Rollenaktion oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})
+        return False, f"Verbindung, Discord-Rollenaktion oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})"
 
 
 async def setup_recovery(bot) -> tuple[bool, str]:
