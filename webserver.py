@@ -1343,9 +1343,9 @@ def dashboard_session(user_session) -> dict | None:
     try:
         import pulse_sessions  # revoked, idle or signed out everywhere → log in again
         valid = pulse_sessions.is_valid(data)
-    except Exception as exc:  # the signed cookie stays the primary check; a DB hiccup must not lock everyone out
+    except Exception as exc:  # AUTH-3: fail closed – a session that cannot be checked is not accepted (like the login)
         print(f"⚠️ Sitzungsprüfung nicht möglich: {type(exc).__name__}")
-        valid = True
+        valid = False
     return data if valid else None
 
 

@@ -133,9 +133,11 @@ class SessionWithoutSidTests(TempDb):
         self.assertIn("user_session=", response.headers.get("set-cookie", ""))
 
     def test_logout_ends_a_copied_cookie_without_sid(self):
+        # AUTH-1: a cookie without a server-side session id is not accepted at all (before or after logout);
+        # logging out on one device never touches the other device's own session.
         signed = ws.sign_payload({"id": "7", "exp": int(time.time() + 600)}, typ=ws.TOKEN_DASHBOARD)
-        time.sleep(1.05)  # revoked_before has second resolution; the cookie must be strictly older
-        self.assertEqual(ws.get_current_user(signed)["id"], "7")
+        with self.assertRaises(ws.HTTPException):
+            ws.get_current_user(signed)
         other = pulse_sessions.create("7")  # a separate device with its own session stays signed in
         client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", signed)
