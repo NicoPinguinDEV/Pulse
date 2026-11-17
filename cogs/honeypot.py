@@ -165,23 +165,48 @@ class Honeypot(commands.Cog):
                 f"⚠️ Honeypot: Nachricht stammte von Webhook {message.webhook_id}; "
                 "die Nachricht wurde entfernt, ein Nutzer-Ban ist für Webhooks nicht möglich."
             )
+            self._audit(author, f"Webhook {message.webhook_id}: Nachricht entfernt, kein Ban möglich", message.id)
+            return
+
+        # DISC-4: the server owner is never banned automatically (Discord refuses it anyway) – the trigger is
+        # recorded in the Pulse audit so leadership can see it. Everybody else (including team accounts, which
+        # may be compromised) keeps being banned: the detection is not weakened.
+        if getattr(guild, "owner_id", None) == author.id:
+            print(f"⚠️ Honeypot: Server-Inhaber {author.id} hat den Kanal ausgelöst; kein automatischer Ban.")
+            self._audit(author, "Server-Inhaber: kein automatischer Ban", message.id)
             return
 
         try:
             await guild.ban(author, reason=reason)
+            self._audit(author, "gebannt", message.id)
             print(
                 f"🔨 Honeypot: {getattr(author, 'name', 'Unbekannt')} "
                 f"(ID {author.id}) wurde aus {guild.name} gebannt."
             )
         except discord.Forbidden:
+            self._audit(author, "Ban abgelehnt (Rechte/Rollenhierarchie prüfen)", message.id)
             print(
                 f"❌ Honeypot: Ban von Nutzer {author.id} abgelehnt. "
                 "Prüfe 'Mitglieder bannen' und ob die Bot-Rolle höher als die Zielrolle steht."
             )
         except discord.NotFound:
+            self._audit(author, "Nutzer nicht mehr auf dem Server", message.id)
             print(f"⚠️ Honeypot: Nutzer {author.id} war bereits nicht mehr bannbar/auf dem Server.")
         except discord.HTTPException as exc:
+            self._audit(author, f"Ban fehlgeschlagen (HTTP {getattr(exc, 'status', '?')})", message.id)
             print(f"❌ Honeypot: Ban von Nutzer {author.id} fehlgeschlagen: {exc}")
+
+    def _audit(self, author, outcome: str, message_id) -> None:
+        """DISC-4: every honeypot trigger leaves a Pulse audit entry (never raises)."""
+        try:
+            import webserver
+            bot_id = str(self.bot.user.id) if getattr(self.bot, "user", None) else "0"
+            webserver.log_audit(
+                "Pulse Honeypot", bot_id, "Honeypot",
+                f"{getattr(author, 'name', 'Unbekannt')} ({author.id}): {outcome} · Nachricht {message_id}",
+            )
+        except Exception as exc:  # noqa: BLE001 - an audit problem must not stop the protection
+            print(f"⚠️ Honeypot: Audit-Eintrag fehlgeschlagen: {type(exc).__name__}")
 
 
 async def setup(bot: commands.Bot):
