@@ -196,32 +196,6 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(page), 3)
         self.assertNotIn("100000000000000199", {person["user_id"] for person in page})
 
-
-class RecoveryRateLimitTests(unittest.IsolatedAsyncioTestCase):
-    async def test_retry_after_longer_than_five_minutes_is_fully_honored(self):
-        class FakeResponse:
-            def __init__(self, status_code, retry_after=None):
-                self.status_code = status_code
-                self.headers = {"Retry-After": str(retry_after or 1)}
-
-            def json(self):
-                return {"retry_after": 301} if self.status_code == 429 else {}
-
-        responses = [FakeResponse(429, 301), FakeResponse(200)]
-
-        async def request_factory():
-            return responses.pop(0)
-
-        with patch("pulse_recovery.asyncio.sleep", new_callable=AsyncMock) as sleep:
-            response = await pulse_recovery._request_with_429_retry(request_factory)
-
-        self.assertEqual(response.status_code, 200)
-        sleep.assert_awaited_once_with(301.0)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_unlink_with_refresh_token_returns_latest_token_after_blocking_storage(self):
         uid = "123456789012345678"
         pulse_recovery.store_refresh_token(uid, "latest-refresh-token", now=100)
@@ -255,3 +229,28 @@ if __name__ == "__main__":
         self.assertEqual(calls[0][0], "https://discord.com/api/v10/oauth2/token/revoke")
         self.assertEqual(calls[0][1]["data"]["token"], "refresh-token")
         self.assertEqual(calls[0][1]["data"]["token_type_hint"], "refresh_token")
+
+class RecoveryRateLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retry_after_longer_than_five_minutes_is_fully_honored(self):
+        class FakeResponse:
+            def __init__(self, status_code, retry_after=None):
+                self.status_code = status_code
+                self.headers = {"Retry-After": str(retry_after or 1)}
+
+            def json(self):
+                return {"retry_after": 301} if self.status_code == 429 else {}
+
+        responses = [FakeResponse(429, 301), FakeResponse(200)]
+
+        async def request_factory():
+            return responses.pop(0)
+
+        with patch("pulse_recovery.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            response = await pulse_recovery._request_with_429_retry(request_factory)
+
+        self.assertEqual(response.status_code, 200)
+        sleep.assert_awaited_once_with(301.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

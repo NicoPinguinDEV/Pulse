@@ -734,7 +734,8 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
             )
         except RecoveryBlockedError as exc:
             await revoke_refresh_token(tokens["refresh_token"])
-            if joined.status_code == 201:
+            reason = recovery_consent_block_reason(uid)
+            if joined.status_code == 201 or reason == "primary_ban":
                 await _remove_backup_member_after_consent_revocation(guild, uid)
             return False, str(exc), uid
         mark_sync(uid, "Backup-Zugriff freigeschaltet")
@@ -813,7 +814,6 @@ async def rejoin_user(
                 if unlink_if_current(uid, expected_consented_at=expected_consented_at):
                     return False, "Freigabe abgelaufen/widerrufen; Nutzer muss erneut freischalten"
                 return False, "Veralteter Sync-Token abgewiesen; eine neuere Einwilligung bleibt bestehen."
-                return False, "Freigabe abgelaufen/widerrufen; Nutzer muss erneut freischalten"
             return False, f"Token-Aktualisierung fehlgeschlagen (HTTP {response.status_code})"
         tokens = response.json()
         if not isinstance(tokens, dict) or not tokens.get("access_token") or not tokens.get("refresh_token"):
@@ -856,8 +856,10 @@ async def rejoin_user(
         mark_sync_if_current(uid, "Backup-Beitritt geprüft/abgeschlossen", expected_consented_at=expected_consented_at)
         return True, "bereits vorhanden" if joined.status_code == 204 else "hinzugefügt (nur Bürgerrolle)"
     except Exception as exc:
-        mark_sync(uid, f"Fehler: {type(exc).__name__}")
-        return False, f"Verbindung, Discord-Rollenaktion oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})"
+        mark_sync_if_current(
+            uid, f"Fehler: {type(exc).__name__}", expected_consented_at=expected_consented_at
+        )
+        return False, f"Verbindung, Discord-Rollenaktion oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})
 
 
 async def setup_recovery(bot) -> tuple[bool, str]:

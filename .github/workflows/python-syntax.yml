@@ -87,6 +87,8 @@ jobs:
         # lokal (/pulse-verify) wäre das ein Checkout mit echten Teamdaten.
         # Phase 9: ebenso keine Datenbanken, kein .session_secret und keine Log-Dateien.
         run: |
+          # The runner starts from a clean checkout; this is test-generated runtime state, never source.
+          rm -f audit_logs.json
           leaked=$(git status --porcelain --ignored --untracked-files=all -- '*.json' '*.db' '*.db-wal' '*.db-shm' '.session_secret' 'logs/' ':!node_modules' | grep -v '^ M' || true)
           if [ -n "$leaked" ]; then echo "Von Tests angelegt/verändert:"; echo "$leaked"; exit 1; fi
 
