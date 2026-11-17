@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import discord
 from pulse_embed_design import color as _pulse_color
+import httpcore
 import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -205,24 +206,116 @@ def _ip_is_public(ip) -> bool:
         return False
 
 
-async def _resolves_to_public(host: str) -> bool:
-    """M-A3-1: a DNS name that points to a private/loopback address is as internal as the address itself."""
+async def _resolve_public_ips(host: str, port: int = 443) -> tuple[str, ...]:
+    """Resolve once and return only the exact globally-routable IPs approved for connect.
+
+    Empty means deny. All DNS answers must be public; mixed public/private responses are rejected.
+    The returned addresses are pinned into the TCP backend, closing the DNS-rebinding window.
+    """
     try:
-        ipaddress.ip_address(host)
-        return True  # literal addresses are judged by _is_public_https_url
+        literal = ipaddress.ip_address(str(host).strip("[]"))
     except ValueError:
-        pass
+        literal = None
+    if literal is not None:
+        return (str(literal),) if _ip_is_public(literal) else ()
     try:
-        infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    except OSError:
-        return True  # not resolvable: the request itself fails with a normal connection error
-    return all(_ip_is_public(ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])) for info in infos)
+        infos = await asyncio.get_running_loop().getaddrinfo(host, int(port), type=socket.SOCK_STREAM)
+    except (OSError, ValueError, TypeError):
+        return ()
+    addresses: list[str] = []
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except (IndexError, TypeError, ValueError):
+            return ()
+        if not _ip_is_public(address):
+            return ()
+        normalized = str(address)
+        if normalized not in addresses:
+            addresses.append(normalized)
+    return tuple(addresses)
 
 
-async def _check_outgoing_request(request: httpx.Request) -> None:
-    """httpx request hook: runs for the first request and for every redirect hop, before it is sent."""
-    if not _is_public_https_url(str(request.url)) or not await _resolves_to_public(request.url.host):
+async def _resolves_to_public(host: str) -> bool:
+    """Compatibility helper used by tests and diagnostics; requests use the pinned IP set."""
+    return bool(await _resolve_public_ips(host, 443))
+
+
+class _PinnedDNSBackend(httpcore.AsyncNetworkBackend):
+    """Connect only to the public IPs approved by the request hook.
+
+    httpcore derives the original Host header and TLS SNI from the request URL; this
+    backend changes only the TCP destination. A missing pin is a hard failure.
+    """
+    MAX_HOST_PINS = 128
+
+    def __init__(self):
+        self._real = httpcore.AnyIOBackend()
+        self._pins: dict[tuple[str, int], tuple[str, ...]] = {}
+
+    @staticmethod
+    def _key(host: str, port: int) -> tuple[str, int]:
+        return str(host).lower().rstrip("."), int(port)
+
+    def pin(self, host: str, port: int, addresses: tuple[str, ...]) -> None:
+        if not addresses:
+            raise ValueError("Für diese Quelle wurden keine öffentlichen IP-Adressen bestätigt.")
+        self._pins[self._key(host, port)] = tuple(addresses)
+        while len(self._pins) > self.MAX_HOST_PINS:
+            self._pins.pop(next(iter(self._pins)))
+
+    async def connect_tcp(self, host: str, port: int, timeout=None, local_address=None, socket_options=None):
+        addresses = self._pins.get(self._key(host, port), ())
+        if not addresses:
+            raise httpcore.ConnectError("Keine zuvor geprüfte öffentliche DNS-Adresse vorhanden.")
+        last_error = None
+        for address in addresses:
+            try:
+                return await self._real.connect_tcp(
+                    host=address, port=port, timeout=timeout,
+                    local_address=local_address, socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise httpcore.ConnectError("Keine geprüfte Zieladresse verfügbar.")
+
+    async def connect_unix_socket(self, path, timeout=None, socket_options=None):
+        raise httpcore.ConnectError("Unix-Socket-Verbindungen sind für Social-Feeds gesperrt.")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._real.sleep(seconds)
+
+
+class _PinnedAsyncTransport(httpx.AsyncHTTPTransport):
+    """HTTPX transport backed by a DNS-pinning httpcore backend."""
+
+    def __init__(self, backend: _PinnedDNSBackend):
+        limits = httpx.Limits(max_connections=5, max_keepalive_connections=3, keepalive_expiry=20.0)
+        super().__init__(verify=True, trust_env=False, http1=True, http2=False, limits=limits)
+        # Keep HTTPX's verified TLS context and replace only its socket backend.
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=self._pool._ssl_context,
+            max_connections=limits.max_connections,
+            max_keepalive_connections=limits.max_keepalive_connections,
+            keepalive_expiry=limits.keepalive_expiry,
+            http1=True,
+            http2=False,
+            network_backend=backend,
+        )
+
+
+async def _check_outgoing_request(request: httpx.Request, backend: _PinnedDNSBackend | None = None) -> None:
+    """Validate and pin the exact socket destination before every request and redirect hop."""
+    if not _is_public_https_url(str(request.url)):
         raise ValueError("Die Quelle verweist auf eine nicht erlaubte (interne) Adresse.")
+    port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    addresses = await _resolve_public_ips(request.url.host, port)
+    if not addresses:
+        raise ValueError("Die Quelle hat keine ausschließlich öffentlichen DNS-Adressen.")
+    if backend is not None:
+        backend.pin(request.url.host, port, addresses)
 
 
 def _tag_name(tag: str) -> str:
@@ -441,12 +534,17 @@ class SocialPromo(commands.Cog):
             raise ValueError("Nur öffentliche HTTPS-URLs sind erlaubt.")
         if self._http_client is None or self._http_client.is_closed:
             timeout = httpx.Timeout(15.0, connect=7.0)
+            backend = _PinnedDNSBackend()
+
+            async def validate_and_pin(request: httpx.Request) -> None:
+                await _check_outgoing_request(request, backend)
+
             self._http_client = httpx.AsyncClient(
                 timeout=timeout,
                 follow_redirects=True,
-                event_hooks={"request": [_check_outgoing_request]},
+                event_hooks={"request": [validate_and_pin]},
                 headers={"User-Agent": USER_AGENT},
-                limits=httpx.Limits(max_connections=5, max_keepalive_connections=3, keepalive_expiry=20.0),
+                transport=_PinnedAsyncTransport(backend),
             )
         # Stream and cap the body before buffering it. Checking response.content
         # after a normal GET still allows an arbitrarily large feed to occupy RAM.

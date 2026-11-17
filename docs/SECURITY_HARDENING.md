@@ -114,7 +114,7 @@ Legende: `[x]` behoben und getestet · `[ ]` offen · `[!]` blockiert · `[-]` n
 
 ### Offen / bewusst nicht geändert
 - [x] **R-01** Sitzungsprüfung ist fail-closed: jede Ausnahme aus `pulse_sessions.is_valid` verwirft das Dashboard-Cookie; die Anmeldung ohne speicherbare serverseitige Sitzung wird mit HTTP 503 abgebrochen.
-- [ ] **R-02** DNS-Rebinding zwischen Prüfung und Verbindung bei Social-Feeds bleibt theoretisch möglich; praktisch stark begrenzt durch HTTPS-Pflicht mit Zertifikatsprüfung (ein internes Ziel bräuchte ein gültiges Zertifikat für den Angreifer-Host) und Einstellbarkeit nur durch Admins/`can_manage_announcements`.
+- [x] **R-02** Social-Feed-Aufrufe verwenden die beim Request-Check vollständig geprüfte DNS-Antwort auch für den TCP-Aufbau; httpx behält den ursprünglichen Host für TLS-SNI und Zertifikatsprüfung. Private/gemischte/unaufgelöste Adressmengen und fehlende Pins werden fail-closed abgelehnt. Redirects werden pro Hop erneut geprüft und gepinnt. Tests: `test_social_ssrf.py`, `PinnedBackendTests`.
 - [ ] **R-03** CSP ohne `script-src`/`style-src` (Inline-UI). Jede künftige HTML-Injection wäre direkt ausnutzbar; Nonces erst nach Auslagerung des Inline-JS (U-03). Escaping (`esc`) bleibt die primäre Verteidigung.
 - [ ] **R-04** Gebannte Mitglieder behalten ihre Recovery-Einwilligung (kein `unlink` bei Bann). Policy-Entscheidung nötig (Datenschutz vs. Wiederherstellung).
 - [x] **R-05** ~~`./:/app` ist im Container beschreibbar~~ — **erledigt in Phase 13** (`docs/PHASE13_BERICHT.md`): Code nur im Image (root-eigen, `read_only: true`), beschreibbar sind nur `/data` und ein 64-MB-`/tmp`; der Checkout wird nicht mehr eingebunden. Tests: `tests/test_phase13_data_isolation.py`, CI startet den Read-only-Container.
