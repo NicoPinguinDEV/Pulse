@@ -1,6 +1,9 @@
 """Verwaltung → Sicherheit (/admin/security): access, validation, persistence, tester, quarantine,
 plus the extended AutoMod/Anti-Nuke behaviour (observe mode, escalation, quarantine, webhook bursts)."""
 import asyncio
+import os
+
+os.environ["PULSE_ALLOWED_GUILD_IDS"] = "*"  # DISC-8: these tests use fake guild ids (explicit operator opt-out)
 import json
 import tempfile
 import unittest

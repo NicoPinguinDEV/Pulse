@@ -15,11 +15,10 @@ STRANGER = 333
 
 class AllowlistTests(unittest.TestCase):
     def setUp(self):
-        env = {"DISCORD_GUILD_ID": str(HOME)}
+        env = {"DISCORD_GUILD_ID": str(HOME), "PULSE_ALLOWED_GUILD_IDS": ""}
         self.env = patch.dict(os.environ, env)
         self.env.start()
         self.addCleanup(self.env.stop)
-        os.environ.pop("PULSE_ALLOWED_GUILD_IDS", None)
 
     def allowed(self, guild_id, backup=0):
         with patch.object(gg, "_recovery_backup_id", return_value=backup):
@@ -49,7 +48,7 @@ class AllowlistTests(unittest.TestCase):
 
 class CommandTreeTests(unittest.TestCase):
     def setUp(self):
-        self.env = patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME)})
+        self.env = patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME), "PULSE_ALLOWED_GUILD_IDS": ""})
         self.env.start()
         self.addCleanup(self.env.stop)
         p = patch.object(gg, "_recovery_backup_id", return_value=BACKUP)
@@ -93,7 +92,7 @@ class ListenerWiringTests(unittest.IsolatedAsyncioTestCase):
         member.id = 5
         member.guild_permissions = NS(manage_messages=False)
         message = NS(guild=NS(id=STRANGER, owner_id=0), author=member, webhook_id=None, delete=AsyncMock())
-        with patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME)}), patch.object(gg, "_recovery_backup_id", return_value=0):
+        with patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME), "PULSE_ALLOWED_GUILD_IDS": ""}), patch.object(gg, "_recovery_backup_id", return_value=0):
             await cog.on_message(message)
         cog._config.assert_not_called()
         message.delete.assert_not_awaited()
@@ -103,7 +102,7 @@ class ListenerWiringTests(unittest.IsolatedAsyncioTestCase):
         cog = PulseAntiNuke(NS(user=NS(id=1)))
         cog._config = lambda: {"enabled": True, "mode": "protect", "events": [], "rules": []}
         guild = NS(id=STRANGER, me=NS(guild_permissions=NS(view_audit_log=True)), audit_logs=None)
-        with patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME)}), patch.object(gg, "_recovery_backup_id", return_value=0), \
+        with patch.dict(os.environ, {"DISCORD_GUILD_ID": str(HOME), "PULSE_ALLOWED_GUILD_IDS": ""}), patch.object(gg, "_recovery_backup_id", return_value=0), \
                 patch.object(cog, "_find_entry", new_callable=AsyncMock) as find:
             await cog._handle_event(guild, "channel_delete", 1)
         find.assert_not_awaited()

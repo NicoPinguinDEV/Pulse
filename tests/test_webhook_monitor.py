@@ -1,5 +1,8 @@
 """Webhook-monitor metadata, secrecy and alert integration tests."""
 import asyncio
+import os
+
+os.environ["PULSE_ALLOWED_GUILD_IDS"] = "*"  # DISC-8: these tests use fake guild ids (explicit operator opt-out)
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock

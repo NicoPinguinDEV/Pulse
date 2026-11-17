@@ -1471,14 +1471,16 @@ def search_all(q,ctx):
     ]
     if web.can_review_applications(ctx):
         searchable_tables.append(("suite_interviews","Gespräch","applicant_name","/suite/interviews"))
-    # AUTHZ-9: the audit trail and cases are leadership pages (manager) -> not searchable for everyone else.
-    if not (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
-        searchable_tables=[t for t in searchable_tables if t[0] not in {"suite_audit","suite_cases"}]
+    # AUTHZ-9: cases are a leadership page (manager) -> not searchable for everyone else. The audit trail is a
+    # leadership page too; below leadership only recruiters find its recruiting-related rows (see the loop).
+    is_lead=bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
+    if not is_lead:
+        searchable_tables=[t for t in searchable_tables if t[0]!="suite_cases"]
     with cx() as c:
         for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
-                if table in {"suite_audit", "suite_events"} and not web.can_review_applications(ctx):
+                if table in {"suite_audit", "suite_events"}:
                     # Audit actions such as "application_updated" contain no German display
                     # keyword. Classify structured action names as sensitive as well as payloads.
                     recruiting_text = json.dumps(d, ensure_ascii=False).casefold()
@@ -1491,8 +1493,12 @@ def search_all(q,ctx):
                         term in recruiting_text
                         for term in ("bewerbung", "interview", "gespräch", "applicant", "recruit", "application")
                     )
-                    if sensitive_action or sensitive_payload:
+                    recruiting_row = sensitive_action or sensitive_payload
+                    can_recruit = web.can_review_applications(ctx)
+                    if not can_recruit and recruiting_row:
                         continue
+                    if table == "suite_audit" and not is_lead and not (can_recruit and recruiting_row):
+                        continue  # AUTHZ-9: no search oracle for the leadership audit trail
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
     if web.can_access_melonly(ctx):
         for x in web.get_melonly_repository().search_payload(q):

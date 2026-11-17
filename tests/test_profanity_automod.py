@@ -1,5 +1,8 @@
 """Schimpfwortfilter im AutoMod: Eskalation, Persistenz, Ausnahmen, Modi, Fehlerfälle und Dashboard (lokale Fakes)."""
 import asyncio
+import os
+
+os.environ["PULSE_ALLOWED_GUILD_IDS"] = "*"  # DISC-8: these tests use fake guild ids (explicit operator opt-out)
 import json
 import tempfile
 import unittest

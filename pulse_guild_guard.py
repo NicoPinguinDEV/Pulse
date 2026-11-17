@@ -28,13 +28,17 @@ def _home_guild_id() -> int:
         return 0
 
 
+def _env_parts() -> list[str]:
+    return [p.strip() for p in str(os.getenv("PULSE_ALLOWED_GUILD_IDS", "")).replace(";", ",").split(",") if p.strip()]
+
+
 def _env_ids() -> set[int]:
-    ids: set[int] = set()
-    for part in str(os.getenv("PULSE_ALLOWED_GUILD_IDS", "")).replace(";", ",").split(","):
-        part = part.strip()
-        if part.isdigit():
-            ids.add(int(part))
-    return ids
+    return {int(part) for part in _env_parts() if part.isdigit()}
+
+
+def allowlist_disabled() -> bool:
+    """``PULSE_ALLOWED_GUILD_IDS=*`` is an explicit operator opt-out (development/tests); never a default."""
+    return "*" in _env_parts()
 
 
 def _recovery_backup_id() -> int:
@@ -54,7 +58,7 @@ def allowed_guild_ids() -> set[int]:
 
 def is_allowed_guild(guild_id) -> bool:
     """True for allowed guilds and for non-guild contexts (DMs); True when no allowlist can be built."""
-    if guild_id in (None, 0, "", "0"):
+    if guild_id in (None, 0, "", "0") or allowlist_disabled():
         return True
     allowed = allowed_guild_ids()
     if not allowed:

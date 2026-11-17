@@ -1,5 +1,8 @@
 """Discord-cog behavior tests using local fakes only."""
 import asyncio
+import os
+
+os.environ["PULSE_ALLOWED_GUILD_IDS"] = "*"  # DISC-8: these tests use fake guild ids (explicit operator opt-out)
 import json
 import tempfile
 import unittest
