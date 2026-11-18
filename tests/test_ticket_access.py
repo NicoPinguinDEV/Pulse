@@ -194,13 +194,13 @@ class TicketButtonAuthorizationTests(unittest.TestCase):
 
     def test_suite_buttons_use_the_shared_category_and_guild_acl(self):
         web = NS(
-            compute_perms=lambda guild, user_id, config: (SUPPORTER, {}),
+            compute_perms=lambda guild, user_id, config: (ADMIN if str(user_id) == "124" else SUPPORTER, {}),
             load_config=lambda: {},
         )
         with CategoryPatch():
             outsider = ctx_for(SUPPORTER).member
             responsible = ctx_for(SUPPORTER, [777]).member
-            admin = ctx_for(ADMIN).member
+            admin = NS(id=124, roles=[], display_name="Administrator")
 
             self.assertFalse(self.suite.can_access_suite_ticket(GUILD, outsider, HIGH, web))
             self.assertTrue(self.suite.can_access_suite_ticket(GUILD, responsible, HIGH, web))
@@ -269,10 +269,6 @@ class TicketButtonAuthorizationTests(unittest.TestCase):
         notify.assert_called_once()
         audit.assert_called_once()
         self.assertIn("Ticket übergeben", interaction.response.send_message.await_args.args[0])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 if __name__ == "__main__":
