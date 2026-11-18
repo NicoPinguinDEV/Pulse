@@ -112,7 +112,7 @@ class TicketPriorityButtonTests(unittest.TestCase):
 
         async def main():
             view = tickets.TicketControlView()
-            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "is_team", return_value=True),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", side_effect=slow_refresh),                  patch("builtins.print"):
+            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "can_manage_ticket", return_value=True),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", side_effect=slow_refresh),                  patch("builtins.print"):
                 await view.priority.callback(inter)
             return update
 
@@ -127,7 +127,7 @@ class TicketPriorityButtonTests(unittest.TestCase):
 
         async def main():
             view = tickets.TicketControlView()
-            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "is_team", return_value=False),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", new=AsyncMock()) as refresh:
+            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "can_manage_ticket", return_value=False),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", new=AsyncMock()) as refresh:
                 await view.priority.callback(inter)
             return update, refresh
 

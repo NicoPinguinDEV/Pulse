@@ -45,11 +45,24 @@ if [ "$PREV" = "$SHA" ]; then
 fi
 # Safety checks (from main): only commits on main, never a downgrade, never over local changes on the VPS.
 git merge-base --is-ancestor "$SHA" origin/main || { echo "Commit $SHA liegt nicht auf origin/main."; exit 1; }
-git merge-base --is-ancestor "$PREV" "$SHA" || { echo "Abbruch: würde den VPS auf einen älteren Commit zurücksetzen."; exit 1; }
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Abbruch: versionierte lokale Änderungen auf dem VPS – bitte erst prüfen."
   exit 1
 fi
+# workflow_run may wait for a concurrency slot while main advances. Re-check the current branch tip
+# after the VPS fetch, not just in the GitHub runner before SSH, so an old successful CI event cannot
+# deploy an older main commit after a newer one has already landed.
+MAIN_SHA="$(git rev-parse origin/main)"
+if [ "$MAIN_SHA" != "$SHA" ]; then
+  if git merge-base --is-ancestor "$SHA" "$PREV" \
+    && git merge-base --is-ancestor "$PREV" origin/main; then
+    echo "Veralteter Deployment-Aufruf: VPS läuft bereits auf einem neueren main-Commit $PREV (enthält $SHA) – nichts zu tun."
+  else
+    echo "Veralteter Deployment-Aufruf: main steht inzwischen auf $MAIN_SHA; geprüfter Commit $SHA wird übersprungen."
+  fi
+  exit 0
+fi
+git merge-base --is-ancestor "$PREV" "$SHA" || { echo "Abbruch: würde den VPS auf einen älteren Commit zurücksetzen."; exit 1; }
 # Phase 13: never start the new layout on an empty or half-migrated data directory – that would look like a blank
 # server. The migration (scripts/pulse_migrate_data.py) is a separate, explicitly confirmed step.
 if uses_data_dir "$SHA" && ! data_dir_ready; then

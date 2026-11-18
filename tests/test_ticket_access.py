@@ -154,5 +154,122 @@ class TicketRouteTests(unittest.TestCase):
         self.assertEqual(self.client.get("/tickets").status_code, 403)
 
 
+
+class TicketButtonAuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        import cogs.pulse_suite as suite
+        import cogs.tickets as ticket_module
+        self.suite = suite
+        self.ticket_module = ticket_module
+
+    def _discord_member(self, user_id=123, role_ids=(), *, admin=False):
+        return NS(
+            id=user_id,
+            display_name=f"Member {user_id}",
+            guild=GUILD,
+            roles=[NS(id=role_id) for role_id in role_ids],
+            guild_permissions=NS(administrator=admin),
+        )
+
+    def test_normal_ticket_buttons_require_category_responsibility(self):
+        with CategoryPatch():
+            outsider = self._discord_member()
+            responsible = self._discord_member(role_ids=[777])
+            admin = self._discord_member(admin=True)
+
+            self.assertFalse(self.ticket_module.can_manage_ticket(outsider, HIGH))
+            self.assertTrue(self.ticket_module.can_manage_ticket(responsible, HIGH))
+            self.assertTrue(self.ticket_module.can_manage_ticket(admin, HIGH))
+            self.assertFalse(self.ticket_module.can_manage_ticket(admin, OTHER_GUILD))
+
+    def test_ticket_creator_can_close_only_own_ticket_in_same_guild(self):
+        with CategoryPatch():
+            owner = self._discord_member(user_id=9)
+            other_user = self._discord_member(user_id=10)
+            wrong_guild = dict(HIGH, guild_id="2")
+
+            self.assertTrue(self.ticket_module.can_control_ticket(owner, HIGH, allow_owner=True))
+            self.assertFalse(self.ticket_module.can_control_ticket(other_user, HIGH, allow_owner=True))
+            self.assertFalse(self.ticket_module.can_control_ticket(owner, wrong_guild, allow_owner=True))
+
+    def test_suite_buttons_use_the_shared_category_and_guild_acl(self):
+        web = NS(
+            compute_perms=lambda guild, user_id, config: (ADMIN if str(user_id) == "124" else SUPPORTER, {}),
+            load_config=lambda: {},
+        )
+        with CategoryPatch():
+            outsider = ctx_for(SUPPORTER).member
+            responsible = ctx_for(SUPPORTER, [777]).member
+            admin = NS(id=124, roles=[], display_name="Administrator")
+
+            self.assertFalse(self.suite.can_access_suite_ticket(GUILD, outsider, HIGH, web))
+            self.assertTrue(self.suite.can_access_suite_ticket(GUILD, responsible, HIGH, web))
+            self.assertTrue(self.suite.can_access_suite_ticket(GUILD, admin, HIGH, web))
+            self.assertFalse(self.suite.can_access_suite_ticket(GUILD, admin, OTHER_GUILD, web))
+
+    def test_all_standard_discord_controls_and_close_modal_recheck_category_acl(self):
+        import inspect
+
+        source = inspect.getsource(self.ticket_module.TicketControlView)
+        self.assertEqual(source.count("if not can_manage_ticket(interaction.user, t):"), 4)
+        self.assertIn("can_control_ticket(interaction.user, t, allow_owner=True)", source)
+        modal_source = inspect.getsource(self.ticket_module.TicketCloseModal.on_submit)
+        self.assertIn("can_control_ticket(interaction.user, ticket, allow_owner=True)", modal_source)
+        self.assertIn("str(getattr(self.actor, \"id\", \"\")) != str(interaction.user.id)", modal_source)
+
+    def test_suite_claim_and_close_do_not_report_success_when_database_rejects(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        interaction = NS(
+            guild=GUILD,
+            user=NS(id=123, display_name="Tester"),
+            response=NS(send_message=AsyncMock()),
+        )
+        with mock.patch.object(self.suite, "allowed", return_value=True), \
+                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \
+                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \
+                mock.patch.object(self.suite.db, "claim_ticket", return_value=False) as claim, \
+                mock.patch.object(self.suite.db, "close_ticket", return_value=False) as close, \
+                mock.patch.object(self.suite, "audit") as audit:
+            asyncio.run(self.suite.suite_ticket_action(interaction, "claim", "T-HIGH"))
+            claim.assert_called_once()
+            self.assertIn("bereits übernommen", interaction.response.send_message.await_args.args[0])
+            interaction.response.send_message.reset_mock()
+
+            asyncio.run(self.suite.suite_ticket_action(interaction, "close", "T-HIGH"))
+            close.assert_called_once()
+            self.assertIn("konnte nicht geschlossen", interaction.response.send_message.await_args.args[0])
+            audit.assert_not_called()
+
+    def test_suite_transfer_uses_atomic_transfer_and_category_eligible_manager(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        next_manager = self._discord_member(user_id=456, role_ids=[777])
+        interaction = NS(
+            guild=GUILD,
+            user=NS(id=123, display_name="Current"),
+            response=NS(send_message=AsyncMock()),
+        )
+        with CategoryPatch(), \
+                mock.patch.object(self.suite, "allowed", return_value=True), \
+                mock.patch.object(self.suite, "managers", return_value=[next_manager]), \
+                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \
+                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \
+                mock.patch.object(self.suite.db, "list_tickets", return_value=[]), \
+                mock.patch.object(self.suite.db, "transfer_ticket", return_value=True) as transfer, \
+                mock.patch.object(self.suite.db, "claim_ticket") as claim, \
+                mock.patch.object(self.suite.db, "notify") as notify, \
+                mock.patch.object(self.suite, "audit") as audit:
+            asyncio.run(self.suite.suite_ticket_action(interaction, "transfer", "T-HIGH"))
+
+        transfer.assert_called_once_with("T-HIGH", 456, "Member 456", actor_id=123, actor_name="Current")
+        claim.assert_not_called()
+        notify.assert_called_once()
+        audit.assert_called_once()
+        self.assertIn("Ticket übergeben", interaction.response.send_message.await_args.args[0])
+
+
 if __name__ == "__main__":
     unittest.main()

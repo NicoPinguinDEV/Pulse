@@ -10,6 +10,7 @@ import sqlite3
 from contextlib import closing
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
@@ -1573,18 +1574,58 @@ class Confirm(PulseView):
         if self.used:return await i.response.send_message("⏳ Wird bereits ausgeführt.",ephemeral=True)
         self.used=True;await i.response.edit_message(content="❌ Abgebrochen.",embed=None,view=None);self.stop()
 
+def can_access_suite_ticket(guild, member, ticket, web) -> bool:
+    """Apply the shared ticket category ACL to persistent Pulse Suite buttons."""
+    if guild is None or member is None or not isinstance(ticket, dict):
+        return False
+    if str(ticket.get("guild_id") or "") != str(guild.id):
+        return False
+    try:
+        from pulse_ticket_access import can_access_ticket
+
+        perms, _ = web.compute_perms(guild, member.id, web.load_config())
+        ctx = SimpleNamespace(guild=guild, member=member, perms=perms)
+        return can_access_ticket(ctx, ticket)
+    except Exception:
+        return False
+
+
 async def suite_ticket_action(i,action,tid):
     web=__import__("webserver")
+    if action not in {"claim", "close", "transfer"}:
+        return await i.response.send_message("❌ Unbekannte Ticketaktion.",ephemeral=True)
+    if not allowed(i,"pulse-ticket",web):
+        return await i.response.send_message("❌ Keine Berechtigung.",ephemeral=True)
+    ticket=db.get_ticket(ticket_id=str(tid))
+    if not can_access_suite_ticket(i.guild,i.user,ticket,web):
+        return await i.response.send_message("❌ Ticket nicht gefunden oder keine Berechtigung.",ephemeral=True)
+
     if action=="claim":
-        if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Keine Berechtigung.",ephemeral=True)
-        db.claim_ticket(tid,i.user.id,i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_claimed","Ticket übernommen");await i.response.send_message("✅ Ticket übernommen.",ephemeral=True)
-    elif action=="close":
-        if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Keine Berechtigung.",ephemeral=True)
-        db.close_ticket(tid,"Per Discord geschlossen",closed_by_id=i.user.id,closed_by_name=i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_closed","Ticket geschlossen");await i.response.send_message("✅ Ticket geschlossen.",ephemeral=True)
-    elif action=="transfer":
-        ms=[m for m in managers(i.guild,web) if m.id!=i.user.id]
-        if not allowed(i,"pulse-ticket",web) or not ms:return await i.response.send_message("❌ Keine Berechtigung / keine weitere Führung.",ephemeral=True)
-        m=min(ms,key=lambda x:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=x.id)));db.claim_ticket(tid,m.id,m.display_name);db.notify(m.id,"👤 Ticket übergeben",f"{tid} wurde dir zugewiesen.","info","/tickets",f"transfer:{tid}:{m.id}",21600);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_transferred",m.display_name);await i.response.send_message("✅ Ticket übergeben.",ephemeral=True)
+        if not db.claim_ticket(tid,i.user.id,i.user.display_name):
+            return await i.response.send_message("❌ Ticket ist geschlossen oder bereits übernommen.",ephemeral=True)
+        audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_claimed","Ticket übernommen")
+        return await i.response.send_message("✅ Ticket übernommen.",ephemeral=True)
+
+    if action=="close":
+        if not db.close_ticket(tid,"Per Discord geschlossen",closed_by_id=i.user.id,closed_by_name=i.user.display_name):
+            return await i.response.send_message("❌ Ticket konnte nicht geschlossen werden.",ephemeral=True)
+        audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_closed","Ticket geschlossen")
+        return await i.response.send_message("✅ Ticket geschlossen.",ephemeral=True)
+
+    eligible = [
+        member for member in managers(i.guild,web)
+        if member.id != i.user.id
+        and allowed(SimpleNamespace(guild=i.guild,user=member),"pulse-ticket",web)
+        and can_access_suite_ticket(i.guild,member,ticket,web)
+    ]
+    if not eligible:
+        return await i.response.send_message("❌ Keine andere berechtigte Führungskraft für diese Ticketkategorie.",ephemeral=True)
+    member=min(eligible,key=lambda x:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=x.id)))
+    if not db.transfer_ticket(tid,member.id,member.display_name,actor_id=i.user.id,actor_name=i.user.display_name):
+        return await i.response.send_message("❌ Ticket konnte nicht übergeben werden (bereits zugewiesen oder geschlossen).",ephemeral=True)
+    db.notify(member.id,"👤 Ticket übergeben",f"{tid} wurde dir zugewiesen.","info","/tickets",f"transfer:{tid}:{member.id}",21600)
+    audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_transferred",member.display_name)
+    return await i.response.send_message("✅ Ticket übergeben.",ephemeral=True)
 
 # K-07: the case ID lives in the custom_id, so the buttons keep working after a restart.
 SUITE_TICKET_BUTTONS={"claim":("Ticket übernehmen",discord.ButtonStyle.success,"🎫"),"close":("Schließen",discord.ButtonStyle.danger,"🔒"),"transfer":("Übergeben",discord.ButtonStyle.secondary,"👤")}

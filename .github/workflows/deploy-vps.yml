@@ -72,6 +72,23 @@ jobs:
               return;
             }
 
+            if (!isManual) {
+              // workflow_run events can wait in the concurrency queue. Never deploy an older
+              // tested commit after main has already advanced while this run was waiting.
+              const mainRef = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: "heads/main",
+              });
+              const currentMainSha = mainRef.data.object.sha;
+              if (currentMainSha !== sha) {
+                stopAutomaticDeployment(
+                  `Kein Deployment: CI-Commit ${sha.slice(0, 7)} wurde durch neueren main-Commit ${currentMainSha.slice(0, 7)} überholt.`
+                );
+                return;
+              }
+            }
+
             // Fail closed: GitHub's branch endpoint exposes whether main is protected.
             const branch = await github.rest.repos.getBranch({
               owner: context.repo.owner,
