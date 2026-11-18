@@ -226,11 +226,11 @@ class TicketButtonAuthorizationTests(unittest.TestCase):
             user=NS(id=123, display_name="Tester"),
             response=NS(send_message=AsyncMock()),
         )
-        with mock.patch.object(self.suite, "allowed", return_value=True), \\
-                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \\
-                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \\
-                mock.patch.object(self.suite.db, "claim_ticket", return_value=False) as claim, \\
-                mock.patch.object(self.suite.db, "close_ticket", return_value=False) as close, \\
+        with mock.patch.object(self.suite, "allowed", return_value=True), \
+                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \
+                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \
+                mock.patch.object(self.suite.db, "claim_ticket", return_value=False) as claim, \
+                mock.patch.object(self.suite.db, "close_ticket", return_value=False) as close, \
                 mock.patch.object(self.suite, "audit") as audit:
             asyncio.run(self.suite.suite_ticket_action(interaction, "claim", "T-HIGH"))
             claim.assert_called_once()
@@ -252,15 +252,15 @@ class TicketButtonAuthorizationTests(unittest.TestCase):
             user=NS(id=123, display_name="Current"),
             response=NS(send_message=AsyncMock()),
         )
-        with CategoryPatch(), \\
-                mock.patch.object(self.suite, "allowed", return_value=True), \\
-                mock.patch.object(self.suite, "managers", return_value=[next_manager]), \\
-                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \\
-                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \\
-                mock.patch.object(self.suite.db, "list_tickets", return_value=[]), \\
-                mock.patch.object(self.suite.db, "transfer_ticket", return_value=True) as transfer, \\
-                mock.patch.object(self.suite.db, "claim_ticket") as claim, \\
-                mock.patch.object(self.suite.db, "notify") as notify, \\
+        with CategoryPatch(), \
+                mock.patch.object(self.suite, "allowed", return_value=True), \
+                mock.patch.object(self.suite, "managers", return_value=[next_manager]), \
+                mock.patch.object(self.suite.db, "get_ticket", return_value=HIGH), \
+                mock.patch.object(self.suite, "can_access_suite_ticket", return_value=True), \
+                mock.patch.object(self.suite.db, "list_tickets", return_value=[]), \
+                mock.patch.object(self.suite.db, "transfer_ticket", return_value=True) as transfer, \
+                mock.patch.object(self.suite.db, "claim_ticket") as claim, \
+                mock.patch.object(self.suite.db, "notify") as notify, \
                 mock.patch.object(self.suite, "audit") as audit:
             asyncio.run(self.suite.suite_ticket_action(interaction, "transfer", "T-HIGH"))
 
