@@ -17,3 +17,8 @@ updates:
     schedule:
       interval: weekly
     labels: ["abhaengigkeiten"]
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels: ["abhaengigkeiten"]
