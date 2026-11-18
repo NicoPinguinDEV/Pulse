@@ -238,10 +238,32 @@ def category_ping_roles(guild, key: str):
 
 
 def can_manage_ticket(member, ticket) -> bool:
-    if member.guild_permissions.administrator:
+    """Only administrators and the ticket category's responsible roles may manage a ticket."""
+    if member is None or not isinstance(ticket, dict):
+        return False
+    guild = getattr(member, "guild", None)
+    if guild is None or str(ticket.get("guild_id") or "") != str(guild.id):
+        return False
+    if getattr(getattr(member, "guild_permissions", None), "administrator", False):
         return True
     key = str(ticket.get("category", "support"))
-    return any(role.id in {r.id for r in category_roles(member.guild, key)} for role in member.roles)
+    try:
+        responsible_ids = {r.id for r in category_roles(guild, key)}
+        return any(getattr(role, "id", None) in responsible_ids for role in (getattr(member, "roles", None) or ()))
+    except Exception:
+        return False
+
+
+def can_control_ticket(member, ticket, *, allow_owner: bool = False) -> bool:
+    """Category authorization for staff controls; ticket creators may only close their own ticket."""
+    if member is None or not isinstance(ticket, dict):
+        return False
+    guild = getattr(member, "guild", None)
+    if guild is None or str(ticket.get("guild_id") or "") != str(guild.id):
+        return False
+    if allow_owner and str(ticket.get("user_id") or "") == str(getattr(member, "id", "")):
+        return True
+    return can_manage_ticket(member, ticket)
 
 
 def panel_image_path(filename: str) -> str | None:
@@ -663,6 +685,12 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
         ticket = get_ticket(ticket_id=self.ticket_id)
         if not ticket or ticket.get("status") == "closed":
             await interaction.response.send_message("Das Ticket ist bereits geschlossen.", ephemeral=True)
+            return
+        if (
+            str(getattr(self.actor, "id", "")) != str(interaction.user.id)
+            or not can_control_ticket(interaction.user, ticket, allow_owner=True)
+        ):
+            await interaction.response.send_message("❌ Du hast für dieses Ticket keine Berechtigung.", ephemeral=True)
             return
         await interaction.response.send_message("🔒 Ticket wird archiviert …", ephemeral=True)
         reason = str(self.reason.value).strip()[:500]
@@ -1304,8 +1332,8 @@ class TicketControlView(View):
         if not t:
             await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
             return
-        if not is_team(interaction.user):
-            await interaction.response.send_message("❌ Nur Teammitglieder dürfen Tickets übernehmen.", ephemeral=True)
+        if not can_manage_ticket(interaction.user, t):
+            await interaction.response.send_message("❌ Du hast für diese Ticketkategorie keine Berechtigung.", ephemeral=True)
             return
         ok = claim_ticket(t["id"], interaction.user.id, interaction.user.display_name)
         if not ok:
@@ -1348,8 +1376,8 @@ class TicketControlView(View):
         if not t:
             await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
             return
-        if not is_team(interaction.user):
-            await interaction.response.send_message("❌ Nur Teammitglieder dürfen Tickets freigeben.", ephemeral=True)
+        if not can_manage_ticket(interaction.user, t):
+            await interaction.response.send_message("❌ Du hast für diese Ticketkategorie keine Berechtigung.", ephemeral=True)
             return
         if not t.get("claimed_by_id"):
             await interaction.response.send_message("Das Ticket ist bereits frei.", ephemeral=True)
@@ -1371,8 +1399,8 @@ class TicketControlView(View):
         if not t:
             await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
             return
-        if not is_team(interaction.user):
-            await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True)
+        if not can_manage_ticket(interaction.user, t):
+            await interaction.response.send_message("❌ Du hast für diese Ticketkategorie keine Berechtigung.", ephemeral=True)
             return
         current = t.get("priority", "normal")
         next_priority = PRIORITIES[(PRIORITIES.index(current) + 1) % len(PRIORITIES)] if current in PRIORITIES else "normal"
@@ -1392,8 +1420,8 @@ class TicketControlView(View):
         if not t:
             await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
             return
-        if not is_team(interaction.user):
-            await interaction.response.send_message("❌ Nur Teammitglieder können erinnern.", ephemeral=True)
+        if not can_manage_ticket(interaction.user, t):
+            await interaction.response.send_message("❌ Du hast für diese Ticketkategorie keine Berechtigung.", ephemeral=True)
             return
         member = interaction.guild.get_member(int(t["user_id"])) if str(t.get("user_id") or "").isdigit() else None
         if member is None:
@@ -1408,8 +1436,8 @@ class TicketControlView(View):
         if not t:
             await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
             return
-        if not is_team(interaction.user) and str(t.get("user_id")) != str(interaction.user.id):
-            await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True)
+        if not can_control_ticket(interaction.user, t, allow_owner=True):
+            await interaction.response.send_message("❌ Du hast für dieses Ticket keine Berechtigung.", ephemeral=True)
             return
         await interaction.response.send_modal(TicketCloseModal(t["id"], interaction.user))
 
