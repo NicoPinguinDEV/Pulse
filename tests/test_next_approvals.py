@@ -158,7 +158,9 @@ class NextApprovalDecisionTests(unittest.TestCase):
         self.assertEqual(self._statuses(), ("pending", "pending"))
 
     def test_requester_cannot_approve_own_request(self):
-        self._insert_pending_promotion(requester_id="1")
+        with pulse_next.cx() as connection:
+            connection.execute("UPDATE next_approvals SET requester_id='1' WHERE id='approval-1'")
+            connection.execute("UPDATE next_promotions SET requested_by_id='1' WHERE id='promotion-1'")
         with self.assertRaises(HTTPException) as raised:
             asyncio.run(pulse_next.decide_approval(self.ctx, "approval-1", "approve"))
 
