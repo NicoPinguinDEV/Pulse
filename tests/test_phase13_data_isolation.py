@@ -527,7 +527,8 @@ class RemoteDeployDataDirRunTests(unittest.TestCase):
         (tmp / "bin" / "git").write_text(
             "#!/usr/bin/env bash\n"
             f'echo "git $*" >> "{log}"\n'
-            f'if [ "$1" = rev-parse ]; then echo {"a" * 40}; fi\n'
+            f'if [ "$1" = rev-parse ] && [ "$2" = HEAD ]; then echo {"a" * 40}; fi\n'
+            f'if [ "$1" = rev-parse ] && [ "$2" = origin/main ]; then echo {"b" * 40}; fi\n'
             'if [ "$1" = show ]; then case "$2" in ' + "b" * 40 + ':*) echo "        target: /data";; esac; fi\n'
             'if [ "$1" = merge-base ] && [ "$2" = --is-ancestor ]; then case "$3:$4" in '
             + '"'+("b"*40)+':origin/main") exit 0;; '
