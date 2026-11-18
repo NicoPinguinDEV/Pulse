@@ -214,7 +214,7 @@ class RemoteDeployRunTests(unittest.TestCase):
             raise unittest.SkipTest("bash nicht lauffähig (z. B. WSL ohne Distribution)")
         return bash
 
-    def _run(self, failing: str, stale: bool = False):
+    def _run(self, failing: str, stale: bool = False, behind_main: bool = False):
         import tempfile
         bash = self._bash()
         tmp = Path(tempfile.mkdtemp())
@@ -224,7 +224,8 @@ class RemoteDeployRunTests(unittest.TestCase):
         (tmp / "bin" / "git").write_text(
             "#!/usr/bin/env bash\n"
             f'echo "git $*" >> "{log}"\n'
-            f'if [ "$1" = rev-parse ]; then echo {self.PREV}; fi\n'
+            f'if [ "$1" = rev-parse ] && [ "$2" = HEAD ]; then echo {self.PREV}; fi\n'
+            f'if [ "$1" = rev-parse ] && [ "$2" = origin/main ]; then echo {self.PREV if stale else ("c" * 40 if behind_main else self.SHA)}; fi\n'
             f'if [ "$1" = merge-base ] && [ "$2" = --is-ancestor ] && [ "$3" = "{self.SHA}" ] && [ "$4" = "{self.PREV}" ]; then exit {0 if stale else 1}; fi\n'
             "exit 0\n", encoding="utf-8", newline="\n")
         (tmp / "bin" / "docker").write_text(
@@ -259,6 +260,15 @@ class RemoteDeployRunTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
         self.assertIn("Veralteter Deployment-Aufruf", result.stdout.decode(errors="replace"))
+        self.assertFalse(any(call.startswith("docker ") for call in calls), calls)
+        self.assertFalse(any(call.startswith("git reset --hard") for call in calls), calls)
+
+
+    def test_stale_target_is_skipped_when_main_advances_during_ssh_handoff(self):
+        result, calls = self._run(failing="never-fails", behind_main=True)
+
+        self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
+        self.assertIn("main steht inzwischen", result.stdout.decode(errors="replace"))
         self.assertFalse(any(call.startswith("docker ") for call in calls), calls)
         self.assertFalse(any(call.startswith("git reset --hard") for call in calls), calls)
 
