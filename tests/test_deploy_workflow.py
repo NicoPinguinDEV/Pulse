@@ -31,6 +31,18 @@ class DeploymentWorkflowTests(unittest.TestCase):
         self.assertIn('core.setOutput("sha", sha)', workflow)
         self.assertNotIn("git reset --hard origin/main", workflow)
 
+
+    def test_stale_workflow_run_is_skipped_before_deployment(self):
+        workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
+        verification = workflow.split("Geprüften Commit bestimmen", 1)[1].split("- name:", 1)[0]
+
+        self.assertIn('github.rest.git.getRef', verification)
+        self.assertIn('ref: "heads/main"', verification)
+        self.assertIn("currentMainSha !== sha", verification)
+        self.assertIn("stopAutomaticDeployment(", verification)
+        self.assertLess(verification.index("currentMainSha !== sha"), verification.index('core.setOutput("ready", "true")'))
+        self.assertIn("if (!isManual)", verification)
+
     def test_green_ci_alone_never_deploys_without_explicit_opt_in(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
 
