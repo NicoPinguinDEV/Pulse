@@ -4,7 +4,7 @@ import functools
 import unittest
 from types import SimpleNamespace as NS
 
-from pulse_rank_guard import actor_rank_change_problem, team_rank_index
+from pulse_rank_guard import actor_rank_change_problem, actor_target_management_problem, team_rank_index
 
 # Team ranks lowest -> highest: 10 (Aushilfe), 20 (Supporter), 30 (Moderator), 40 (Leitung)
 ORDERED = [10, 20, 30, 40]
@@ -94,6 +94,31 @@ class ActorRankChangeTests(unittest.TestCase):
         self.assertEqual(team_rank_index(member(1, [5]), ORDERED), -1)
 
 
+
+
+class ActorTargetManagementTests(unittest.TestCase):
+    def check(self, actor, target, admin=False):
+        return actor_target_management_problem(actor=actor, actor_is_admin=admin, target=target, ordered_team_role_ids=ORDERED)
+    def test_leader_can_manage_lower_rank_only(self):
+        self.assertEqual(self.check(member(1, [40]), member(2, [20])), "")
+    def test_equal_higher_and_non_team_targets_are_blocked(self):
+        actor = member(1, [30])
+        self.assertTrue(self.check(actor, member(2, [30])))
+        self.assertTrue(self.check(actor, member(3, [40])))
+        self.assertTrue(self.check(actor, member(4, [5])))
+    def test_self_and_discord_administrator_targets_are_blocked(self):
+        actor = member(1, [40])
+        self.assertTrue(self.check(actor, actor))
+        self.assertTrue(self.check(actor, member(2, [20], admin=True)))
+    def test_admin_can_manage_any_existing_non_bot_target(self):
+        self.assertEqual(self.check(member(1, [], admin=True), member(2, [40]), admin=True), "")
+    def test_profile_guard_is_wired_to_the_ultimate_update_route(self):
+        import inspect
+        import pulse_ultimate
+        source = inspect.getsource(pulse_ultimate.register)
+        self.assertIn("actor_target_management_problem", source)
+        self.assertIn("ordered_team_role_ids(ctx.guild", source)
+        self.assertIn("Ungültiger interner Teamstatus", source)
 
 
 class SlashCommandWiringTests(unittest.TestCase):

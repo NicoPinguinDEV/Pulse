@@ -87,3 +87,34 @@ def actor_rank_change_problem(
         if role_pos is not None and actor_top is not None and role_pos >= actor_top:
             return "Die Zielrolle liegt auf oder über deiner höchsten Rolle."
     return ""
+
+
+
+def actor_target_management_problem(*, actor, actor_is_admin: bool, target, ordered_team_role_ids) -> str:
+    """Deny non-admin profile management of equal/higher-ranked or non-team members."""
+    if actor is None or target is None:
+        return "Akteur oder Zielmitglied konnte nicht ermittelt werden."
+    if getattr(actor, "id", None) == getattr(target, "id", None):
+        return "Du kannst dein eigenes Profil nicht über die Teamverwaltung bearbeiten."
+    if getattr(target, "bot", False):
+        return "Bot-Profile können nicht über die Teamverwaltung bearbeitet werden."
+    if actor_is_admin:
+        return ""
+
+    if _is_administrator(target):
+        return "Profile von Discord-Administratoren können nur von Administratoren bearbeitet werden."
+    ordered = [int(r) for r in (ordered_team_role_ids or ())]
+    actor_idx = team_rank_index(actor, ordered)
+    target_idx = team_rank_index(target, ordered)
+    if actor_idx < 0:
+        return "Du besitzt keinen gültigen Teamrang für diese Änderung."
+    if target_idx < 0:
+        return "Das Zielmitglied besitzt keinen konfigurierten Teamrang."
+    if target_idx >= actor_idx:
+        return "Du kannst nur Profile von Mitgliedern mit niedrigerem Teamrang bearbeiten."
+
+    actor_top = getattr(getattr(actor, "top_role", None), "position", None)
+    target_top = getattr(getattr(target, "top_role", None), "position", None)
+    if actor_top is not None and target_top is not None and target_top >= actor_top:
+        return "Das Zielmitglied liegt nicht unter deiner Discord-Rollenhierarchie."
+    return ""

@@ -1291,18 +1291,30 @@ def register(app) -> None:
     ):
         ctx = ctx_auth(request, user_session, manager=True)
         member_id = member_path_id(user_id)
+        member = ctx.guild.get_member(member_id)
+        if member is None:
+            raise HTTPException(404, "Teammitglied nicht gefunden.")
+        from pulse_rank_guard import actor_target_management_problem
+        import webserver
+        problem = actor_target_management_problem(
+            actor=ctx.member,
+            actor_is_admin=bool(ctx.perms.get("is_admin")),
+            target=member,
+            ordered_team_role_ids=webserver.ordered_team_role_ids(ctx.guild, ctx.config.get("team_role_ids", [])),
+        )
+        if problem:
+            raise HTTPException(status_code=403, detail=problem)
+        if internal_status not in {"available", "service", "break", "training", "admin", "unavailable"}:
+            raise HTTPException(status_code=400, detail="Ungültiger interner Teamstatus.")
         with cx() as c:
-            row = c.execute("SELECT * FROM ultimate_profiles WHERE user_id=?", (str(user_id),)).fetchone()
+            row = c.execute("SELECT * FROM ultimate_profiles WHERE user_id=?", (str(member_id),)).fetchone()
             if not row:
-                member = ctx.guild.get_member(int(user_id))
-                if not member:
-                    raise HTTPException(404, "Mitglied nicht gefunden.")
                 ensure_profile(member)
             c.execute(
                 "UPDATE ultimate_profiles SET internal_status=?,rating=?,internal_message=?,updated_at=? WHERE user_id=?",
-                (internal_status[:30], max(0,min(100,rating)), internal_message[:300], iso(), str(user_id)),
+                (internal_status, max(0,min(100,rating)), internal_message[:300], iso(), str(member_id)),
             )
-        audit(ctx, "Profil aktualisiert", user_id, "", f"Status={internal_status}; rating={rating}")
+        audit(ctx, "Profil aktualisiert", str(member_id), member.display_name, f"Status={internal_status}; rating={rating}")
         return RedirectResponse(f"/ultimate/team/{member_id}", status_code=303)
 
     @app.get("/ultimate/cases", response_class=HTMLResponse)

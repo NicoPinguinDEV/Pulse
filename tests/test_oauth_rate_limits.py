@@ -12,6 +12,7 @@ class OAuthRateLimitTests(unittest.TestCase):
     def setUp(self):
         with ws._rate_lock:
             ws._rate_hits.clear()
+            ws._rate_overflow_hits.clear()
             ws._rate_last_full_sweep = 0.0
         self.public_gate = patch.object(ws.pulse_public_site, "public_access_enabled", return_value=True)
         self.public_gate.start()
@@ -46,28 +47,25 @@ class OAuthRateLimitTests(unittest.TestCase):
         self.assertEqual(results.count(False), 3)
         self.assertEqual(results.count(True), 21)
 
-    def test_rate_limiter_evicts_the_oldest_key_at_capacity_instead_of_locking_out_new_clients(self):
-        # AUTH-4: filling the table with fake sources must not block every NEW client (login DoS); memory stays bounded.
+    def test_rate_limiter_capacity_uses_overflow_without_evicting_active_clients(self):
         now = ws.time.time()
         with ws._rate_lock:
-            ws._rate_hits.update({
-                f"client-{index}": [now + index / 1000.0]
-                for index in range(ws._RATE_LIMIT_MAX_KEYS)
-            })
+            ws._rate_hits.update({f"client-{index}": [now] for index in range(ws._RATE_LIMIT_MAX_KEYS)})
             ws._rate_last_full_sweep = now
-
-        self.assertFalse(ws.rate_limited("unseen-client", limit=3, window=60))
+        self.assertTrue(ws.rate_limited("client-0", limit=1, window=60))
+        results = [ws.rate_limited("oauth-login:new-source", limit=3, window=60) for _ in range(5)]
+        self.assertEqual(results, [False, False, False, True, True])
         self.assertEqual(len(ws._rate_hits), ws._RATE_LIMIT_MAX_KEYS)
-        self.assertIn("unseen-client", ws._rate_hits)
-        self.assertNotIn("client-0", ws._rate_hits)  # the least recently active key made room
-        self.assertIn(f"client-{ws._RATE_LIMIT_MAX_KEYS - 1}", ws._rate_hits)
+        self.assertIn("client-0", ws._rate_hits)
+        self.assertNotIn("oauth-login:new-source", ws._rate_hits)
+        self.assertIn("oauth-login", ws._rate_overflow_hits)
 
     def test_new_client_is_still_limited_after_its_own_attempts_at_capacity(self):
         now = ws.time.time()
         with ws._rate_lock:
             ws._rate_hits.update({f"client-{i}": [now] for i in range(ws._RATE_LIMIT_MAX_KEYS)})
             ws._rate_last_full_sweep = now
-        results = [ws.rate_limited("newcomer", limit=3, window=60) for _ in range(5)]
+        results = [ws.rate_limited("oauth-login:newcomer", limit=3, window=60) for _ in range(5)]
         self.assertEqual(results, [False, False, False, True, True])
 
     def test_ipv6_clients_share_one_bucket_per_64_prefix(self):

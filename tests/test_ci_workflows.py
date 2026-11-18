@@ -75,6 +75,32 @@ class ReproducibleToolingTests(unittest.TestCase):
                 with self.subTest(workflow=workflow.name, action=action):
                     self.assertRegex(ref, r"^[0-9a-f]{40}$")
 
+    def test_checkout_actions_never_persist_the_github_token(self):
+        for workflow in WORKFLOWS.glob("*.yml"):
+            lines = workflow.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if not re.search(r"uses:\s*actions/checkout@", line):
+                    continue
+                indent = len(line) - len(line.lstrip())
+                step_indent = indent if line.lstrip().startswith("- uses:") else indent - 2
+                end = index + 1
+                while end < len(lines):
+                    candidate = lines[end]
+                    stripped = candidate.strip()
+                    candidate_indent = len(candidate) - len(candidate.lstrip())
+                    if stripped.startswith("- ") and candidate_indent == step_indent:
+                        break
+                    end += 1
+                step = "\n".join(lines[index:end])
+                with self.subTest(workflow=workflow.name, line=index + 1):
+                    self.assertRegex(step, r"(?m)^\s+persist-credentials:\s*false\s*$")
+
+    def test_production_base_images_are_digest_pinned(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        self.assertRegex(dockerfile, r"(?m)^FROM python:3\.15-slim@sha256:[0-9a-f]{64}$")
+        self.assertRegex(compose, r"(?m)^\s+image: caddy:2\.11\.9-alpine@sha256:[0-9a-f]{64}$")
+
     def test_ci_tests_the_versions_the_image_installs(self):
         text = (WORKFLOWS / "python-syntax.yml").read_text(encoding="utf-8")
         syntax_job = text.split("\n  syntax:\n", 1)[1].split("\n  e2e-scope:\n", 1)[0]

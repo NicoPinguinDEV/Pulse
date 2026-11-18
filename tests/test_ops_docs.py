@@ -18,7 +18,7 @@ def read(rel: str) -> str:
 
 
 def image_python() -> str:
-    match = re.search(r"^FROM python:(\d+\.\d+)-slim\s*$", read("Dockerfile"), re.M)
+    match = re.search(r"^FROM python:(\d+\.\d+)-slim(?:@sha256:[0-9a-f]{64})?\s*$", read("Dockerfile"), re.M)
     assert match, "FROM python:X.Y-slim fehlt im Dockerfile"
     return match.group(1)
 
@@ -60,7 +60,7 @@ class PythonVersionTests(unittest.TestCase):
         job = ci.split("  syntax-image-python:", 1)[1].split("\n  e2e-scope:", 1)[0]
         # The version is read from the Dockerfile's FROM line inside the job – no second place that can drift.
         self.assertIn("python-version: ${{ steps.image.outputs.python }}", job)
-        self.assertIn("sed -n -E 's/^FROM python:([0-9]+\\.[0-9]+)-slim[[:space:]]*$/\\1/p' Dockerfile", job)
+        self.assertIn("sed -n -E 's/^FROM python:([0-9]+\\.[0-9]+)-slim(@sha256:[0-9a-f]{64})?[[:space:]]*$/\\1/p' Dockerfile", job)
         self.assertNotRegex(job, r'python-version: "\d')
         self.assertLess(job.index("id: image"), job.index("actions/setup-python"))
         self.assertIn("--require-hashes -r requirements.lock", job)

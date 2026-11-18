@@ -1097,7 +1097,9 @@ def main() -> None:
     assert "MAX_FEED_BYTES = 2_000_000" in social
     assert 'self._http_client.stream("GET", url)' in social
     assert "self._http_client: httpx.AsyncClient | None = None" in social
-    assert "limits=httpx.Limits(max_connections=5, max_keepalive_connections=3" in social
+    assert "limits = httpx.Limits(max_connections=5, max_keepalive_connections=3" in social
+    assert "transport=_PinnedAsyncTransport(backend)" in social
+    assert "network_backend=backend" in social
     # A-09: value lives in pulse_ids.py, the module takes it from there
     assert "SOCIAL_TARGET_CHANNEL_ID = 1530972281893949521" in read("pulse_ids.py")
     assert "TARGET_CHANNEL_ID = _pulse_ids.SOCIAL_TARGET_CHANNEL_ID" in social

@@ -12,7 +12,7 @@ from unittest.mock import patch
 import httpx
 
 from cogs import social_promo
-from cogs.social_promo import SocialPromo
+from cogs.social_promo import SocialPromo, _PinnedDNSBackend
 
 PUBLIC = {"feeds.example": "93.184.216.34", "cdn.example": "93.184.216.35", "rebind.example": "10.0.0.7"}
 
@@ -45,8 +45,11 @@ class FeedFetchSsrfTests(unittest.TestCase):
                 if cog._http_client is not None:
                     await cog._http_client.aclose()
 
-        with patch.object(social_promo.httpx, "AsyncClient",
-                          lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)), \
+        def mocked_client(**kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_client(**kwargs)
+
+        with patch.object(social_promo.httpx, "AsyncClient", mocked_client), \
                 patch.object(socket, "getaddrinfo", fake_getaddrinfo):
             try:
                 result = asyncio.run(run())
@@ -77,3 +80,46 @@ class FeedFetchSsrfTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class PinnedBackendTests(unittest.TestCase):
+    def test_tcp_connect_uses_only_the_exact_validated_ip_set(self):
+        import httpcore
+
+        class FakeBackend:
+            def __init__(self):
+                self.seen = []
+
+            async def connect_tcp(self, **kwargs):
+                self.seen.append(kwargs["host"])
+                if kwargs["host"] == "93.184.216.34":
+                    raise httpcore.ConnectError("first address unavailable")
+                return "connected"
+
+            async def connect_unix_socket(self, **kwargs):
+                raise AssertionError("Unix socket must never be used")
+
+            async def sleep(self, seconds):
+                return None
+
+        backend = _PinnedDNSBackend()
+        fake = FakeBackend()
+        backend._real = fake
+        backend.pin("Feeds.Example.", 443, ("93.184.216.34", "93.184.216.35"))
+
+        async def run():
+            return await backend.connect_tcp("feeds.example", 443)
+
+        self.assertEqual(asyncio.run(run()), "connected")
+        self.assertEqual(fake.seen, ["93.184.216.34", "93.184.216.35"])
+
+    def test_missing_pin_fails_closed_without_resolving_again(self):
+        import httpcore
+        backend = _PinnedDNSBackend()
+
+        async def run():
+            with self.assertRaises(httpcore.ConnectError):
+                await backend.connect_tcp("unvalidated.example", 443)
+
+        asyncio.run(run())

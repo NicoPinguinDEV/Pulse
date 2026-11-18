@@ -1486,6 +1486,8 @@ def back(url: str, msg: str = None, ok: bool = True):
 
 
 _rate_hits = {}
+# Fixed-size overflow counters used only when the per-source table is full.
+_rate_overflow_hits: dict[str, list[float]] = {}
 _rate_lock = threading.Lock()
 _RATE_LIMIT_MAX_KEYS = 5000
 _RATE_LIMIT_SWEEP_INTERVAL = 30
@@ -1493,22 +1495,16 @@ _rate_last_full_sweep = 0.0
 
 
 def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
-    """Bounded in-memory rate limiter; full state rejects new keys rather than growing forever."""
+    """Bounded rate limiter that never evicts an active client's bucket.
+
+    Unknown sources share one small overflow bucket per action when the source table is full.
+    Source rotation therefore cannot reset another client's active login/callback limit.
+    """
     now = time.time()
     window = max(1, int(window))
     limit = max(1, int(limit))
     global _rate_last_full_sweep
     with _rate_lock:
-        hits = [t for t in _rate_hits.get(key, []) if now - t < window]
-        if hits and len(hits) >= limit:
-            _rate_hits[key] = hits
-            return True
-
-        if hits:
-            _rate_hits[key] = hits
-        else:
-            _rate_hits.pop(key, None)
-
         if key not in _rate_hits and len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
             if now - _rate_last_full_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
                 cutoff = now - max(window, 3600)
@@ -1516,16 +1512,22 @@ def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
                 for stale_key in stale:
                     _rate_hits.pop(stale_key, None)
                 _rate_last_full_sweep = now
-            if len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
-                # AUTH-4: a full table must not lock out every NEW client (login DoS with ~5000 fake sources).
-                # Evict the key that was active longest ago instead (bounded memory, scan only when full).
-                oldest = min(_rate_hits, key=lambda k: max(_rate_hits[k], default=0.0))
-                _rate_hits.pop(oldest, None)
-
+        if key not in _rate_hits and len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
+            action = str(key).partition(":")[0] or "__global__"
+            hits = [t for t in _rate_overflow_hits.get(action, []) if now - t < window]
+            if hits and len(hits) >= limit:
+                _rate_overflow_hits[action] = hits
+                return True
+            hits.append(now)
+            _rate_overflow_hits[action] = hits
+            return False
+        hits = [t for t in _rate_hits.get(key, []) if now - t < window]
+        if hits and len(hits) >= limit:
+            _rate_hits[key] = hits
+            return True
         hits.append(now)
         _rate_hits[key] = hits
         return False
-
 
 def request_rate_key(request: Request, action: str) -> str:
     """Use the connection peer, not an untrusted forwarding header, for abuse limits."""

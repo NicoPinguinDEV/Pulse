@@ -1,4 +1,5 @@
 """Opt-in recovery token storage and role safety tests."""
+import asyncio
 import os
 import tempfile
 import unittest
@@ -40,6 +41,87 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(pulse_recovery.unlink(uid))
         self.assertIsNone(pulse_recovery.get_refresh_token(uid))
         self.assertEqual(pulse_recovery.count_linked_users(), 0)
+
+
+    def test_primary_ban_tombstone_deletes_token_and_blocks_stale_refresh_writes(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-ban", now=100)
+        token, had_consent = pulse_recovery.block_primary_ban(uid, now=200)
+        self.assertEqual(token, "refresh-before-ban")
+        self.assertTrue(had_consent)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "stale-in-flight-refresh", now=201)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+
+    def test_only_a_new_consent_started_after_the_ban_can_clear_the_tombstone(self):
+        uid = "123456789012345678"
+        pulse_recovery.block_primary_ban(uid, now=200)
+        self.assertFalse(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=199))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=201))
+        self.assertTrue(pulse_recovery.is_primary_ban_blocked(uid))
+        pulse_recovery.store_refresh_token(uid, "fresh-after-ban", now=201, consent_started_at=201)
+        self.assertFalse(pulse_recovery.is_primary_ban_blocked(uid))
+
+    def test_rejoin_user_rejects_stale_sync_snapshot_for_banned_member(self):
+        uid = "123456789012345678"
+        pulse_recovery.block_primary_ban(uid, now=200)
+
+        async def run():
+            return await pulse_recovery.rejoin_user(
+                uid, "stale-refresh-token", bot=object(), client=object(),
+            )
+
+        ok, message = asyncio.run(run())
+        self.assertFalse(ok)
+        self.assertIn("Bann im Hauptserver", message)
+
+
+    def test_user_unlink_tombstone_prevents_inflight_sync_from_restoring_consent(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-unlink", now=100)
+        self.assertTrue(pulse_recovery.unlink(uid, now=200))
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertEqual(pulse_recovery.recovery_consent_block_reason(uid), "user_revoked")
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "stale-in-flight-refresh", now=201)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=202))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+        pulse_recovery.store_refresh_token(
+            uid, "fresh-after-opt-out", now=202, consent_started_at=202
+        )
+        self.assertFalse(pulse_recovery.is_recovery_consent_blocked(uid))
+
+    def test_unlink_tombstone_wins_against_oauth_flow_started_before_withdrawal(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "refresh-before-unlink", now=100)
+        self.assertTrue(pulse_recovery.unlink(uid, now=200))
+        self.assertFalse(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=199))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+
+
+    def test_stale_sync_snapshot_cannot_overwrite_reconsented_token(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "old-refresh-token", now=100)
+        pulse_recovery.unlink(uid, now=200)
+        self.assertTrue(pulse_recovery.can_replace_revocation_with_new_consent(uid, consent_started_at=300))
+        pulse_recovery.store_refresh_token(
+            uid, "new-user-consented-token", now=300, consent_started_at=300
+        )
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.rotate_refresh_token(uid, "stale-sync-rotated-token", expected_consented_at=100)
+        self.assertEqual(pulse_recovery.get_refresh_token(uid), "new-user-consented-token")
+
+    def test_old_invalid_grant_cannot_unlink_a_newer_consent(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "old-refresh-token", now=100)
+        pulse_recovery.unlink(uid, now=200)
+        pulse_recovery.store_refresh_token(uid, "fresh-consent-token", now=300, consent_started_at=300)
+        self.assertFalse(pulse_recovery.unlink_if_current(uid, expected_consented_at=100, now=400))
+        self.assertEqual(pulse_recovery.get_refresh_token(uid), "fresh-consent-token")
 
     def test_invalid_ids_are_not_stored(self):
         with self.assertRaises(ValueError):
@@ -114,6 +196,39 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(page), 3)
         self.assertNotIn("100000000000000199", {person["user_id"] for person in page})
 
+    def test_unlink_with_refresh_token_returns_latest_token_after_blocking_storage(self):
+        uid = "123456789012345678"
+        pulse_recovery.store_refresh_token(uid, "latest-refresh-token", now=100)
+        token, had_consent = pulse_recovery.unlink_with_refresh_token(uid, now=200)
+        self.assertEqual(token, "latest-refresh-token")
+        self.assertTrue(had_consent)
+        self.assertFalse(pulse_recovery.has_stored_consent(uid))
+        self.assertTrue(pulse_recovery.is_recovery_consent_blocked(uid))
+        with self.assertRaises(pulse_recovery.RecoveryBlockedError):
+            pulse_recovery.store_refresh_token(uid, "late-rotated-token", now=201)
+
+    def test_refresh_token_revocation_uses_fixed_discord_endpoint_and_refresh_hint(self):
+        class FakeResponse:
+            status_code = 204
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+            async def post(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return FakeResponse()
+
+        async def run():
+            client = FakeClient()
+            with patch("webserver.CLIENT_ID", "client-id"), patch("webserver.CLIENT_SECRET", "client-secret"):
+                result = await pulse_recovery.revoke_refresh_token("refresh-token", client)
+            return result, client.calls
+
+        result, calls = asyncio.run(run())
+        self.assertTrue(result)
+        self.assertEqual(calls[0][0], "https://discord.com/api/v10/oauth2/token/revoke")
+        self.assertEqual(calls[0][1]["data"]["token"], "refresh-token")
+        self.assertEqual(calls[0][1]["data"]["token_type_hint"], "refresh_token")
 
 class RecoveryRateLimitTests(unittest.IsolatedAsyncioTestCase):
     async def test_retry_after_longer_than_five_minutes_is_fully_honored(self):
