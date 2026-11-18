@@ -901,3 +901,129 @@ class AiWarnPartialFailureTests(AiReviewRightsTests):
              patch.object(ws, "user_entry", lambda db, uid: db[uid]):
             result = asyncio.run(cog._issue_team_warn(interaction.guild, target, interaction.user, case))
         self.assertTrue(result["ok"])  # case resolved → no second warning on retry
+
+
+# ---------------------------------------------------------------------------------------------------------
+# AC-01 / AC-02 (night audit) – leaders cannot edit profiles or end shifts of higher-ranked members or themselves.
+# ---------------------------------------------------------------------------------------------------------
+class LeaderRankRuleNightTests(TempDb):
+    def setUp(self):
+        super().setUp()
+        self.lead = member(100, "Lena", LEAD)
+        self.mod = member(110, "Mo", MOD)            # leader-level permissions, but BELOW the lead role
+        self.support = member(300, "Sam", SUPPORT)
+        self.guild = FakeGuild(members=[self.lead, self.mod, self.support], roles=[SUPPORT, MOD, LEAD])
+        self.guild.me.top_role = Role(99, "Pulse", 50)
+        self.config = {"team_role_ids": TEAM_IDS}
+        self.actor = self.lead
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _i: self.guild)
+        import pulse_ultimate
+        self.init_flag = patch.object(pulse_ultimate, "_INIT", False)
+        self.init_flag.start()
+        pulse_ultimate.init_db()
+        self.patches = [patch.object(ws, "load_config", lambda: self.config), patch.object(ws, "auth", self.fake_auth),
+                        patch.object(ws, "send_dm_notification", AsyncMock())]
+        for p in self.patches:
+            p.start()
+        self.client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.init_flag.stop()
+        ws.app.state.bot = None
+        super().tearDown()
+
+    def fake_auth(self, request, session, perm="can_view_dashboard", admin=False):
+        perms = getattr(self, "perms", LEAD_PERMS)
+        if perm and not perms.get(perm):
+            raise ws.HTTPException(status_code=403)
+        return SimpleNamespace(user={"id": str(self.actor.id), "global_name": self.actor.display_name}, guild=self.guild,
+                               guild_name="G", perms=dict(perms), config=self.config, member=self.actor,
+                               msg="", msg_ok=True)
+
+    def _msg(self, response):
+        from urllib.parse import parse_qs, urlparse
+        return parse_qs(urlparse(response.headers.get("location", "")).query).get("msg", [""])[0]
+
+    def _rating(self, uid):
+        import pulse_ultimate
+        with pulse_ultimate.cx() as c:
+            row = c.execute("SELECT rating, internal_status FROM ultimate_profiles WHERE user_id=?", (str(uid),)).fetchone()
+        return tuple(row) if row else None
+
+    def _update(self, uid, **over):
+        data = {"internal_status": "available", "rating": 11, "internal_message": "x"} | over
+        return self.client.post(f"/ultimate/team/{uid}/update", data=data, follow_redirects=False)
+
+    def test_leader_can_update_a_lower_ranked_member(self):
+        self.assertEqual(self._update(self.support.id).status_code, 303)
+        self.assertEqual(self._rating(self.support.id), (11, "available"))
+
+    def test_leader_cannot_update_higher_ranked_or_own_profile(self):
+        self.actor = self.mod
+        for target in (self.lead, self.mod):
+            r = self._update(target.id)
+            self.assertEqual(r.status_code, 403, target.id)
+            self.assertIsNone(self._rating(target.id))
+
+    def test_unknown_status_and_garbage_id_are_refused_without_writes(self):
+        self.assertEqual(self._update(self.support.id, internal_status="<script>").status_code, 400)
+        self.assertEqual(self._update("12abc").status_code, 400)
+        self.assertIsNone(self._rating(self.support.id))
+
+    def _start_shift(self, user):
+        started = ws.now_de().isoformat(timespec="seconds")
+        shifts = {"active_shifts": {str(user.id): {"date": "01.01.2026", "started_at_iso": started}}, "history": []}
+        ws.save_json(ws.SHIFTS_FILE, shifts)
+
+    def test_leader_cannot_end_the_shift_of_a_higher_ranked_member(self):
+        self.actor = self.mod
+        self._start_shift(self.lead)
+        r = self.client.post("/shift/admin-end", data={"target_user_id": self.lead.id}, follow_redirects=False)
+        self.assertEqual(r.status_code, 403)
+        stored = ws.load_json(ws.SHIFTS_FILE, {})
+        self.assertIn(str(self.lead.id), stored["active_shifts"])
+        self.assertEqual(stored["history"], [])
+
+    def test_leader_can_still_end_the_shift_of_a_lower_ranked_member(self):
+        self._start_shift(self.support)
+        r = self.client.post("/shift/admin-end", data={"target_user_id": self.support.id}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        stored = ws.load_json(ws.SHIFTS_FILE, {})
+        self.assertNotIn(str(self.support.id), stored["active_shifts"])
+        self.assertEqual(len(stored["history"]), 1)
+
+    def test_addressed_handover_is_hidden_from_bystanders(self):
+        import pulse_ultimate
+        with pulse_ultimate.cx() as c:
+            for hid, to_id, title in (("h1", str(self.lead.id), "GEHEIM-AN-LEAD"), ("h2", None, "OFFEN-FUER-ALLE")):
+                c.execute("INSERT INTO ultimate_handovers VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                          (hid, title, "inhalt", "normal", str(self.mod.id), "Mo", to_id, "", "open", "2026-01-01T00:00:00", None))
+        self.actor = self.support
+        self.perms = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True}
+        body = self.client.get("/ultimate/handovers").text
+        self.assertNotIn("GEHEIM-AN-LEAD", body)
+        self.assertIn("OFFEN-FUER-ALLE", body)
+        self.actor = self.lead  # recipient
+        self.perms = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True}
+        self.assertIn("GEHEIM-AN-LEAD", self.client.get("/ultimate/handovers").text)
+
+    def test_leader_cannot_manage_absence_of_higher_ranked_member(self):
+        import sqlite3
+        import tempfile
+        db_path = str(Path(tempfile.mkdtemp()) / "abm.db")
+        con = sqlite3.connect(db_path)
+        con.execute("CREATE TABLE abmeldungen(user_id INTEGER, user_name TEXT, grund TEXT, von TEXT, bis TEXT, original_nick TEXT, guild_id INTEGER)")
+        con.execute("INSERT INTO abmeldungen VALUES(?,?,?,?,?,?,?)", (self.lead.id, "Lena", "x", "2026-01-01", "2099-01-01", None, 1))
+        con.commit()
+        con.close()
+        self.actor = self.mod
+        with patch.object(ws, "DB_ABMELDUNGEN", db_path):
+            r = self.client.post("/action", data={"action": "cancel_loa", "target_user_id": str(self.lead.id)}, follow_redirects=False)
+            r2 = self.client.post("/action", data={"action": "submit_loa", "user_id": str(self.lead.id), "loa_start": "2099-01-01",
+                                                   "loa_end": "2099-01-02", "loa_reason": "x"}, follow_redirects=False)
+        rows = sqlite3.connect(db_path).execute("SELECT user_id, bis FROM abmeldungen").fetchall()
+        self.assertEqual(rows, [(self.lead.id, "2099-01-01")])  # neither deleted nor replaced
+        self.assertIn("Teamrang", self._msg(r))
+        self.assertIn("Teamrang", self._msg(r2))

@@ -2,6 +2,10 @@
 # Used by `docker compose --profile https up -d`; PULSE_DOMAIN and PULSE_UPSTREAM come from compose.yaml.
 {$PULSE_DOMAIN} {
 	encode gzip
+	# Night audit F-1: hard cap for request bodies (chunked uploads carry no Content-Length); Pulse caps per type itself.
+	request_body {
+		max_size 60MB
+	}
 	header -Server
 	# Health data stays on the host: Docker and the deploy scripts ask on 127.0.0.1.
 	@internal path /healthz /health

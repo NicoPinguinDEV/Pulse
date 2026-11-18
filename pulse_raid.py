@@ -130,7 +130,7 @@ class RaidWatch:
         text = " ".join((content or "").lower().split())
         if len(text) < 12:  # short greetings like "hi" are not copy spam
             return None
-        key = (int(author_id), hashlib.sha1(text.encode()).hexdigest())
+        key = (int(author_id), hashlib.sha1(text.encode(), usedforsecurity=False).hexdigest())  # dedup key, not security
         seen = self.recent.pop(key, {})
         seen = {cid: ts for cid, ts in seen.items() if now - ts <= 60}
         seen[int(channel_id)] = now
