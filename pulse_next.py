@@ -33,6 +33,7 @@ BASE = pulse_paths.DATA_DIR  # Phase 13: runtime data (JSON, backups) – not th
 BACKUP_DIR = BASE / "backups"  # A-04: created by create_backup() and webserver.init_runtime, not on import
 
 _INIT = False
+_APPROVAL_DECISIONS_IN_PROGRESS: set[str] = set()
 
 PERMISSIONS = (
     "can_view_dashboard", "can_warn", "can_promote", "can_add_notes",
@@ -526,7 +527,7 @@ async def promote_now(ctx, row):
     role_id = str(row["target_role_id"] or "")
     old_role_id = str(row["old_role_id"] or "")
     if not role_id.isdigit():
-        return "Keine gültige Zielrolle hinterlegt; Freigabe wurde trotzdem dokumentiert."
+        return "Keine gültige Zielrolle hinterlegt; Freigabe bleibt offen."
     role = guild.get_role(int(role_id))
     if not role:
         return "Zielrolle nicht gefunden."
@@ -795,6 +796,105 @@ async def run_workflows(bot=None):
                 )
     return out
 
+async def decide_approval(ctx, approval_id: str, decision: str, note: str = "") -> str:
+    """Complete a promotion approval only after Discord confirms the role grant."""
+    approval_id = str(approval_id or "").strip()
+    decision = str(decision or "").strip().lower()
+    if decision not in {"approve", "reject"}:
+        raise HTTPException(422, "Ungültige Entscheidung.")
+
+    if not approval_id:
+        raise HTTPException(404, "Freigabe nicht gefunden.")
+    if approval_id in _APPROVAL_DECISIONS_IN_PROGRESS:
+        raise HTTPException(409, "Diese Freigabe wird bereits bearbeitet.")
+
+    # The bot and dashboard run in one process. This guard prevents two overlapping Discord
+    # requests for the same approval; conditional SQL updates below protect stale database state.
+    _APPROVAL_DECISIONS_IN_PROGRESS.add(approval_id)
+    try:
+        setup_next()
+        with cx() as c:
+            appr = c.execute(
+                "SELECT * FROM next_approvals WHERE id=? AND status='pending'",
+                (approval_id,),
+            ).fetchone()
+        if not appr:
+            raise HTTPException(404, "Freigabe nicht gefunden.")
+        if str(appr["requester_id"]) == actor_id(ctx):
+            raise HTTPException(403, "Antragsteller darf nicht selbst freigeben.")
+
+        final = "approved" if decision == "approve" else "rejected"
+        target_row = None
+        if appr["object_type"] == "promotion":
+            with cx() as c:
+                target_row = c.execute(
+                    "SELECT * FROM next_promotions WHERE id=?",
+                    (appr["object_id"],),
+                ).fetchone()
+            if not target_row:
+                raise HTTPException(404, "Beförderung nicht gefunden.")
+            if str(target_row["status"]) != "pending":
+                raise HTTPException(409, "Der Beförderungsantrag ist nicht mehr offen.")
+
+        result = "Freigabe gespeichert."
+        if final == "approved" and target_row:
+            # AUTHZ-5: an active Teamler-Schutz lockout must also block this alternative promotion path.
+            import webserver as _ws
+            target_member = (
+                ctx.guild.get_member(int(target_row["user_id"]))
+                if str(target_row["user_id"]).isdigit()
+                else None
+            )
+            _ok, _msg = await _ws.enforce_team_safety_action_lockout(
+                ctx.guild,
+                getattr(ctx, "member", None),
+                target_member,
+                "promote",
+                source="Freigaben",
+            )
+            if not _ok:
+                raise HTTPException(403, _msg)
+
+            # Do not consume the approval until the side effect has really succeeded. A Discord
+            # permission/rank/API failure leaves both records pending and therefore retryable.
+            result = await promote_now(ctx, dict(target_row))
+            if result != "Beförderung angewendet.":
+                save_audit(ctx, "Freigabe fehlgeschlagen", approval_id, result)
+                raise HTTPException(409, result)
+
+        # Update both state machines atomically, and only if the rows are still pending.
+        with cx() as c:
+            approval_update = c.execute(
+                "UPDATE next_approvals SET status=?,approver_id=?,approver_name=?,note=?,decided_at=? "
+                "WHERE id=? AND status='pending'",
+                (final, actor_id(ctx), actor_name(ctx), str(note or "")[:2000], iso(), approval_id),
+            )
+            if approval_update.rowcount != 1:
+                raise HTTPException(409, "Die Freigabe wurde zwischenzeitlich geändert; bitte neu laden.")
+            if target_row:
+                promotion_update = c.execute(
+                    "UPDATE next_promotions SET status=?,approved_by_id=?,approved_by_name=?,updated_at=? "
+                    "WHERE id=? AND status='pending'",
+                    (final, actor_id(ctx), actor_name(ctx), iso(), target_row["id"]),
+                )
+                if promotion_update.rowcount != 1:
+                    raise HTTPException(409, "Der Beförderungsantrag wurde zwischenzeitlich geändert; bitte neu laden.")
+
+        if final == "rejected" and target_row:
+            event(
+                str(target_row["user_id"]),
+                "promotion_rejected",
+                "Beförderung abgelehnt",
+                str(note or "")[:2000],
+                actor_id(ctx),
+                actor_name(ctx),
+            )
+        save_audit(ctx, "Freigabe entschieden", approval_id, result)
+        return result
+    finally:
+        _APPROVAL_DECISIONS_IN_PROGRESS.discard(approval_id)
+
+
 def register(app):
     # Phase 9 (A-04): no setup_next() here – webserver.init_runtime and every data function call it before use.
     if getattr(app.state,"pulse_next_registered",False):
@@ -900,35 +1000,7 @@ def register(app):
     @app.post("/ultimate/approvals/{approval_id}/decide")
     async def approval_decide(request: Request,approval_id:str,decision:str=Form(...),note:str=Form(""),user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,manager=False,perm="can_view_dashboard",require="can_approve")
-        with cx() as c:
-            appr=c.execute("SELECT * FROM next_approvals WHERE id=? AND status='pending'",(approval_id,)).fetchone()
-        if not appr: raise HTTPException(404,"Freigabe nicht gefunden.")
-        if str(appr["requester_id"])==actor_id(ctx): raise HTTPException(403,"Antragsteller darf nicht selbst freigeben.")
-        final="approved" if decision=="approve" else "rejected"
-        target_row=None
-        if appr["object_type"]=="promotion":
-            with cx() as c:
-                target_row=c.execute("SELECT * FROM next_promotions WHERE id=?",(appr["object_id"],)).fetchone()
-            if not target_row: raise HTTPException(404,"Beförderung nicht gefunden.")
-        if final=="approved" and target_row:
-            # AUTHZ-5: an active Teamler-Schutz lockout must also block this alternative promotion path.
-            import webserver as _ws
-            _ok,_msg=await _ws.enforce_team_safety_action_lockout(
-                ctx.guild,getattr(ctx,"member",None),ctx.guild.get_member(int(target_row["user_id"])) if str(target_row["user_id"]).isdigit() else None,
-                "promote",source="Freigaben")
-            if not _ok: raise HTTPException(403,_msg)
-        with cx() as c:
-            c.execute("UPDATE next_approvals SET status=?,approver_id=?,approver_name=?,note=?,decided_at=? WHERE id=?",
-                      (final,actor_id(ctx),actor_name(ctx),note[:2000],iso(),approval_id))
-            if target_row:
-                c.execute("UPDATE next_promotions SET status=?,approved_by_id=?,approved_by_name=?,updated_at=? WHERE id=?",
-                          (final,actor_id(ctx),actor_name(ctx),iso(),target_row["id"]))
-        result="Freigabe gespeichert."
-        if final=="approved" and target_row:
-            result=await promote_now(ctx,dict(target_row))
-        elif target_row:
-            event(str(target_row["user_id"]),"promotion_rejected","Beförderung abgelehnt",note,actor_id(ctx),actor_name(ctx))
-        save_audit(ctx,"Freigabe entschieden",approval_id,result)
+        await decide_approval(ctx,approval_id,decision,note)
         return RedirectResponse("/ultimate/approvals",status_code=303)
 
     @app.get("/ultimate/search", response_class=HTMLResponse)
