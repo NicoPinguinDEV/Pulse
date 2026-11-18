@@ -1215,6 +1215,43 @@ def claim_ticket(tid, user_id, user_name):
         return False
 
 
+
+def transfer_ticket(tid, user_id, user_name, actor_id=None, actor_name=None):
+    """Atomically assign an open ticket to another handler, even when it already has an owner."""
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        current = db.execute(
+            "SELECT status,claimed_by_id,claimed_by_name FROM tickets WHERE id=?",
+            (str(tid),),
+        ).fetchone()
+        if not current or current["status"] == "closed":
+            return False
+        if str(current["claimed_by_id"] or "") == str(user_id):
+            return False
+
+        now = _now()
+        result = db.execute(
+            "UPDATE tickets SET claimed_by_id=?,claimed_by_name=?,claimed_at=?,status='in_progress' "
+            "WHERE id=? AND status!='closed'",
+            (str(user_id), str(user_name), now, str(tid)),
+        )
+        if result.rowcount != 1:
+            return False
+        previous = str(current["claimed_by_name"] or "Nicht zugewiesen")
+        db.execute(
+            "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+            (
+                make_id("te"),
+                str(tid),
+                str(actor_id if actor_id is not None else user_id),
+                str(actor_name or user_name),
+                "transferred",
+                f"{previous} → {user_name}",
+                now,
+            ),
+        )
+        return True
+
 def unclaim_ticket(tid, user_id, user_name):
     with connect() as db:
         now = _now()
