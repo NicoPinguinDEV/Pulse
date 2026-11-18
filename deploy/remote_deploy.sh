@@ -49,12 +49,17 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Abbruch: versionierte lokale Änderungen auf dem VPS – bitte erst prüfen."
   exit 1
 fi
-# A workflow_run event may have waited behind a newer deployment. Treat an older target as a
-# successful no-op only when the current checkout is clean, belongs to origin/main, and contains
-# the requested SHA. Diverged or non-main checkouts still fail closed below.
-if git merge-base --is-ancestor "$PREV" origin/main \
-  && git merge-base --is-ancestor "$SHA" "$PREV"; then
-  echo "Veralteter Deployment-Aufruf: VPS läuft bereits auf einem neueren main-Commit $PREV (enthält $SHA) – nichts zu tun."
+# workflow_run may wait for a concurrency slot while main advances. Re-check the current branch tip
+# after the VPS fetch, not just in the GitHub runner before SSH, so an old successful CI event cannot
+# deploy an older main commit after a newer one has already landed.
+MAIN_SHA="$(git rev-parse origin/main)"
+if [ "$MAIN_SHA" != "$SHA" ]; then
+  if git merge-base --is-ancestor "$SHA" "$PREV" \
+    && git merge-base --is-ancestor "$PREV" origin/main; then
+    echo "Veralteter Deployment-Aufruf: VPS läuft bereits auf einem neueren main-Commit $PREV (enthält $SHA) – nichts zu tun."
+  else
+    echo "Veralteter Deployment-Aufruf: main steht inzwischen auf $MAIN_SHA; geprüfter Commit $SHA wird übersprungen."
+  fi
   exit 0
 fi
 git merge-base --is-ancestor "$PREV" "$SHA" || { echo "Abbruch: würde den VPS auf einen älteren Commit zurücksetzen."; exit 1; }
