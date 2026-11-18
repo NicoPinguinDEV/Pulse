@@ -1935,9 +1935,14 @@ def register(app) -> None:
     @app.get("/ultimate/handovers", response_class=HTMLResponse)
     async def ultimate_handovers(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
+        viewer = str(ctx.user["id"])
+        lead = bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
         with cx() as c:
+            # AC-06: same visibility as archiving (SEC-13) – author, recipient, handovers without a fixed person, leadership.
             rows = [dict(r) for r in c.execute(
-                "SELECT * FROM ultimate_handovers WHERE status='open' ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, created_at DESC"
+                "SELECT * FROM ultimate_handovers WHERE status='open' AND (?=1 OR from_id=? OR to_id=? OR COALESCE(to_id,'')='') "
+                "ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, created_at DESC",
+                (1 if lead else 0, viewer, viewer),
             ).fetchall()]
         team = team_members(ctx.guild)
         opts = "".join(f"<option value='{m.id}'>{esc(m.display_name)}</option>" for m in team if str(m.id) != str(ctx.user["id"]))

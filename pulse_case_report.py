@@ -118,7 +118,7 @@ def register(app) -> None:
         try:
             save(case_id, outcome, summary, measures, lessons, participants, ctx.user["id"], actor)
         except ValueError as exc:
-            return RedirectResponse(f"/ultimate/cases/{case_id}/abschluss?msg={str(exc)[:150]}", status_code=303)
+            return RedirectResponse(f"/ultimate/cases/{case_id}/abschluss?msg={__import__('urllib.parse', fromlist=['quote']).quote(str(exc)[:150])}", status_code=303)
         ult.add_case_event(case_id, ctx, "closing_report", f"{OUTCOMES[outcome]}: {summary.strip()[:300]}")
         ult.audit(ctx, "Abschlussbericht gespeichert", case_id, case["case_no"], outcome)
         return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)

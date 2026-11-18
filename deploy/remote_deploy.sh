@@ -9,6 +9,7 @@
 set -euo pipefail
 
 SHA="${1:?Commit-SHA fehlt}"
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Ungültige Commit-SHA (erwartet: 40 Hex-Zeichen)." >&2; exit 1; }
 REPO_DIR="${2:-/opt/pulse/Pulse}"
 HEALTH_SECONDS="${PULSE_DEPLOY_HEALTH_SECONDS:-240}"
 PULSE_UID="${PULSE_UID:-1000}"

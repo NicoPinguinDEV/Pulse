@@ -1667,6 +1667,10 @@ def register(app):
         target=c.guild.get_member(int(target_user_id))
         if not target or target.bot:
             return ws.back("/team-status","Teammitglied wurde nicht gefunden.",False)
+        # AC-02: same rank rule as confirm_auto_closed_shift_duration – only shifts of lower-ranked members (admins excepted).
+        role_ids = c.config.get("team_role_ids", [])
+        if not c.perms.get("is_admin") and ws.team_rank(c.member, role_ids) <= ws.team_rank(target, role_ids):
+            raise HTTPException(403,"Du darfst nur die Schicht eines niedriger eingestuften Teammitglieds beenden.")
         shifts_db=ws.load_shifts()
         active=shifts_db.setdefault("active_shifts",{})
         shift=active.get(str(target.id))
@@ -2998,7 +3002,7 @@ def register(app):
             f'{shift_note_items or "<div class=pulse-empty>Noch keine Schichtnotizen.</div>"}</div></section>'
         ) if can_see_shift_notes else ''
 
-        tickets=[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)]
+        tickets=ws.pulse_ticket_access.filter_tickets(c,[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)])  # AC-07: only tickets the viewer may see
         tasks=[t for t in db.list_tasks(limit=2000,include_archived=True) if str(t.get('assignee_id'))==str(target.id) or str(t.get('creator_id'))==str(target.id)]
         evs=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))][:40]
         role=member_role(target,ids)
