@@ -26,6 +26,17 @@ include = [
     "tests/test_pulse_suite_manager_cache.py",
     "tests/test_ticket_load_counts.py",
     "tests/test_ticket_panel_performance.py",
+    "pulse_wiki_review.py",
+    "tests/test_wiki_review.py",
+    "tests/test_checklists.py",
+    "pulse_meetings.py",
+    "tests/test_meetings.py",
+    "tests/test_dashboard_ticket_queries.py",
+    "tests/test_pulse_overview_command.py",
+    "pulse_shift_history.py",
+    "tests/test_shift_history_sqlite.py",
+    "tests/test_suite_team_performance.py",
+    "pulse_db.py",
 ]
 
 [lint]

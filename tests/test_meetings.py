@@ -46,6 +46,20 @@ class FlowTests(WikiBase):
         self.assertEqual(mt.set_attendance(m["id"], B, "present"), (False, "closed"))
         self.assertEqual(len(mt.get(m["id"])["decisions"]), 1)
 
+    def test_concurrent_close_does_not_archive_a_second_summary(self):
+        meeting = self.meeting()
+        mt.start(meeting["id"])
+        stale = mt.get(meeting["id"])
+        with pulse_db.connect() as db:
+            db.execute(
+                "UPDATE meeting_sessions SET status='closed',closed_at=? WHERE id=? AND status='running'",
+                ("2026-11-20T18:01:00+00:00", meeting["id"]),
+            )
+        from unittest.mock import patch
+        with patch.object(mt, "get", return_value=stale):
+            self.assertEqual(mt.close(meeting["id"]), (False, "wrong_state"))
+        self.assertEqual(pulse_db.meeting_history(10), [])
+
     def test_closing_archives_a_summary_in_the_existing_meeting_history(self):
         m = self.meeting()
         mt.start(m["id"])
@@ -140,3 +154,4 @@ class RouteTests(WikiBase):
 
 if __name__ == "__main__":
     unittest.main()
+
