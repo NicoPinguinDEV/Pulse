@@ -1185,39 +1185,86 @@ def count_open_tickets() -> int:
     return int(row[0] or 0)
 
 
-def count_sla_overdue_tickets(now: datetime | None = None) -> int:
-    """Count all overdue open tickets using the same urgent/high/normal SLA thresholds as the dashboard."""
+_TICKET_TIMEZONE_SUFFIX_SQL = """(
+    substr(opened_at,20) LIKE '%+%'
+    OR substr(opened_at,20) LIKE '%-%'
+    OR substr(opened_at,20) LIKE '%Z%'
+)"""
+_TICKET_SLA_MINUTES_SQL = """CASE COALESCE(NULLIF(priority,''),'normal')
+    WHEN 'urgent' THEN 30.0
+    WHEN 'high' THEN 240.0
+    ELSE 1440.0
+END"""
+
+
+def _utc_ticket_time(now: datetime | None = None) -> datetime:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    else:
-        now = now.astimezone(timezone.utc)
-    now_iso = now.isoformat(timespec="microseconds")
+        return now.replace(tzinfo=timezone.utc)
+    return now.astimezone(timezone.utc)
+
+
+def count_tickets() -> int:
+    """Count every ticket, without the bounded list API's 2,000-row cap."""
+    with connect() as db:
+        row = db.execute("SELECT COUNT(*) FROM tickets").fetchone()
+    return int(row[0] or 0)
+
+
+def sla_ticket_counts(now: datetime | None = None) -> tuple[int, int]:
+    """Return (valid open tickets, SLA-overdue open tickets) across the complete database."""
+    now_iso = _utc_ticket_time(now).isoformat(timespec="microseconds")
     with connect() as db:
         row = db.execute(
-            """
-            SELECT COUNT(*)
+            f"""
+            SELECT
+                SUM(CASE WHEN julianday(opened_at) IS NOT NULL
+                              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+                         THEN 1 ELSE 0 END) AS valid_open,
+                SUM(CASE WHEN julianday(opened_at) IS NOT NULL
+                              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+                              AND julianday(opened_at) <= julianday(?) - ({_TICKET_SLA_MINUTES_SQL} / 1440.0)
+                         THEN 1 ELSE 0 END) AS overdue
             FROM tickets
             WHERE COALESCE(status,'')!='closed'
-              AND julianday(opened_at) IS NOT NULL
-              -- The previous Python implementation skipped naive timestamps because subtracting them
-              -- from an aware UTC datetime raises TypeError. Keep that behavior for legacy rows.
-              AND (
-                  substr(opened_at,20) LIKE '%+%'
-                  OR substr(opened_at,20) LIKE '%-%'
-                  OR substr(opened_at,20) LIKE '%Z%'
-              )
-              AND julianday(opened_at) <= julianday(?) - (
-                  CASE COALESCE(NULLIF(priority,''),'normal')
-                      WHEN 'urgent' THEN 30.0
-                      WHEN 'high' THEN 240.0
-                      ELSE 1440.0
-                  END / 1440.0
-              )
             """,
             (now_iso,),
         ).fetchone()
-    return int(row[0] or 0)
+    return int(row["valid_open"] or 0), int(row["overdue"] or 0)
+
+
+def count_sla_overdue_tickets(now: datetime | None = None) -> int:
+    """Count all SLA-overdue open tickets, preserving the dashboard's existing thresholds."""
+    return sla_ticket_counts(now)[1]
+
+
+def list_sla_overdue_tickets(now: datetime | None = None, limit: int = 20) -> list[tuple[dict, float, float]]:
+    """Return the oldest SLA-overdue open ticket details, bounded for dashboard display."""
+    now_iso = _utc_ticket_time(now).isoformat(timespec="microseconds")
+    bounded_limit = max(1, min(int(limit), 100))
+    with connect() as db:
+        rows = db.execute(
+            f"""
+            SELECT tickets.*,
+                   (julianday(?) - julianday(opened_at)) * 1440.0 AS age_minutes,
+                   {_TICKET_SLA_MINUTES_SQL} AS sla_minutes
+            FROM tickets
+            WHERE COALESCE(status,'')!='closed'
+              AND julianday(opened_at) IS NOT NULL
+              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+              AND julianday(opened_at) <= julianday(?) - ({_TICKET_SLA_MINUTES_SQL} / 1440.0)
+            ORDER BY julianday(opened_at) ASC
+            LIMIT ?
+            """,
+            (now_iso, now_iso, bounded_limit),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        age = float(item.pop("age_minutes"))
+        sla = float(item.pop("sla_minutes"))
+        result.append((item, age, sla))
+    return result
 
 
 def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
