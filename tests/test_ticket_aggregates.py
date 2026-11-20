@@ -29,6 +29,42 @@ class TicketAggregateTests(unittest.TestCase):
              status, priority, claimed_by_id, opened_at),
         )
 
+    def test_support_sla_counts_and_detail_page_data_match_existing_thresholds(self):
+        now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+        with pulse_db.connect() as connection:
+            self._insert_ticket(connection, "urgent-old", priority="urgent",
+                                opened_at=(now - timedelta(minutes=31)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "high-old", priority="high",
+                                opened_at=(now - timedelta(minutes=241)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "unknown-old", priority="custom",
+                                opened_at=(now - timedelta(hours=25)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "urgent-fresh", priority="urgent",
+                                opened_at=(now - timedelta(minutes=29)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "high-fresh", priority="high",
+                                opened_at=(now - timedelta(minutes=239)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "normal-fresh",
+                                opened_at=(now - timedelta(hours=23, minutes=59)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "urgent-closed", status="closed", priority="urgent",
+                                opened_at=(now - timedelta(days=2)).isoformat(), claimed_by_id="9")
+            self._insert_ticket(connection, "invalid-date", opened_at="not-a-date", claimed_by_id="9")
+            self._insert_ticket(connection, "naive-date", opened_at="2026-11-18T12:00:00", claimed_by_id="9")
+
+        valid_open, overdue = pulse_db.sla_ticket_counts(now)
+        self.assertEqual((valid_open, overdue), (6, 3))
+        self.assertEqual(pulse_db.count_sla_overdue_tickets(now), 3)
+        self.assertEqual(pulse_db.count_tickets(), 9)
+        details = pulse_db.list_sla_overdue_tickets(now, limit=10)
+        self.assertEqual({ticket["id"] for ticket, _age, _sla in details},
+                         {"urgent-old", "high-old", "unknown-old"})
+        self.assertEqual(
+            {ticket["id"]: round(age) for ticket, age, _sla in details},
+            {"unknown-old": 1500, "high-old": 241, "urgent-old": 31},
+        )
+        self.assertTrue(all(age >= sla for _ticket, age, sla in details))
+        _total, closed_by_assignee = pulse_db.ticket_totals_by_assignee()
+        self.assertEqual(closed_by_assignee["9"], 1)
+
+
     def test_aggregates_count_all_rows_beyond_the_bounded_list_limit(self):
         now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
         old = (now - timedelta(days=2)).isoformat(timespec="seconds")
