@@ -1,6 +1,7 @@
 """Ticket panel workload rendering performs one grouped count query per render."""
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import discord
