@@ -6,7 +6,7 @@ that Discord protects through channel permissions. Every Dashboard ticket read/w
 ``can_access_ticket`` / ``filter_tickets`` *after* the ticket has been loaded.
 
 Rule (deny by default for confidential data):
-* a missing ticket or one from another guild is not accessible;
+* a missing ticket, a ticket without a guild binding, or one from another guild is not accessible;
 * administrators/owner (``perms["is_admin"]``) may access every ticket (existing rights architecture);
 * categories of the confidential groups (``highteam``, ``leadership``) or categories with explicitly
   configured responsible roles require the member to hold one of ``category_roles``; confidential
@@ -49,8 +49,10 @@ def can_access_ticket(ctx, ticket) -> bool:
     guild = getattr(ctx, "guild", None)
     if guild is None:
         return False
-    ticket_guild = str(ticket.get("guild_id") or "")
-    if ticket_guild not in {"", "None"} and ticket_guild != str(guild.id):
+    # Never treat an absent guild ID as a wildcard. Legacy/corrupt rows must be
+    # explicitly reconciled before they can be exposed through a guild-scoped view.
+    ticket_guild = str(ticket.get("guild_id") or "").strip()
+    if not ticket_guild or ticket_guild != str(guild.id):
         return False
     if _is_admin(ctx):
         return True
