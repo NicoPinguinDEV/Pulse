@@ -1178,6 +1178,15 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def list_open_ticket_channel_refs() -> list[tuple[str, str]]:
+    """Return every open ticket's ID and channel ID for consistency checks, without loading ticket payloads."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id, channel_id FROM tickets WHERE COALESCE(status,'')!='closed'"
+        ).fetchall()
+    return [(str(row["id"]), str(row["channel_id"] or "")) for row in rows]
+
+
 def count_open_tickets() -> int:
     """Count every non-closed ticket without the bounded list API's 2,000-row cap."""
     with connect() as db:
