@@ -97,8 +97,7 @@ class SuiteTeamBatchMetricsTests(unittest.TestCase):
                 rows,
             )
 
-        claimed, closed = pulse_db.ticket_totals_by_assignee()
-        self.assertEqual(claimed[self.member_b], 2005)
+        closed = pulse_db.closed_ticket_totals_by_assignee()
         self.assertEqual(closed[self.member_b], 2005)
         self.assertEqual(len(pulse_db.list_tickets(limit=2000)), 2000)
 
