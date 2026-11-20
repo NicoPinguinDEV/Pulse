@@ -42,6 +42,29 @@ class PlayerSelfServiceDataTests(unittest.TestCase):
         self.assertNotIn("user_id", rows[0])
         self.assertNotIn("transcript_path", rows[0])
 
+    def test_open_ticket_listing_filters_closed_rows_before_applying_limit(self):
+        open_id = pulse_db.create_ticket("channel-open", "guild-a", "42", "Muster", "Support")
+        with pulse_db.connect() as connection:
+            connection.execute(
+                "UPDATE tickets SET opened_at=? WHERE id=?",
+                ("2026-11-19T00:00:00+00:00", open_id),
+            )
+        for index in range(11):
+            closed_id = pulse_db.create_ticket(
+                f"channel-closed-{index}", "guild-a", "42", "Muster", "Support", priority="urgent"
+            )
+            self.assertTrue(pulse_db.close_ticket(closed_id, "Erledigt"))
+            with pulse_db.connect() as connection:
+                connection.execute(
+                    "UPDATE tickets SET opened_at=? WHERE id=?",
+                    (f"2026-11-20T00:{index:02d}:00+00:00", closed_id),
+                )
+
+        rows = pulse_db.list_user_tickets("guild-a", "42", limit=10, open_only=True)
+
+        self.assertEqual([row["id"] for row in rows], [open_id])
+        self.assertTrue(all(row["status"] != "closed" for row in rows))
+
     def test_ticket_listing_rejects_missing_identity_and_bounds_limit(self):
         self.assertEqual(pulse_db.list_user_tickets("", 42), [])
         self.assertEqual(pulse_db.list_user_tickets("guild-a", None), [])
