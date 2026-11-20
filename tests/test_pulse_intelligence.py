@@ -1,8 +1,9 @@
 """Unit tests for the local Pulse Intelligence tools (no Discord connection required)."""
 import json
+import sqlite3
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # README gate runs it as `python tests/test_pulse_intelligence.py`
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # README gate runs
 from pulse_intelligence import (
     build_copilot_report,
     build_findings,
+    database_workload_counts,
     memory_state,
     simulate_scenario,
     system_health,
@@ -37,6 +39,50 @@ class PulseIntelligenceTests(unittest.TestCase):
         self.assertFalse(ticket_is_overdue({
             "status": "closed", "priority": "urgent", "opened_at": "2026-10-17T10:00:00+00:00",
         }, now))
+
+    def test_database_workload_counts_are_complete_and_preserve_sla_rules(self):
+        connection = sqlite3.connect(":memory:")
+        self.addCleanup(connection.close)
+        connection.executescript(
+            """
+            CREATE TABLE tickets(status TEXT, priority TEXT, opened_at TEXT);
+            CREATE TABLE tasks(status TEXT, due_at TEXT);
+            """
+        )
+        now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+        old = (now - timedelta(hours=25)).isoformat(timespec="seconds")
+        with connection:
+            connection.executemany(
+                "INSERT INTO tickets(status,priority,opened_at) VALUES(?,?,?)",
+                [
+                    ("open", "normal", old) for _ in range(2005)
+                ] + [
+                    ("open", "urgent", (now - timedelta(minutes=31)).isoformat()),
+                    ("open", "urgent", (now - timedelta(minutes=29)).isoformat()),
+                    ("open", "high", (now - timedelta(minutes=241)).isoformat()),
+                    ("open", "custom-priority", old),
+                    ("open", "normal", "not-a-date"),
+                    ("open", "normal", (now - timedelta(hours=25)).replace(tzinfo=None).isoformat()),
+                    ("", "", old),
+                    ("closed", "urgent", old),
+                    ("resolved", "urgent", old),
+                ],
+            )
+            connection.executemany(
+                "INSERT INTO tasks(status,due_at) VALUES(?,?)",
+                [("open", old) for _ in range(1003)] + [
+                    ("done", old),
+                    ("archived", old),
+                    ("open", "not-a-date"),
+                    ("open", (now + timedelta(days=1)).isoformat()),
+                ],
+            )
+
+        metrics = database_workload_counts(connection, now)
+        self.assertEqual(metrics["open_tickets"], 2012)
+        self.assertEqual(metrics["urgent_tickets"], 2)
+        self.assertEqual(metrics["ticket_sla_overdue"], 2010)
+        self.assertEqual(metrics["overdue_tasks"], 1003)
 
     def test_system_health_never_masks_a_critical_dependency(self):
         result = system_health([{"state": "ok"}, {"state": "warning"}, {"state": "critical"}])
