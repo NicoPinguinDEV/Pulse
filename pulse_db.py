@@ -1178,6 +1178,58 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def count_open_tickets() -> int:
+    """Count every non-closed ticket without the bounded list API's 2,000-row cap."""
+    with connect() as db:
+        row = db.execute("SELECT COUNT(*) FROM tickets WHERE COALESCE(status,'')!='closed'").fetchone()
+    return int(row[0] or 0)
+
+
+def count_sla_overdue_tickets(now: datetime | None = None) -> int:
+    """Count all overdue open tickets using the same urgent/high/normal SLA thresholds as the dashboard."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    now_iso = now.isoformat(timespec="microseconds")
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT COUNT(*)
+            FROM tickets
+            WHERE COALESCE(status,'')!='closed'
+              AND julianday(opened_at) IS NOT NULL
+              AND julianday(opened_at) <= julianday(?) - (
+                  CASE COALESCE(NULLIF(priority,''),'normal')
+                      WHEN 'urgent' THEN 30.0
+                      WHEN 'high' THEN 240.0
+                      ELSE 1440.0
+                  END / 1440.0
+              )
+            """,
+            (now_iso,),
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
+    """Aggregate all tickets by assignee for team performance stats without loading ticket rows."""
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT claimed_by_id,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+            FROM tickets
+            GROUP BY claimed_by_id
+            """
+        ).fetchall()
+    claimed = {str(row["claimed_by_id"]): int(row["total"] or 0) for row in rows}
+    closed = {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
+    return claimed, closed
+
+
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
     guild = str(guild_id or "").strip()
