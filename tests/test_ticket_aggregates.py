@@ -29,6 +29,58 @@ class TicketAggregateTests(unittest.TestCase):
              status, priority, claimed_by_id, opened_at),
         )
 
+    def test_user_achievement_counts_are_complete_and_user_scoped(self):
+        target_user = "111111111111111"
+        other_user = "222222222222222"
+        with pulse_db.connect() as connection:
+            for index in range(2005):
+                self._insert_ticket(
+                    connection,
+                    f"achievement-ticket-{index}",
+                    status="closed",
+                    claimed_by_id=target_user,
+                )
+            for index in range(8):
+                self._insert_ticket(
+                    connection,
+                    f"other-achievement-ticket-{index}",
+                    status="closed",
+                    claimed_by_id=other_user,
+                )
+
+            task_rows = []
+            for index in range(2005):
+                task_rows.append((
+                    f"achievement-task-{index}", "Abgeschlossene Aufgabe", "", target_user,
+                    "Teammitglied", "1", "Admin", "done", "normal", None,
+                    "2026-11-20T12:00:00+00:00", "2026-11-20T12:00:00+00:00", None,
+                ))
+            for index in range(8):
+                task_rows.append((
+                    f"other-achievement-task-{index}", "Andere Aufgabe", "", other_user,
+                    "Teammitglied", "1", "Admin", "done", "normal", None,
+                    "2026-11-20T12:00:00+00:00", "2026-11-20T12:00:00+00:00", None,
+                ))
+            for index in range(3):
+                task_rows.append((
+                    f"archived-achievement-task-{index}", "Archivierte Aufgabe", "", target_user,
+                    "Teammitglied", "1", "Admin", "archived", "normal", None,
+                    "2026-11-20T12:00:00+00:00", "2026-11-20T12:00:00+00:00",
+                    "2026-11-21T12:00:00+00:00",
+                ))
+            connection.executemany(
+                "INSERT INTO tasks(id,title,description,assignee_id,assignee_name,creator_id,creator_name,"
+                "status,priority,due_at,created_at,updated_at,archived_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                task_rows,
+            )
+
+        # The list helpers intentionally cap results; personal achievements must not inherit either cap.
+        self.assertEqual(len(pulse_db.list_tickets(limit=5000)), 2000)
+        self.assertEqual(len(pulse_db.list_tasks(limit=3000, include_archived=True)), 1000)
+        self.assertEqual(pulse_db.user_achievement_counts(target_user), (2005, 2005))
+        self.assertEqual(pulse_db.user_achievement_counts(other_user), (8, 8))
+        self.assertEqual(pulse_db.user_achievement_counts(""), (0, 0))
+
     def test_open_ticket_channel_refs_include_rows_beyond_list_limit(self):
         with pulse_db.connect() as connection:
             rows = []
