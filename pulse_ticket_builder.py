@@ -265,9 +265,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
     text_channels = sorted(guild.text_channels, key=lambda c: c.position)
     channel_names = {c.id: c.name for c in text_channels}
     open_counts = {}
-    for ticket in ws.pulse_db.list_tickets(limit=2000):
-        if ticket.get("status") != "closed":
-            open_counts[str(ticket.get("category"))] = open_counts.get(str(ticket.get("category")), 0) + 1
+    for ticket in ws.pulse_db.list_tickets(limit=2000, open_only=True):
+        open_counts[str(ticket.get("category"))] = open_counts.get(str(ticket.get("category")), 0) + 1
     active_categories = [(k, m) for k, m in registry.items() if m.get("active", True)]
 
     tabs = "".join(
