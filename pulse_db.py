@@ -131,6 +131,7 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status, priority, opened_at);
             CREATE INDEX IF NOT EXISTS idx_tickets_claimed ON tickets(claimed_by_id, status);
+            CREATE INDEX IF NOT EXISTS idx_tickets_category_status ON tickets(category, status);
             CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id, opened_at DESC);
 
             CREATE TABLE IF NOT EXISTS ticket_events (
@@ -1204,6 +1205,33 @@ def open_ticket_counts(claimed_by_ids):
             ).fetchall()
             counts.update({str(row["claimed_by_id"]): int(row["open_count"]) for row in rows})
     return counts
+
+
+def open_ticket_category_counts(category_keys):
+    """Return complete open-ticket counts for the requested categories in grouped SQL."""
+    keys = list(dict.fromkeys(
+        str(value).strip()
+        for value in (category_keys or [])
+        if value is not None and str(value).strip()
+    ))
+    counts = {key: 0 for key in keys}
+    if not keys:
+        return counts
+
+    chunk_size = 500
+    with connect() as db:
+        for offset in range(0, len(keys), chunk_size):
+            chunk = keys[offset:offset + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = db.execute(
+                "SELECT category, COUNT(*) AS open_count FROM tickets "
+                "WHERE category IN (" + placeholders + ") "
+                "AND COALESCE(status, '') != 'closed' GROUP BY category",
+                chunk,
+            ).fetchall()
+            counts.update({str(row["category"]): int(row["open_count"]) for row in rows})
+    return counts
+
 
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
