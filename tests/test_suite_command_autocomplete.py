@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cogs.pulse_suite import PulseSuite
+from cogs.pulse_suite import PulseSuite, team_ping_message
 
 
 class SuiteAutocompleteTests(unittest.TestCase):
@@ -71,6 +71,15 @@ class SuiteAutocompleteTests(unittest.TestCase):
             )
         self.assertEqual(categories, [])
         self.assertEqual(priorities, [])
+
+
+    def test_team_ping_empty_state_is_visible(self):
+        self.assertEqual(team_ping_message([]), "📣 Keine passenden Teamler.")
+
+    def test_team_ping_mentions_are_capped_at_thirty(self):
+        members = [SimpleNamespace(mention=f"<@{index}>") for index in range(35)]
+        expected = "📣 " + " ".join(member.mention for member in members[:30])
+        self.assertEqual(team_ping_message(members), expected)
 
 
 if __name__ == "__main__":
