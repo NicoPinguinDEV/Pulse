@@ -1,5 +1,14 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Backup-Restore: Ressourcenlimits und Race-Condition-Härtung (21.11.2026)
+
+- ZIP-Prüfung begrenzt die Anzahl der Einträge (25.000), die entpackte Gesamtgröße (4 GiB) und die Manifestgröße (32 MiB); Ordner-Einträge und verschlüsselte ZIP-Einträge werden fail-closed abgewiesen.
+- Doppelte ZIP-Namen werden jetzt linear gezählt statt durch wiederholte Listen-Suchen geprüft.
+- Verifikation und Extraktion eines Restores verwenden denselben geöffneten ZIP-Handle. Ein zwischenzeitlicher Austausch des Dateipfads kann dadurch nicht unbemerkt ein anderes Archiv einschleusen.
+- Beim Staging werden Größe und SHA-256 jeder Datei direkt beim Kopieren erneut geprüft, bevor Live-Dateien geändert werden.
+- Vorschau stoppt bei ungültigen oder zu großen Archiven vor der Extraktion. Temporäre Restore-Dateien liegen explizit im Datenvolume statt im kleinen Container-TMP.
+- Tests: `tests/test_backup_restore_hardening.py` deckt Größen-/Eintragslimits, Manifestlimit, erneute Hash-Prüfung, Staging-Pfad und Dry-Run-Abbruch ab. Keine Produktionsdaten werden verändert.
+
 ## AutoMod: Schimpfwortfilter mit Verwarnungssystem (November 2026)
 
 - **Neue AutoMod-Regel `profanity` („Schimpfwort / Beleidigung“, opt-in):** löscht die Nachricht, warnt per DM (1. und 2. Verwarnung) und vergibt ab dem 3. Verstoß innerhalb des Zählfensters (`strike_window_minutes`, Standard 60 Min.) einen Timeout von genau 60 Minuten – jeder weitere Verstoß erneut 60 Minuten (keine Verdoppelung). Andere Regeln (Spam, Erwähnungen, Links, Wortfilter …) fließen nicht in diesen Zähler ein und behalten ihre Eskalation.
