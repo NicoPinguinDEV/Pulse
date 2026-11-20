@@ -79,8 +79,16 @@ def decide(page_id, reviewer_id, reviewer_name, approve: bool, comment="") -> tu
     if not approve and not text:
         return False, "comment_required"
     with pulse_db.connect() as db:
-        db.execute("UPDATE wiki_version_reviews SET status=?,reviewer_id=?,reviewer_name=?,comment=?,decided_at=? WHERE page_id=? AND version=?",
-                   ("approved" if approve else "rejected", reviewer[:30], str(reviewer_name)[:100], text, _now(), str(page_id), version))
+        updated = db.execute(
+            "UPDATE wiki_version_reviews SET status=?,reviewer_id=?,reviewer_name=?,comment=?,decided_at=? "
+            "WHERE page_id=? AND version=? AND status='pending'",
+            ("approved" if approve else "rejected", reviewer[:30], str(reviewer_name)[:100], text, _now(),
+             str(page_id), version),
+        )
+        # Another manager may have decided after the pending row was read. Only
+        # the first transition from pending is allowed to win.
+        if updated.rowcount != 1:
+            return False, "not_pending"
     return True, "ok"
 
 
@@ -92,3 +100,4 @@ def pending_pages() -> list[dict]:
         if st["state"] == "pending":
             out.append({"id": page["id"], "title": page["title"], "category": page["category"], **st})
     return sorted(out, key=lambda item: item["at"], reverse=True)
+

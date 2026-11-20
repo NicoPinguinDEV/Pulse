@@ -23,6 +23,35 @@ class ReviewRuleTests(Base):
         self.assertEqual(review.state(self.page)["state"], "approved")
         self.assertEqual(review.request_review(self.page, "3", "Cy"), (False, "already_approved"))
 
+    def test_concurrent_decision_cannot_overwrite_the_first_result(self):
+        review.request_review(self.page, "1", "Ann")
+        original_row = review._row
+
+        def stale_pending_row(page_id, version):
+            row = original_row(page_id, version)
+            # Simulate a second manager committing after this request read the
+            # pending row but before its conditional UPDATE.
+            with pulse_db.connect() as db:
+                db.execute(
+                    "UPDATE wiki_version_reviews SET status='approved',reviewer_id='3',"
+                    "reviewer_name='Cy',decided_at='2026-11-20T12:00:00+00:00' "
+                    "WHERE page_id=? AND version=? AND status='pending'",
+                    (str(page_id), version),
+                )
+            return row
+
+        from unittest.mock import patch
+        with patch.object(review, "_row", side_effect=stale_pending_row):
+            self.assertEqual(
+                review.decide(self.page, "2", "Bo", False, "Bitte Quelle ergänzen"),
+                (False, "not_pending"),
+            )
+        state = review.state(self.page)
+        self.assertEqual(state["state"], "approved")
+        saved = review._row(self.page, state["version"])
+        self.assertEqual(saved["status"], "approved")
+        self.assertEqual(saved["reviewer_id"], "3")
+
     def test_rejection_needs_a_comment_and_allows_a_new_request(self):
         review.request_review(self.page, "1", "Ann")
         self.assertEqual(review.decide(self.page, "2", "Bo", False, "  "), (False, "comment_required"))
@@ -75,3 +104,4 @@ class ReviewRouteTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
