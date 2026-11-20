@@ -1391,7 +1391,7 @@ def register(app):
         valid_open_count,overdue_count=db.sla_ticket_counts(now_dt)
         waiting_count=max(0,valid_open_count-overdue_count)
         overdue=db.list_sla_overdue_tickets(now_dt,limit=20)
-        _ticket_totals,perf=db.ticket_totals_by_assignee()
+        _ticket_totals,closed_by_assignee=db.ticket_totals_by_assignee();perf={uid:count for uid,count in closed_by_assignee.items() if uid not in {"None",""}}
         names={str(m.id):m.display_name for m in members(ctx.guild)}
         leaders=sorted(perf.items(),key=lambda x:x[1],reverse=True)[:10]
         rows="".join(f"<div class=row><span>{esc(names.get(uid_s,uid_s))}</span><span class=pill>{n} abgeschlossen</span></div>" for uid_s,n in leaders)
