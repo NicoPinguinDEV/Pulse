@@ -39,9 +39,7 @@ def check(ws, guild) -> list[dict]:
 
     import pulse_db
     orphan_tickets = []
-    for ticket in pulse_db.list_tickets(limit=5000):
-        if str(ticket.get("status")) == "closed":
-            continue
+    for ticket in pulse_db.list_tickets(limit=5000, open_only=True):
         cid = str(ticket.get("channel_id") or "")
         if cid.isdigit() and guild.get_channel(int(cid)) is None:
             orphan_tickets.append(f"Ticket {ticket.get('id')} ohne Kanal")
