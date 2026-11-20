@@ -385,8 +385,13 @@ def main() -> None:
     assert 'target=f"{member.mention}\\nWarn-Stufe: {count}/5"' in web
     assert '" Gültig bis "+w["expires_at"][:10]' in suite_actions
     assert "manager_cache=managers(g,web)" in suite_actions
-    assert "task_snapshot=db.list_tasks(limit=1000,include_archived=True)" in suite_actions
-    assert "ticket_snapshot=db.list_tickets(limit=2000)" in suite_actions
+    assert "member_snapshots=member_rows()" in suite_actions
+    assert "task_totals=db.task_totals_by_assignee(1000,shift_member_ids)" in suite_actions
+    assert "passed_attempts=db.passed_attempts_by_user(200,shift_member_ids)" in suite_actions
+    assert "ticket_totals={}" in suite_actions
+    assert "for ticket in db.list_tickets(limit=2000)" in suite_actions
+    assert "task_totals=task_totals" in suite_actions
+    assert "passed_attempts=passed_attempts" in suite_actions
     assert "ctx=auth(request,user_session,manager=True);web=webserver;rows=\"\"" in suite_actions
     assert 'async def member_page(request:Request,member_id:int,user_session:str=Cookie(None)):\n        ctx=auth(request,user_session,manager=True)' in suite_actions
     assert "Interne Notiz aktualisiert" in suite_actions
