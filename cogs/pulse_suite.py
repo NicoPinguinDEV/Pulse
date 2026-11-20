@@ -424,6 +424,12 @@ def member_row(uid):
     with cx() as c:r=c.execute("SELECT * FROM suite_members WHERE user_id=?",(str(uid),)).fetchone()
     return dict(r) if r else None
 
+def member_rows():
+    """Load the small suite member directory once for list pages."""
+    with cx() as c:
+        rows=c.execute("SELECT * FROM suite_members").fetchall()
+    return {str(row["user_id"]): dict(row) for row in rows}
+
 def upsert_member(m):
     joined = iso()
     with cx() as c:
@@ -459,29 +465,55 @@ def warns(m,web,team_data=None):
     td=team_data if team_data is not None else web.load_json(web.DATA_FILE,{})
     return web.active_warns(web.user_entry(td,str(m.id)))
 
-def total_time(m,web):
-    uid=str(m.id);s=web.load_shift_state();active=s.get("active_shifts",{}).get(uid)
-    total=(sum(web.credited_shift_seconds(x) for x in s.get("history",[]) if isinstance(x,dict) and str(x.get("mod_id"))==uid)
-           if "history" in s else web.shift_total_credited_seconds(uid))
+def total_time(m,web,shift_state=None,credited_totals=None):
+    uid=str(m.id);s=shift_state if shift_state is not None else web.load_shift_state()
+    active=s.get("active_shifts",{}).get(uid)
+    if credited_totals is not None:
+        total=credited_totals.get(uid,0)
+    elif "history" in s:
+        total=sum(web.credited_shift_seconds(x) for x in s.get("history",[])
+                  if isinstance(x,dict) and str(x.get("mod_id"))==uid)
+    else:
+        total=web.shift_total_credited_seconds(uid)
     return total+(web.shift_elapsed(active) if active else 0)
 
-def weekly(m,web):
-    uid=str(m.id);s=web.load_shift_state()
+def weekly(m,web,shift_state=None,weekly_totals=None):
+    uid=str(m.id);s=shift_state if shift_state is not None else web.load_shift_state()
+    if weekly_totals is not None:
+        return web.calculate_weekly_seconds_from_totals(uid,weekly_totals,s.get("active_shifts",{}))
     return (web.calculate_weekly_seconds(uid,s.get("history",[]),s.get("active_shifts",{}))
             if "history" in s else web.calculate_weekly_seconds_for_member(uid,s.get("active_shifts",{})))
 
-def team_score(m,web,task_rows=None,ticket_rows=None,team_data=None):
-    w=weekly(m,web);goal=max(1,float(setting("weekly_goal_hours",3))*3600);activity=min(100,int(w/goal*100))
-    ts=(
-        db.list_tasks(assignee_id=m.id,limit=1000,include_archived=True)
-        if task_rows is None
-        else [t for t in task_rows if str(t.get("assignee_id"))==str(m.id)]
-    )
-    done=sum(t.get("status") in {"done","archived"} for t in ts);reliability=100 if not ts else int(done/len(ts)*100)
-    ticket_source=db.list_tickets(limit=2000) if ticket_rows is None else ticket_rows
-    tickets=[t for t in ticket_source if str(t.get("claimed_by_id"))==str(m.id) and t.get("status")=="closed"];support=min(100,len(tickets)*5)
-    discipline=max(0,100-len(warns(m,web,team_data))*30);training=min(100,len([x for x in db.attempts(user_id=m.id,limit=200) if x.get("passed")])*25)
-    return {"score":int(activity*.30+reliability*.20+support*.15+discipline*.20+training*.15),"activity":activity,"reliability":reliability,"support":support,"discipline":discipline,"training":training}
+def team_score(m,web,task_rows=None,ticket_rows=None,team_data=None,*,shift_state=None,weekly_totals=None,
+               task_totals=None,ticket_totals=None,passed_attempts=None,weekly_goal_seconds=None):
+    uid=str(m.id)
+    w=weekly(m,web,shift_state,weekly_totals)
+    goal=max(1,float(setting("weekly_goal_hours",3))*3600) if weekly_goal_seconds is None else max(1,float(weekly_goal_seconds))
+    activity=min(100,int(w/goal*100))
+    if task_totals is not None:
+        task_count,done=task_totals.get(uid,(0,0))
+        reliability=100 if not task_count else int(done/task_count*100)
+    else:
+        ts=(
+            db.list_tasks(assignee_id=m.id,limit=1000,include_archived=True)
+            if task_rows is None
+            else [t for t in task_rows if str(t.get("assignee_id"))==uid]
+        )
+        done=sum(t.get("status") in {"done","archived"} for t in ts)
+        reliability=100 if not ts else int(done/len(ts)*100)
+    if ticket_totals is not None:
+        closed_tickets=ticket_totals.get(uid,0)
+    else:
+        ticket_source=db.list_tickets(limit=2000) if ticket_rows is None else ticket_rows
+        closed_tickets=sum(1 for t in ticket_source
+                           if str(t.get("claimed_by_id"))==uid and t.get("status")=="closed")
+    support=min(100,closed_tickets*5)
+    discipline=max(0,100-len(warns(m,web,team_data))*30)
+    passed=(passed_attempts.get(uid,0) if passed_attempts is not None
+            else sum(1 for x in db.attempts(user_id=m.id,limit=200) if x.get("passed")))
+    training=min(100,passed*25)
+    return {"score":int(activity*.30+reliability*.20+support*.15+discipline*.20+training*.15),
+            "activity":activity,"reliability":reliability,"support":support,"discipline":discipline,"training":training}
 
 def rank_progress(m,web):
     ids={int(x) for x in web.load_config().get("team_role_ids",[])};rs=sorted([r for r in m.guild.roles if r.id in ids],key=lambda r:r.position)
@@ -643,14 +675,35 @@ def register_routes():
     @app.get("/suite/team",response_class=HTMLResponse)
     async def team_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);web=webserver;rows=""
-        # Fetch shared workloads and the team record file once for this request.
+        # One request-scoped snapshot; per-member metrics are aggregated in SQLite/one history pass.
         team_members=members(ctx.guild,web)
-        task_snapshot=db.list_tasks(limit=1000,include_archived=True)
-        ticket_snapshot=db.list_tickets(limit=2000)
+        member_snapshots=member_rows()
+        shift_state=web.load_shift_state()
+        shift_member_ids=[str(m.id) for m in team_members]
+        if "history" in shift_state:
+            credited_totals={}
+            selected_members=set(shift_member_ids)
+            for entry in shift_state.get("history",[]):
+                if isinstance(entry,dict):
+                    uid=str(entry.get("mod_id"))
+                    if uid in selected_members:
+                        credited_totals[uid]=credited_totals.get(uid,0)+web.credited_shift_seconds(entry)
+            weekly_totals=web.weekly_history_totals(shift_state.get("history",[]))
+            weekly_totals={uid:seconds for uid,seconds in weekly_totals.items() if uid in selected_members}
+        else:
+            credited_totals=web.shift_total_credited_seconds_by_member(shift_member_ids)
+            weekly_totals=web.shift_weekly_totals(shift_member_ids)
+        task_totals=db.task_totals_by_assignee(1000,shift_member_ids)
+        ticket_totals=db.closed_ticket_totals_by_assignee()
+        passed_attempts=db.passed_attempts_by_user(200,shift_member_ids)
+        weekly_goal_seconds=max(1,float(setting("weekly_goal_hours",3))*3600)
         team_data=web.load_json(web.DATA_FILE,{})
         for m in team_members:
-            s=team_score(m,web,task_rows=task_snapshot,ticket_rows=ticket_snapshot,team_data=team_data);sm=member_row(m.id);cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
-            rows+=f'<tr><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a><div class=tiny>{m.id}</div></td><td>{esc(m.top_role.name)}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(weekly(m,web))}</td><td><span class="badge {cl}">{s["score"]}/100</span></td><td>{min(5,len(warns(m,web,team_data)))}/5</td><td>{esc(sm.get("probation_end") if sm else "—")}</td><td>{"🟢" if str(m.status) in {"online","idle","dnd"} else "⚪"}</td></tr>'
+            s=team_score(m,web,team_data=team_data,shift_state=shift_state,weekly_totals=weekly_totals,
+                         task_totals=task_totals,ticket_totals=ticket_totals,passed_attempts=passed_attempts,
+                         weekly_goal_seconds=weekly_goal_seconds)
+            sm=member_snapshots.get(str(m.id)) or {};cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
+            rows+=f'<tr><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a><div class=tiny>{m.id}</div></td><td>{esc(m.top_role.name)}</td><td>{secfmt(total_time(m,web,shift_state,credited_totals))}</td><td>{secfmt(weekly(m,web,shift_state,weekly_totals))}</td><td><span class="badge {cl}">{s["score"]}/100</span></td><td>{min(5,len(warns(m,web,team_data)))}/5</td><td>{esc(sm.get("probation_end") if sm else "—")}</td><td>{"🟢" if str(m.status) in {"online","idle","dnd"} else "⚪"}</td></tr>'
         body=f'<div class=card><input class=input id=tf placeholder="Name oder Discord-ID…" oninput="f(this.value)"><div class=scroll style="margin-top:10px"><table class=table id=tt><thead><tr><th>Teamler</th><th>Position</th><th>Gesamt</th><th>Woche</th><th>Score</th><th>Warnungen</th><th>Probezeit</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
         return page(ctx,"team","Teamakten","Digitale Personalakte mit Score, Dienstzeit, Warnungen und Probezeit",body,"function f(q){q=q.toLowerCase();document.querySelectorAll('#tt tbody tr').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none')}")
 
@@ -2889,3 +2942,4 @@ class PulseSuite(commands.Cog):
         for m in ms:db.notify(m.id,"🚪 Teammitglied offline",f"{member.display_name} hat den Server verlassen. Offene Vorgänge prüfen.","warning","/suite/team",f"left:{member.id}",86400)
 
 async def setup(bot):await bot.add_cog(PulseSuite(bot))
+
