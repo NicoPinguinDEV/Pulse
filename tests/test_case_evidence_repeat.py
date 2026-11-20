@@ -108,7 +108,10 @@ class EvidenceTests(Fixture):
             with self.assertRaises(PermissionError):
                 ev.remove_evidence(item["id"], perms, reason="falscher Link", **{**kwargs, "guild_id": guild})
         self.assertEqual(self.count("removed_at IS NULL"), 1)
-        ev.remove_evidence(item["id"], MOD, reason="falscher Link", **kwargs)
+        removed = ev.remove_evidence(item["id"], MOD, reason="falscher Link", **kwargs)
+        self.assertTrue(removed["removed_at"])
+        self.assertEqual((removed["removed_by_id"], removed["removed_by_name"], removed["remove_reason"]),
+                         ("8", "Zweite Person", "falscher Link"))
         row = ev.evidence_for("BM:" + self.bm["id"], MOD, guild_id=1)["managed"][0]
         self.assertTrue(row["removed"])
         self.assertEqual((row["removed_by_name"], row["remove_reason"], row["value"]), ("Zweite Person", "falscher Link", item["value"]))
