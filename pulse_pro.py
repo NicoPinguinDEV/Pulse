@@ -64,6 +64,11 @@ EXTRA_PERMS = (
 )
 
 
+def open_handover_tickets(limit: int = 100) -> list[dict]:
+    """Return open tickets for the handover page, applying the status filter before LIMIT in SQLite."""
+    return db.list_tickets(limit=limit, open_only=True)
+
+
 def is_recommended_team_lead_role_name(role_name: object) -> bool:
     """Only the current Teamleitung ranks receive the team-lead permission profile."""
     return canonical_team_role_name(role_name) in {"Teamleitung", "Stv.Teamleitung"}
@@ -2086,7 +2091,7 @@ def register(app):
 
     # ---------------- Handover ----------------
     async def handover_page(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); items=db.list_handovers(100); tasks=db.list_tasks(status='in_progress',limit=20); tickets=[t for t in db.list_tickets(limit=100) if t['status']!='closed']
+        c=cctx(request,user_session); items=db.list_handovers(100); tasks=db.list_tasks(status='in_progress',limit=20); tickets=open_handover_tickets(limit=100)
         rows=''.join(f'<article class="pulse-row"><div class="pulse-row-main"><div class="flex items-center gap-2">{pill("🚨 Dringend","bad") if x["priority"]=="urgent" else pill("Normal")}<div class="pulse-row-title">{e(x["title"])}</div></div><div class="text-[11px] text-slate-500 mt-2 whitespace-pre-wrap">{e(x["content"])}</div><div class="pulse-row-meta">{e(x["author_name"])} · {e(fmt_dt(x["created_at"]))}</div></div></article>' for x in items)
         context=f'<div class="grid grid-cols-1 sm:grid-cols-3 gap-2"><a href="/tickets" class="pulse-btn ghost">▣ {len(tickets)} offene Tickets</a><a href="/tasks" class="pulse-btn ghost">□ {len(tasks)} in Arbeit</a><a href="/team-status" class="pulse-btn ghost">◉ Teamstatus</a></div>'
         can_other=c.perms.get('can_manage_handover') or c.perms.get('can_promote') or c.perms.get('is_admin')

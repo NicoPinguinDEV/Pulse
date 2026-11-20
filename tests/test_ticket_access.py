@@ -24,6 +24,8 @@ HIGH = {"id": "T-HIGH", "guild_id": "1", "category": "highteam", "user_id": "9",
 NORMAL = {"id": "T-NORM", "guild_id": "1", "category": "support", "user_id": "9", "user_name": "Bürger",
           "status": "closed", "transcript_path": "T-NORM.txt", "channel_id": "6"}
 OTHER_GUILD = dict(NORMAL, id="T-OTHER", guild_id="2")
+REMOVED_CATEGORY = dict(NORMAL, id="T-REMOVED", category="custom_removed")
+EMPTY_CATEGORY = dict(NORMAL, id="T-EMPTY-CATEGORY", category="")
 UNBOUND_GUILD = dict(NORMAL, id="T-UNBOUND", guild_id="")
 NULL_GUILD = dict(NORMAL, id="T-NULL-GUILD", guild_id=None)
 
@@ -89,6 +91,14 @@ class CanAccessTicketTests(unittest.TestCase):
                 self.assertFalse(pta.can_access_ticket(ctx_for(SUPPORTER), ticket))
                 self.assertFalse(pta.can_access_ticket(ctx_for(ADMIN), ticket))
 
+    def test_unknown_or_removed_categories_are_admin_only(self):
+        # A removed category may formerly have belonged to Highteam/Leadership.
+        # Its display fallback must never weaken the access policy.
+        with CategoryPatch():
+            for ticket in (REMOVED_CATEGORY, EMPTY_CATEGORY):
+                self.assertFalse(pta.can_access_ticket(ctx_for(SUPPORTER), ticket))
+                self.assertTrue(pta.can_access_ticket(ctx_for(ADMIN), ticket))
+
     def test_confidential_category_without_roles_is_admin_only(self):
         leadership = dict(HIGH, id="T-LEAD", category="leadership")
         with CategoryPatch():
@@ -97,7 +107,7 @@ class CanAccessTicketTests(unittest.TestCase):
 
     def test_filter_removes_forbidden_tickets(self):
         with CategoryPatch():
-            visible = pta.filter_tickets(ctx_for(SUPPORTER), [HIGH, NORMAL, OTHER_GUILD, UNBOUND_GUILD, NULL_GUILD])
+            visible = pta.filter_tickets(ctx_for(SUPPORTER), [HIGH, NORMAL, OTHER_GUILD, UNBOUND_GUILD, NULL_GUILD, REMOVED_CATEGORY, EMPTY_CATEGORY])
         self.assertEqual([t["id"] for t in visible], ["T-NORM"])
 
 
