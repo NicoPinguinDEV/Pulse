@@ -55,20 +55,28 @@ def open_for(user_id, kind: str) -> dict | None:
 
 
 def start(user_id, user_name: str, kind: str, auto_done: dict | None = None) -> dict:
-    """Creates the checklist unless one is already open; auto_done ticks steps Pulse did itself."""
+    """Create one open checklist per person/kind; serialize the check-and-insert."""
     if kind not in KINDS:
         raise ValueError("unknown checklist")
-    existing = open_for(user_id, kind)
-    if existing:
-        return existing
     now = pulse_db._now()
     done = {k: {"by": "Pulse", "at": now} for k, v in (auto_done or {}).items() if v and k in dict(KINDS[kind])}
-    cid = "chk_" + secrets.token_hex(5)
     with pulse_db.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         _table(db)
-        db.execute("INSERT INTO team_checklists(id,user_id,user_name,kind,created_at,done_json) VALUES (?,?,?,?,?,?)",
-                   (cid, str(user_id), user_name, kind, now, json.dumps(done)))
-    return get(cid)
+        existing = db.execute(
+            "SELECT * FROM team_checklists WHERE user_id=? AND kind=? AND completed_at IS NULL "
+            "ORDER BY created_at DESC LIMIT 1",
+            (str(user_id), kind),
+        ).fetchone()
+        if existing:
+            return _row(existing)
+        cid = "chk_" + secrets.token_hex(5)
+        db.execute(
+            "INSERT INTO team_checklists(id,user_id,user_name,kind,created_at,done_json) VALUES (?,?,?,?,?,?)",
+            (cid, str(user_id), user_name, kind, now, json.dumps(done)),
+        )
+        created = db.execute("SELECT * FROM team_checklists WHERE id=?", (cid,)).fetchone()
+        return _row(created)
 
 
 def get(checklist_id: str) -> dict | None:
@@ -79,33 +87,59 @@ def get(checklist_id: str) -> dict | None:
 
 
 def toggle(checklist_id: str, step: str, actor_name: str) -> dict:
-    item = get(checklist_id)
-    if item is None or step not in dict(KINDS[item["kind"]]):
-        raise ValueError("Unbekannte Checkliste oder unbekannter Schritt.")
-    done = item["done"]
-    if step in done:
-        done.pop(step)
-    else:
-        done[step] = {"by": actor_name, "at": pulse_db._now()}
-    complete = all(k in done for k, _ in KINDS[item["kind"]])
+    # The read/modify/write must be one serialized transaction. Otherwise two
+    # managers ticking different steps can overwrite each other's done_json.
     with pulse_db.connect() as db:
-        db.execute("UPDATE team_checklists SET done_json=?, completed_at=? WHERE id=?",
-                   (json.dumps(done), pulse_db._now() if complete else None, checklist_id))
-    return get(checklist_id)
+        db.execute("BEGIN IMMEDIATE")
+        _table(db)
+        row = db.execute("SELECT * FROM team_checklists WHERE id=?", (checklist_id,)).fetchone()
+        if row is None:
+            raise ValueError("Unbekannte Checkliste oder unbekannter Schritt.")
+        item = _row(row)
+        if step not in dict(KINDS[item["kind"]]):
+            raise ValueError("Unbekannte Checkliste oder unbekannter Schritt.")
+        done = item["done"]
+        if step in done:
+            done.pop(step)
+        else:
+            done[step] = {"by": actor_name, "at": pulse_db._now()}
+        complete = all(k in done for k, _ in KINDS[item["kind"]])
+        db.execute(
+            "UPDATE team_checklists SET done_json=?, completed_at=? WHERE id=?",
+            (json.dumps(done), pulse_db._now() if complete else None, checklist_id),
+        )
+        updated = db.execute("SELECT * FROM team_checklists WHERE id=?", (checklist_id,)).fetchone()
+        return _row(updated)
 
 
 def set_mentor(checklist_id: str, mentor_id, mentor_name: str, actor_name: str) -> dict:
-    item = get(checklist_id)
-    if item is None or item["kind"] != "onboarding":
-        raise ValueError("Einen Mentor gibt es nur beim Onboarding.")
     with pulse_db.connect() as db:
-        db.execute("UPDATE team_checklists SET mentor_id=?, mentor_name=? WHERE id=?", (str(mentor_id), mentor_name, checklist_id))
-    if "mentor" not in item["done"]:
-        toggle(checklist_id, "mentor", actor_name)
+        db.execute("BEGIN IMMEDIATE")
+        _table(db)
+        row = db.execute("SELECT * FROM team_checklists WHERE id=?", (checklist_id,)).fetchone()
+        if row is None:
+            raise ValueError("Einen Mentor gibt es nur beim Onboarding.")
+        item = _row(row)
+        if item["kind"] != "onboarding":
+            raise ValueError("Einen Mentor gibt es nur beim Onboarding.")
+        done = item["done"]
+        fields = ["mentor_id=?", "mentor_name=?"]
+        args = [str(mentor_id), mentor_name]
+        if "mentor" not in done:
+            done["mentor"] = {"by": actor_name, "at": pulse_db._now()}
+            fields.extend(["done_json=?", "completed_at=?"])
+            args.extend([
+                json.dumps(done),
+                pulse_db._now() if all(k in done for k, _ in KINDS[item["kind"]]) else None,
+            ])
+        args.append(checklist_id)
+        db.execute(f"UPDATE team_checklists SET {', '.join(fields)} WHERE id=?", args)
+        updated = db.execute("SELECT * FROM team_checklists WHERE id=?", (checklist_id,)).fetchone()
+        result = _row(updated)
     # link to the team file: mentors are team members and may lack the leadership right for /team/checklists
     pulse_db.notify(mentor_id, "🤝 Du bist Mentor", f"Du begleitest {item['user_name']} beim Einstieg ins Team.", "info",
                     f"/member/{item['user_id']}", f"mentor:{item['user_id']}", 86400)
-    return get(checklist_id)
+    return result
 
 
 def list_open(limit: int = 200) -> list[dict]:
@@ -120,3 +154,4 @@ def list_done(limit: int = 30) -> list[dict]:
         _table(db)
         rows = db.execute("SELECT * FROM team_checklists WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT ?", (limit,)).fetchall()
     return [_row(r) for r in rows]
+
