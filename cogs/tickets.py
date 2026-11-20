@@ -133,10 +133,7 @@ def configured_role_ids(guild, group: str):
 
 
 def category_open_count(key: str) -> int:
-    return sum(
-        1 for ticket in list_tickets(limit=2000, open_only=True)
-        if ticket.get("category") == key and ticket.get("status") != "closed"
-    )
+    return _pulse_db.open_ticket_category_counts([key]).get(str(key), 0)
 
 
 def ticket_category_definitions() -> dict:
@@ -171,8 +168,7 @@ def ticket_category_definitions() -> dict:
     return definitions
 
 
-def category_meta(key: str):
-    definition = ticket_category_definitions().get(str(key))
+def _category_meta_from_definition(definition: dict | None):
     if not definition:
         return ("Ticket", "Allgemeines Anliegen", "🎫", 10, "team")
     try:
@@ -186,6 +182,10 @@ def category_meta(key: str):
         maximum,
         str(definition.get("group") or "team"),
     )
+
+
+def category_meta(key: str):
+    return _category_meta_from_definition(ticket_category_definitions().get(str(key)))
 
 
 def category_roles(guild, key: str):
@@ -288,30 +288,47 @@ def panel_files(panel: dict) -> list[discord.File]:
 def panel_entries(panel: dict) -> list[tuple]:
     """(name, emoji, open tickets, maximum) for every active category of a panel."""
     definitions = ticket_category_definitions()
+    selected = [
+        (str(key), definitions.get(str(key)))
+        for key in panel.get("category_keys", [])[:25]
+    ]
+    selected = [
+        (key, definition)
+        for key, definition in selected
+        if definition and definition.get("active", True)
+    ]
+    counts = (
+        _pulse_db.open_ticket_category_counts([key for key, _definition in selected])
+        if panel.get("show_load") else {}
+    )
     entries = []
-    for key in panel.get("category_keys", [])[:25]:
-        definition = definitions.get(str(key))
-        if not definition or not definition.get("active", True):
-            continue
-        name, _, emoji, maximum, _ = category_meta(str(key))
-        entries.append((name, emoji, category_open_count(str(key)) if panel.get("show_load") else 0, maximum))
+    for key, definition in selected:
+        name, _, emoji, maximum, _ = _category_meta_from_definition(definition)
+        entries.append((name, emoji, counts.get(key, 0), maximum))
     return entries
 
 
 def build_panel_layout(guild, panel_config: dict, view, image_urls: dict | None = None):
     """Modern ticket panel like GalaxyBot: big title, text, load section, banner, footer, menu below."""
     panel = normalize_panel(panel_config)
-    embed = build_panel_embed(guild, panel_config, image_urls)
+    entries = panel_entries(panel)
+    embed = build_panel_embed(guild, panel_config, image_urls, entries=entries)
     spec = embed_to_spec(embed)
     spec["fields"] = []
     spec["timestamp"] = None  # a pinned panel needs no "today at …" footer
-    block = category_block(panel_entries(panel), show_load=bool(panel.get("show_load")),
+    block = category_block(entries, show_load=bool(panel.get("show_load")),
                            list_categories=bool(panel_config.get("list_categories", True)))
     return layout_from_spec(spec, heading="##", extra_blocks=[block] if block else [],
                             action_rows=view_rows(view), rows_outside=True)
 
 
-def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict | None = None) -> discord.Embed:
+def build_panel_embed(
+    guild,
+    panel_config: dict | None = None,
+    image_urls: dict | None = None,
+    *,
+    entries: list[tuple] | None = None,
+) -> discord.Embed:
     if isinstance(panel_config, dict):
         panel = normalize_panel(panel_config)
         panel_title = str(panel.get("title") or panel.get("name") or "Ticket-Support").strip()[:256]
@@ -321,7 +338,7 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         except (TypeError, ValueError):
             embed_color = _pulse_color("info")
         embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
-        entries = panel_entries(panel)
+        entries = panel_entries(panel) if entries is None else entries
         if panel.get("show_load"):
             lines = [load_line(*entry) for entry in entries]
         elif panel_config.get("list_categories", True):
@@ -373,8 +390,9 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         "Hier siehst du die aktuelle Auslastung unserer Tickets. Bei einer höheren Auslastung kann es zu längeren Bearbeitungszeiten kommen. Ein Ticket kannst du jedoch jederzeit eröffnen, unabhängig von der Auslastung.",
         "",
     ]
+    counts = _pulse_db.open_ticket_category_counts(CATEGORY_META)
     for key, meta in CATEGORY_META.items():
-        current = category_open_count(key)
+        current = counts.get(key, 0)
         maximum = meta[3]
         percent = int((current / maximum) * 100) if maximum else 0
         lines.append(f"- <:ut_low:1360768000239769621> **{meta[0]}:** Verfügbar `{current}/{maximum}` ({percent}%)")
