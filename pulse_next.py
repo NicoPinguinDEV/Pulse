@@ -1386,8 +1386,9 @@ def register(app):
     async def support(request: Request, user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics")
         import webserver
+        ticket_totals=db.ticket_totals_by_assignee(limit=5000)
+        ticket_count=sum(counts[0] for counts in ticket_totals.values())
         open_tickets=db.list_tickets(limit=5000,open_only=True)
-        closed_tickets=db.list_tickets(status="closed",limit=5000)
         now_dt=now()
         overdue=[]
         waiting=[]
@@ -1400,15 +1401,11 @@ def register(app):
                 (overdue if age>=sla else waiting).append((t,age,sla))
             except Exception:
                 continue
-        perf={}
-        for t in closed_tickets:
-            if t.get("claimed_by_id"):
-                uid_s=str(t.get("claimed_by_id"))
-                perf[uid_s]=perf.get(uid_s,0)+1
+        perf={uid_s:counts[1] for uid_s,counts in ticket_totals.items() if counts[1]}
         names={str(m.id):m.display_name for m in members(ctx.guild)}
         leaders=sorted(perf.items(),key=lambda x:x[1],reverse=True)[:10]
         rows="".join(f"<div class=row><span>{esc(names.get(uid_s,uid_s))}</span><span class=pill>{n} abgeschlossen</span></div>" for uid_s,n in leaders)
-        body=u.card(f"<div class='grid g3'><div><div class=metric>{len(tickets)}</div><div class=tiny>Tickets gesamt</div></div><div><div class=metric>{len(waiting)}</div><div class=tiny>innerhalb SLA</div></div><div><div class=metric>{len(overdue)}</div><div class=tiny>über SLA</div></div></div>")+u.card("<h3>🚨 SLA-Ausreißer</h3>"+"".join(f"<div class=row><span><b>{esc(str(t.get('title') or t.get('id')))}</b><div class=tiny>{round(age)} min offen · SLA {sla:g} min</div></span><span class=pill>überfällig</span></div>" for t,age,sla in sorted(overdue,key=lambda x:x[1],reverse=True)[:20]) or "<div class=tiny>Keine SLA-Verstöße.</div>")+u.card("<h3>🎫 Support-Leaderboard</h3>"+(rows or "<div class=tiny>Keine abgeschlossenen Tickets.</div>"))
+        body=u.card(f"<div class='grid g3'><div><div class=metric>{ticket_count}</div><div class=tiny>Tickets gesamt</div></div><div><div class=metric>{len(waiting)}</div><div class=tiny>innerhalb SLA</div></div><div><div class=metric>{len(overdue)}</div><div class=tiny>über SLA</div></div></div>")+u.card("<h3>🚨 SLA-Ausreißer</h3>"+"".join(f"<div class=row><span><b>{esc(str(t.get('title') or t.get('id')))}</b><div class=tiny>{round(age)} min offen · SLA {sla:g} min</div></span><span class=pill>überfällig</span></div>" for t,age,sla in sorted(overdue,key=lambda x:x[1],reverse=True)[:20]) or "<div class=tiny>Keine SLA-Verstöße.</div>")+u.card("<h3>🎫 Support-Leaderboard</h3>"+(rows or "<div class=tiny>Keine abgeschlossenen Tickets.</div>"))
         return next_page(ctx,"analytics","Support & SLA","Ticket-Wartezeiten, SLA und Support-Leistung.",body)
 
     @app.get("/ultimate/tasks", response_class=HTMLResponse)
