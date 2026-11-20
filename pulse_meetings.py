@@ -135,7 +135,14 @@ def close(meeting_id) -> tuple[bool, str]:
     if meeting["status"] != "running":
         return False, "wrong_state"
     with pulse_db.connect() as db:
-        db.execute("UPDATE meeting_sessions SET status='closed', closed_at=? WHERE id=? AND status='running'", (_now(), meeting["id"]))
+        updated = db.execute(
+            "UPDATE meeting_sessions SET status='closed', closed_at=? WHERE id=? AND status='running'",
+            (_now(), meeting["id"]),
+        )
+        # A second close request may have read the running row before the first
+        # request committed. Only the request that changes the state may archive it.
+        if updated.rowcount != 1:
+            return False, "wrong_state"
     notes = "\n".join(f"• {d['text']}" + (f" (Aufgabe {d['task_id']})" if d["task_id"] else "") for d in meeting["decisions"]) or "Keine Beschlüsse."
     attendees = {p["user_name"]: p["attendance"] == "present" for p in meeting["participants"]}
     try:
