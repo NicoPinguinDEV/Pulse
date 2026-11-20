@@ -1,5 +1,8 @@
 """U-14: server-side sessions (list, sign out everywhere, idle timeout, team exit) and API key scopes/expiry/rate limit."""
 import hashlib
+import os
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -51,6 +54,62 @@ class SessionTests(TempDb):
         ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
         self.assertEqual(pulse_sessions.device_label(ua), "Chrome · Windows")
         self.assertEqual(pulse_sessions.device_label(""), "Unbekanntes Gerät")
+
+    def test_session_schema_ddl_runs_once_per_database_file(self):
+        statements = []
+        with pulse_db.connect() as connection:
+            connection.set_trace_callback(statements.append)
+            pulse_sessions._init(connection)
+            pulse_sessions._init(connection)
+
+        normalized = [statement.strip().upper() for statement in statements]
+        table_creates = [
+            statement for statement in normalized
+            if statement.startswith("CREATE TABLE IF NOT EXISTS DASHBOARD_SESSIONS")
+        ]
+        index_creates = [
+            statement for statement in normalized
+            if statement.startswith("CREATE INDEX IF NOT EXISTS IDX_DASHBOARD_SESSIONS_USER")
+        ]
+        self.assertEqual(len(table_creates), 1)
+        self.assertEqual(len(index_creates), 1)
+
+        repeated = []
+        with pulse_db.connect() as connection:
+            connection.set_trace_callback(repeated.append)
+            pulse_sessions._init(connection)
+        self.assertFalse(any(statement.lstrip().upper().startswith("CREATE ") for statement in repeated))
+
+    def test_invalid_idle_timeout_values_fall_back_without_import_crash(self):
+        code = """
+import importlib
+import os
+import pulse_sessions
+
+for value in ("nan", "inf", "-inf", "not-a-number"):
+    os.environ["PULSE_SESSION_IDLE_HOURS"] = value
+    importlib.reload(pulse_sessions)
+    assert pulse_sessions.IDLE_SECONDS == 24 * 3600, value
+
+os.environ["PULSE_SESSION_IDLE_HOURS"] = "9000"
+importlib.reload(pulse_sessions)
+assert pulse_sessions.IDLE_SECONDS == 8760 * 3600
+
+os.environ["PULSE_SESSION_IDLE_HOURS"] = "-1"
+importlib.reload(pulse_sessions)
+assert pulse_sessions.IDLE_SECONDS == 900
+"""
+        env = os.environ.copy()
+        env.pop("PULSE_SESSION_IDLE_HOURS", None)
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_lifecycle_and_old_cookies(self):
         sid = pulse_sessions.create("7", "Firefox Linux")
