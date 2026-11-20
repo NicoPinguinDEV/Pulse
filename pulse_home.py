@@ -88,6 +88,11 @@ def normalize_home_widgets(value):
     return [key for key, _label in HOME_WIDGETS if key in selected]
 
 
+def member_open_tickets(user_id: str, limit: int = 50) -> list[dict]:
+    """Fetch a bounded page of a member's open tickets; filter before LIMIT in SQLite."""
+    return db.list_tickets(claimed_by_id=str(user_id), limit=limit, open_only=True)
+
+
 
 def _top_team_role(member, team_role_ids):
     ids = {int(x) for x in team_role_ids or [] if str(x).isdigit()}
@@ -155,7 +160,7 @@ def register(app) -> None:
         # ---- Aufgaben, Tickets, Inbox, Meeting ----
         tasks = [t for t in db.list_tasks(assignee_id=uid, limit=60) if t.get("status") not in ("done", "archived")]
         tasks.sort(key=lambda t: (parse_due(t.get("due_at")) is None, str(t.get("due_at") or "")))
-        my_tickets = [t for t in db.list_tickets(claimed_by_id=uid, limit=50) if t.get("status") != "closed"]
+        my_tickets = member_open_tickets(uid, limit=50)
         unread = [n for n in db.notifications(uid, 20) if not n.get("read_at")][:5]
         meeting = ws.load_meetings()
         my_rsvp = (meeting.get("rsvps", {}).get(uid) or {}).get("status")
@@ -667,3 +672,4 @@ def register(app) -> None:
         response = RedirectResponse(url="/", status_code=303)
         response.delete_cookie(key="user_session")
         return response
+

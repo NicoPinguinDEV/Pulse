@@ -880,6 +880,13 @@ def stats_context() -> dict:
             "profiles": all_profiles()}
 
 
+def analytics_ticket_totals(context: dict) -> tuple[int, int]:
+    """Reuse the ticket aggregates already loaded by stats_context for this analytics page."""
+    claimed = context.get("claimed") if isinstance(context, dict) else {}
+    closed = context.get("closed") if isinstance(context, dict) else {}
+    return sum(claimed.values()), sum(closed.values())
+
+
 def _context_profile(member, context: dict) -> dict:
     """The profile after ensure_profile – from the prefetched rows when they are current (same test as ensure_profile's
     no-write path), otherwise ensure_profile + a fresh read exactly as before."""
@@ -2739,8 +2746,7 @@ window.setInterval(loadPulseMonitor, 15000);
         stats.sort(key=lambda x: (-x[1]["score"], x[0].display_name.lower()))
         avg_score = round(sum(s["score"] for _, s in stats) / len(stats)) if stats else 0
         total_hours = round(sum(s["total_seconds"] for _, s in stats) / 3600, 1)
-        tickets = len(db.list_tickets(limit=5000))
-        closed_tickets = sum(1 for t in db.list_tickets(limit=5000) if t.get("status") == "closed")
+        tickets, closed_tickets = analytics_ticket_totals(shared)
         apps = webserver.load_json(webserver.APPS_FILE, {})
         active_apps = sum(str(a.get("status")) in {"pending","in_review","interview"} for a in apps.values())
         top = "".join(
@@ -3706,4 +3712,5 @@ async def stop_automation(timeout: float = 5.0) -> None:
         await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout)
     except asyncio.TimeoutError:
         print("⚠️ Automation Engine hat sich nicht rechtzeitig beendet.")
+
 

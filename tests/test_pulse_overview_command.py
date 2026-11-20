@@ -32,9 +32,12 @@ class PulseOverviewCommandTests(unittest.TestCase):
             return [{"status": "open"}, {"status": "done"}]
 
         def list_tickets(*, claimed_by_id=None, limit=1000, open_only=False):
+            rows = [{"status": "open"}, {"status": "closed"}]
+            if open_only:
+                rows = [ticket for ticket in rows if ticket["status"] != "closed"]
             if claimed_by_id is not None:
-                return [{"status": "open"}, {"status": "closed"}]
-            return [{"status": "open"}, {"status": "closed"}]
+                return rows
+            return rows
 
         with (
             patch("webserver.load_config", return_value={"weekly_goal_hours": 4, "team_role_ids": [9, 10]}),
@@ -43,7 +46,7 @@ class PulseOverviewCommandTests(unittest.TestCase):
             patch("webserver.calculate_weekly_seconds", return_value=7200),
             patch("webserver.fmt_duration", return_value="2 h"),
             patch("cogs.pulse_pro.db.list_tasks", side_effect=list_tasks),
-            patch("cogs.pulse_pro.db.list_tickets", side_effect=list_tickets),
+            patch("cogs.pulse_pro.db.list_tickets", side_effect=list_tickets) as list_tickets_mock,
             patch("cogs.pulse_pro.db.promotion_requests", return_value=[{"id": "pending"}]),
             patch(
                 "cogs.pulse_pro.db.attempts",
@@ -68,6 +71,10 @@ class PulseOverviewCommandTests(unittest.TestCase):
         self.assertIn("1 offene Aufgaben", rendered)
         self.assertIn("1 übernommene Tickets", rendered)
         self.assertIn("1 bestandene Schulungen", rendered)
+        self.assertTrue(any(
+            call.kwargs.get("claimed_by_id") == "42" and call.kwargs.get("open_only") is True
+            for call in list_tickets_mock.call_args_list
+        ))
 
     def test_pulse_denies_users_without_team_dashboard_access(self):
         interaction = SimpleNamespace(
@@ -92,3 +99,4 @@ class PulseOverviewCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
