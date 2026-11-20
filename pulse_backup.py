@@ -17,6 +17,7 @@ This module never touches Discord and is safe to run in a worker thread.
 from __future__ import annotations
 
 import contextlib
+from collections import Counter
 import hashlib
 import json
 import os
@@ -56,6 +57,12 @@ _CHUNK = 1024 * 1024
 SAFETY_BACKUP_BUDGET_BYTES = 1 << 50  # DATA-1: the safety backup before a restore has no size budget (it must be complete)
 _MAINTENANCE = threading.Event()
 _RESTORE_LOCK = threading.Lock()
+
+# Hard ceilings for untrusted ZIP metadata and expanded restore data. The backup
+# writer remains compatible; only archives above these safety bounds are refused.
+MAX_RESTORE_ENTRIES = 25_000
+MAX_RESTORE_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
+MAX_RESTORE_MANIFEST_BYTES = 32 * 1024 * 1024
 
 
 def maintenance_active() -> bool:
@@ -215,7 +222,7 @@ def _sqlite_snapshot_metadata(path) -> dict:
         return {"integrity": integrity, "user_version": user_version, "melonly": melonly}
 
 
-def _verify_sqlite_manifest_metadata(zf, manifest, archive_names: set[str]) -> list[str]:
+def _verify_sqlite_manifest_metadata(zf, manifest, archive_names: set[str], temp_dir=None) -> list[str]:
     """Validate optional Melonly metadata against the actual archived SQLite snapshot."""
     declared = manifest.get("sqlite_metadata")
     if declared is None:  # backwards compatibility with older full backups
@@ -231,7 +238,7 @@ def _verify_sqlite_manifest_metadata(zf, manifest, archive_names: set[str]) -> l
             problems.append(f"SQLite-Metadaten oder Datenbank-Snapshot fehlen: {name}")
             continue
         try:
-            with tempfile.TemporaryDirectory(prefix="pulse-backup-meta-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="pulse-backup-meta-", dir=temp_dir) as tmp:
                 snapshot = Path(tmp) / Path(name).name
                 with zf.open(name) as src, open(snapshot, "wb") as dst:
                     shutil.copyfileobj(src, dst, _CHUNK)
@@ -247,7 +254,7 @@ def _verify_sqlite_manifest_metadata(zf, manifest, archive_names: set[str]) -> l
 
 
 def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structure, budget_bytes) -> None:
-    with tempfile.TemporaryDirectory(prefix="pulse-backup-") as tmp, \
+    with tempfile.TemporaryDirectory(prefix="pulse-backup-", dir=base_dir) as tmp, \
             zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
         # Phase 14.7: shifts.json (active shifts) and pulse.db (shift history in SQLite mode) are copied together
         # under the JSON lock of the dashboard, so no save of a finished shift lands between the two copies.
@@ -347,9 +354,14 @@ def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structu
         zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
 
 
-def read_manifest(path) -> dict:
-    with zipfile.ZipFile(path) as zf:
-        manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+def _read_manifest_archive(zf) -> dict:
+    try:
+        info = zf.getinfo("manifest.json")
+    except KeyError as exc:
+        raise ValueError("Backup-Manifest fehlt.") from exc
+    if info.file_size > MAX_RESTORE_MANIFEST_BYTES:
+        raise ValueError("Backup-Manifest überschreitet das erlaubte Größenlimit.")
+    manifest = json.loads(zf.read(info).decode("utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError("Backup-Manifest muss ein JSON-Objekt sein.")
     version = manifest.get("format_version")
@@ -363,7 +375,17 @@ def read_manifest(path) -> dict:
         raise ValueError("Keine unterstützte Pulse-Komplettsicherung.")
     if not isinstance(manifest.get("files"), list):
         raise ValueError("Backup-Manifest enthält keine gültige Dateiliste.")
+    if len(manifest["files"]) > MAX_RESTORE_ENTRIES:
+        raise ValueError("Backup-Manifest enthält zu viele Dateieinträge.")
     return manifest
+
+
+def read_manifest(path) -> dict:
+    """Read a manifest from a path or an already-open archive without reopening it."""
+    if isinstance(path, zipfile.ZipFile):
+        return _read_manifest_archive(path)
+    with zipfile.ZipFile(path) as zf:
+        return _read_manifest_archive(zf)
 
 
 def _safe_member(name: str) -> bool:
@@ -387,78 +409,134 @@ def _supported_backup_member(name: str) -> bool:
     return False
 
 
-def verify_full_backup(path) -> list[str]:
-    """Problems found (empty list = archive complete, unambiguous and unchanged)."""
-    problems = []
+def _verify_full_backup_archive(zf) -> list[str]:
+    """Verify one already-open archive, including limits, paths, sizes and hashes."""
+    infos = zf.infolist()
+    if len(infos) > MAX_RESTORE_ENTRIES:
+        return [f"Zu viele ZIP-Einträge (Limit: {MAX_RESTORE_ENTRIES})."]
+
+    total_size = 0
+    for info in infos:
+        if info.is_dir():
+            return ["Ordner-Einträge sind in einer Pulse-Sicherung nicht zulässig."]
+        if info.flag_bits & 0x1:
+            return ["Verschlüsselte ZIP-Einträge werden nicht unterstützt."]
+        if info.file_size < 0:
+            return ["Ungültige entpackte Dateigröße im ZIP-Archiv."]
+        total_size += info.file_size
+        if total_size > MAX_RESTORE_TOTAL_BYTES:
+            return [f"Entpackte Gesamtgröße überschreitet das Restore-Limit von "
+                    f"{MAX_RESTORE_TOTAL_BYTES // (1024 * 1024)} MiB."]
+        if info.filename == "manifest.json" and info.file_size > MAX_RESTORE_MANIFEST_BYTES:
+            return ["Backup-Manifest überschreitet das erlaubte Größenlimit."]
+
+    names = [info.filename for info in infos]
+    name_counts = Counter(names)
+    if name_counts.get("manifest.json", 0) != 1:
+        return ["Manifest fehlt oder ist mehrfach im Archiv enthalten."]
+    duplicates = sorted(name for name, count in name_counts.items() if count > 1)
+    if duplicates:
+        return ["Doppelte ZIP-Einträge: " + ", ".join(duplicates[:5])]
+
     try:
-        with zipfile.ZipFile(path) as zf:
-            infos = zf.infolist()
-            names = [info.filename for info in infos]
-            if names.count("manifest.json") != 1:
-                return ["Manifest fehlt oder ist mehrfach im Archiv enthalten."]
-            if len(names) != len(set(names)):
-                duplicates = sorted({name for name in names if names.count(name) > 1})
-                return ["Doppelte ZIP-Einträge: " + ", ".join(duplicates[:5])]
-        manifest = read_manifest(path)
+        manifest = _read_manifest_archive(zf)
     except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError) as exc:
         return [f"Manifest fehlt oder ist ungültig ({type(exc).__name__}: {exc})"]
 
+    problems = []
     seen = set()
-    try:
-        with zipfile.ZipFile(path) as zf:
-            info_by_name = {info.filename: info for info in zf.infolist()}
-            for index, entry in enumerate(manifest["files"]):
-                if not isinstance(entry, dict):
-                    problems.append(f"Dateieintrag {index} im Manifest ist kein Objekt.")
-                    continue
-                name = entry.get("name")
-                if not isinstance(name, str) or not name:
-                    problems.append(f"Dateieintrag {index} im Manifest hat keinen gültigen Namen.")
-                    continue
-                if name in seen:
-                    problems.append(f"Doppelter Manifest-Eintrag: {name}")
-                    continue
-                seen.add(name)
-                if not _safe_member(name):
-                    problems.append(f"Unzulässiger Pfad: {name}")
-                    continue
-                if not _supported_backup_member(name):
-                    problems.append(f"Kein unterstütztes Wiederherstellungsziel: {name}")
-                    continue
-                info = info_by_name.get(name)
-                if info is None:
-                    problems.append(f"Fehlt im Archiv: {name}")
-                    continue
-                size = entry.get("size")
-                if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-                    problems.append(f"Ungültige Dateigröße im Manifest: {name}")
-                    continue
-                if info.file_size != size:
-                    problems.append(f"Dateigröße weicht vom Manifest ab: {name}")
-                    continue
-                digest_value = entry.get("sha256")
-                if not isinstance(digest_value, str) or re.fullmatch(r"[0-9a-f]{64}", digest_value) is None:
-                    problems.append(f"Ungültige SHA-256-Prüfsumme im Manifest: {name}")
-                    continue
-                digest = hashlib.sha256()
-                with zf.open(info) as fh:
-                    for block in iter(lambda: fh.read(_CHUNK), b""):
-                        digest.update(block)
-                if digest.hexdigest() != digest_value:
-                    problems.append(f"Prüfsumme falsch: {name}")
-            extra = sorted(set(info_by_name) - seen - {"manifest.json"})
-            if extra:
-                problems.append("Nicht im Manifest deklarierte ZIP-Einträge: " + ", ".join(extra[:5]))
-    except (OSError, RuntimeError, zipfile.BadZipFile, KeyError) as exc:
-        problems.append(f"Archiv konnte nicht vollständig gelesen werden ({type(exc).__name__}: {exc})")
+    info_by_name = {info.filename: info for info in infos}
+    for index, entry in enumerate(manifest["files"]):
+        if not isinstance(entry, dict):
+            problems.append(f"Dateieintrag {index} im Manifest ist kein Objekt.")
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            problems.append(f"Dateieintrag {index} im Manifest hat keinen gültigen Namen.")
+            continue
+        if name in seen:
+            problems.append(f"Doppelter Manifest-Eintrag: {name}")
+            continue
+        seen.add(name)
+        if not _safe_member(name):
+            problems.append(f"Unzulässiger Pfad: {name}")
+            continue
+        if not _supported_backup_member(name):
+            problems.append(f"Kein unterstütztes Wiederherstellungsziel: {name}")
+            continue
+        info = info_by_name.get(name)
+        if info is None:
+            problems.append(f"Fehlt im Archiv: {name}")
+            continue
+        size = entry.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            problems.append(f"Ungültige Dateigröße im Manifest: {name}")
+            continue
+        if info.file_size != size:
+            problems.append(f"Dateigröße weicht vom Manifest ab: {name}")
+            continue
+        digest_value = entry.get("sha256")
+        if not isinstance(digest_value, str) or re.fullmatch(r"[0-9a-f]{64}", digest_value) is None:
+            problems.append(f"Ungültige SHA-256-Prüfsumme im Manifest: {name}")
+            continue
+        digest = hashlib.sha256()
+        with zf.open(info) as fh:
+            for block in iter(lambda: fh.read(_CHUNK), b""):
+                digest.update(block)
+        if digest.hexdigest() != digest_value:
+            problems.append(f"Prüfsumme falsch: {name}")
+
+    extra = sorted(set(info_by_name) - seen - {"manifest.json"})
+    if extra:
+        problems.append("Nicht im Manifest deklarierte ZIP-Einträge: " + ", ".join(extra[:5]))
+
     if not problems:
-        try:
-            with zipfile.ZipFile(path) as zf:
-                archive_names = set(zf.namelist())
-                problems.extend(_verify_sqlite_manifest_metadata(zf, manifest, archive_names))
-        except (OSError, zipfile.BadZipFile) as exc:
-            problems.append(f"SQLite-Metadatenprüfung fehlgeschlagen ({type(exc).__name__}).")
+        archive_names = set(info_by_name)
+        filename = getattr(zf, "filename", None)
+        temp_dir = Path(filename).resolve().parent if isinstance(filename, (str, os.PathLike)) else None
+        problems.extend(_verify_sqlite_manifest_metadata(zf, manifest, archive_names, temp_dir=temp_dir))
     return problems
+
+
+def verify_full_backup(path) -> list[str]:
+    """Problems found (empty list = archive complete, unambiguous and unchanged)."""
+    try:
+        if isinstance(path, zipfile.ZipFile):
+            return _verify_full_backup_archive(path)
+        with zipfile.ZipFile(path) as zf:
+            return _verify_full_backup_archive(zf)
+    except (OSError, RuntimeError, KeyError, ValueError, TypeError, zipfile.BadZipFile,
+            json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return [f"Archiv konnte nicht vollständig geprüft werden ({type(exc).__name__}: {exc})"]
+
+
+def _copy_verified_member(zf, entry: dict, destination: Path) -> None:
+    """Stream one ZIP member to private staging while rechecking its declared size and hash."""
+    name = entry.get("name")
+    expected_size = entry.get("size")
+    expected_digest = entry.get("sha256")
+    if (
+        not isinstance(name, str)
+        or isinstance(expected_size, bool)
+        or not isinstance(expected_size, int)
+        or expected_size < 0
+        or expected_size > MAX_RESTORE_TOTAL_BYTES
+        or not isinstance(expected_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
+    ):
+        raise ValueError(f"{name or 'Backup-Eintrag'}: ungültige Prüfdaten.")
+
+    digest = hashlib.sha256()
+    actual_size = 0
+    with zf.open(name) as src, open(destination, "wb") as dst:
+        for block in iter(lambda: src.read(_CHUNK), b""):
+            actual_size += len(block)
+            if actual_size > expected_size or actual_size > MAX_RESTORE_TOTAL_BYTES:
+                raise ValueError(f"{name}: entpackte Größe weicht vom Manifest ab.")
+            digest.update(block)
+            dst.write(block)
+    if actual_size != expected_size or digest.hexdigest() != expected_digest:
+        raise ValueError(f"{name}: Größe oder SHA-256-Prüfsumme hat sich beim Staging geändert.")
 
 
 def _target_for(base_dir, name: str) -> Path | None:
@@ -484,46 +562,48 @@ def _table_counts(path) -> dict[str, int]:
 
 def preview_restore(path, base_dir) -> dict:
     """Dry run: what would change (files new/changed/unchanged, row counts per table). Writes nothing."""
-    manifest = read_manifest(path)
-    result = {"manifest": manifest, "problems": verify_full_backup(path), "files": [], "tables": [],
-              "sqlite_metadata": manifest.get("sqlite_metadata", {})}
-    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-preview-") as tmp:
-        present = set(zf.namelist())
-        for entry in manifest.get("files", []):
-            name = str(entry.get("name", ""))
-            target = _target_for(base_dir, name)
-            if target is None:
-                continue
-            if name not in present:  # already listed by verify_full_backup ("Fehlt im Archiv") – restore stays locked
-                result["files"].append({"name": name, "status": "fehlt im Archiv", "size": entry.get("size", 0)})
-                continue
-            if kind_of(name) == "sqlite":
-                extracted = Path(tmp) / Path(name).name
-                with zf.open(name) as src, open(extracted, "wb") as dst:
-                    shutil.copyfileobj(src, dst, _CHUNK)
-                # Phase 8: a damaged database must show up as a problem in the dry run (restore locked), not as HTTP 500.
-                try:
-                    backup_counts = _table_counts(extracted)
-                except sqlite3.Error as exc:
-                    result["problems"].append(f"{name}: Datenbank im Backup nicht lesbar ({type(exc).__name__}: {exc})")
-                    result["files"].append({"name": name, "status": "beschädigt", "size": entry.get("size", 0)})
+    with zipfile.ZipFile(path) as zf:
+        problems = _verify_full_backup_archive(zf)
+        manifest = _read_manifest_archive(zf)
+        result = {"manifest": manifest, "problems": problems, "files": [], "tables": [],
+                  "sqlite_metadata": manifest.get("sqlite_metadata", {})}
+        if problems:
+            return result
+        with tempfile.TemporaryDirectory(prefix="pulse-preview-", dir=Path(base_dir)) as tmp:
+            present = set(zf.namelist())
+            for entry in manifest.get("files", []):
+                name = str(entry.get("name", ""))
+                target = _target_for(base_dir, name)
+                if target is None:
                     continue
-                try:
-                    current_counts = _table_counts(target) if target.is_file() else {}
-                except sqlite3.Error as exc:  # the live file is damaged: the backup is exactly what is needed
-                    current_counts = {}
-                    result.setdefault("warnings", []).append(f"Aktuelle {target.name} nicht lesbar ({type(exc).__name__})")
-                for table in sorted(set(backup_counts) | set(current_counts)):
-                    if backup_counts.get(table) != current_counts.get(table):
-                        result["tables"].append({"db": Path(name).name, "table": table,
-                                                 "current": current_counts.get(table), "backup": backup_counts.get(table)})
-                status = "neu" if not target.is_file() else "geprüft"
-            elif not target.is_file():
-                status = "neu"
-            else:
-                status = "unverändert" if _sha256(target) == entry["sha256"] else "geändert"
-            result["files"].append({"name": name, "status": status, "size": entry.get("size", 0)})
-    return result
+                if name not in present:
+                    result["files"].append({"name": name, "status": "fehlt im Archiv", "size": entry.get("size", 0)})
+                    continue
+                if kind_of(name) == "sqlite":
+                    extracted = Path(tmp) / Path(name).name
+                    _copy_verified_member(zf, entry, extracted)
+                    try:
+                        backup_counts = _table_counts(extracted)
+                    except sqlite3.Error as exc:
+                        result["problems"].append(f"{name}: Datenbank im Backup nicht lesbar ({type(exc).__name__}: {exc})")
+                        result["files"].append({"name": name, "status": "beschädigt", "size": entry.get("size", 0)})
+                        continue
+                    try:
+                        current_counts = _table_counts(target) if target.is_file() else {}
+                    except sqlite3.Error as exc:
+                        current_counts = {}
+                        result.setdefault("warnings", []).append(f"Aktuelle {target.name} nicht lesbar ({type(exc).__name__})")
+                    for table in sorted(set(backup_counts) | set(current_counts)):
+                        if backup_counts.get(table) != current_counts.get(table):
+                            result["tables"].append({"db": Path(name).name, "table": table,
+                                                     "current": current_counts.get(table), "backup": backup_counts.get(table)})
+                    status = "neu" if not target.is_file() else "geprüft"
+                elif not target.is_file():
+                    status = "neu"
+                else:
+                    status = "unverändert" if _sha256(target) == entry["sha256"] else "geändert"
+                result["files"].append({"name": name, "status": status, "size": entry.get("size", 0)})
+        return result
 
 
 def restore_sqlite_file(extracted, target) -> None:
@@ -573,7 +653,7 @@ def _merge_audit_logs(extracted: Path, live: Path) -> dict:
 
 
 def _stage(zf, manifest, base_dir, tmp, include_files: bool, *, merge_audit: bool = True) -> list[tuple]:
-    """Phase 1: extract every entry to a temp dir and check it. Nothing live is touched."""
+    """Phase 1: extract every entry to a temp dir and recheck it. Nothing live is touched."""
     staged = []
     for entry in manifest["files"]:
         name = entry["name"]
@@ -581,8 +661,7 @@ def _stage(zf, manifest, base_dir, tmp, include_files: bool, *, merge_audit: boo
         if target is None or (kind == "file" and not include_files):
             continue
         extracted = Path(tmp) / f"{len(staged):05d}_{Path(name).name}"
-        with zf.open(name) as src, open(extracted, "wb") as dst:
-            shutil.copyfileobj(src, dst, _CHUNK)
+        _copy_verified_member(zf, entry, extracted)
         if kind == "sqlite":
             check = _integrity(extracted)
             if check != "ok":
@@ -621,16 +700,22 @@ def _apply(staged, report) -> None:
                 report["files"] += 1
 
 
-def _restore_from(path, base_dir, include_files, lock, report=None, *, merge_audit: bool = True) -> dict:
-    manifest = read_manifest(path)
+def _restore_from_archive(zf, manifest, base_dir, include_files, lock, report=None, *, merge_audit: bool = True) -> dict:
     if report is None:
         report = {}
     report.update({"databases": [], "json": [], "files": 0, "pulse_version": manifest.get("pulse_version")})
-    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restore-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="pulse-restore-", dir=Path(base_dir)) as tmp:
         staged = _stage(zf, manifest, base_dir, tmp, include_files, merge_audit=merge_audit)
         with (lock if lock is not None else contextlib.nullcontext()):
             _apply(staged, report)
     return report
+
+
+def _restore_from(path, base_dir, include_files, lock, report=None, *, merge_audit: bool = True) -> dict:
+    """Compatibility wrapper; restore operations can also reuse a previously verified open archive."""
+    with zipfile.ZipFile(path) as zf:
+        manifest = _read_manifest_archive(zf)
+        return _restore_from_archive(zf, manifest, base_dir, include_files, lock, report, merge_audit=merge_audit)
 
 
 def _incomplete_safety_reasons(manifest: dict) -> list[str]:
@@ -665,60 +750,62 @@ def _differences_to_backup(path, base_dir, include_files: bool) -> list[str]:
 
 
 def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = True, lock=None) -> dict:
-    """Restore data from a complete backup. Returns a report; raises ValueError with a clear message.
+    """Restore from one stable, verified ZIP handle; stage and hash-check before any live write.
 
-    Every entry is extracted and checked first; only then is anything written. `lock` (the JSON I/O lock
-    of the dashboard) is held while writing so no load-modify-save of another flow can interleave. If
-    writing fails part-way, the safety backup taken before is restored automatically.
+    The source archive stays open from initial verification through extraction. Replacing the pathname
+    after verification therefore cannot substitute different bytes, and _stage rechecks every digest
+    before applying any file. The existing safety-backup and rollback contract is unchanged.
     """
     if not _RESTORE_LOCK.acquire(blocking=False):
         raise ValueError("Es läuft bereits eine Wiederherstellung.")
     try:
-        problems = verify_full_backup(path)
-        if problems:
-            raise ValueError("Backup unvollständig oder verändert: " + "; ".join(problems[:5]))
-        # DATA-1: maintenance mode first (no JSON write can slip in between the safety copy and the restore), a
-        # COMPLETE safety backup (no size budget) that is verified – an incomplete one aborts before anything changes.
-        _MAINTENANCE.set()
-        try:
-            safety, safety_manifest = create_full_backup(base_dir, backup_dir, prefix="pre_restore_",
-                                                         budget_bytes=SAFETY_BACKUP_BUDGET_BYTES)
-            reasons = _incomplete_safety_reasons(safety_manifest)
-            safety_problems = verify_full_backup(safety)
-            if reasons or safety_problems:
-                raise ValueError("Wiederherstellung nicht gestartet: Das Sicherheits-Backup vor dem Restore ist unvollständig "
-                                 "oder fehlerhaft (" + "; ".join((reasons + safety_problems)[:4]) + "). Es wurde nichts verändert.")
-            report: dict = {}
+        with zipfile.ZipFile(path) as source:
+            problems = _verify_full_backup_archive(source)
+            if problems:
+                raise ValueError("Backup unvollständig oder verändert: " + "; ".join(problems[:5]))
+            manifest = _read_manifest_archive(source)
+            # DATA-1: maintenance mode first (no JSON write can slip in between the safety copy and the restore), a
+            # COMPLETE safety backup (no size budget) that is verified – an incomplete one aborts before anything changes.
+            _MAINTENANCE.set()
             try:
-                _restore_from(path, base_dir, include_files, lock, report)
-                expected_sqlite = (read_manifest(path).get("sqlite_metadata") or {}).get("db/pulse.db")
-                if expected_sqlite is not None:
-                    actual_sqlite = _sqlite_snapshot_metadata(sqlite_path(base_dir, "pulse.db"))
-                    if actual_sqlite != expected_sqlite:
-                        raise ValueError("Wiederhergestellte Melonly-Metadaten stimmen nicht mit dem Backup überein.")
-            except Exception as exc:
-                created = list(report.get("created", []))
+                safety, safety_manifest = create_full_backup(base_dir, backup_dir, prefix="pre_restore_",
+                                                             budget_bytes=SAFETY_BACKUP_BUDGET_BYTES)
+                reasons = _incomplete_safety_reasons(safety_manifest)
+                safety_problems = verify_full_backup(safety)
+                if reasons or safety_problems:
+                    raise ValueError("Wiederherstellung nicht gestartet: Das Sicherheits-Backup vor dem Restore ist unvollständig "
+                                     "oder fehlerhaft (" + "; ".join((reasons + safety_problems)[:4]) + "). Es wurde nichts verändert.")
+                report: dict = {}
                 try:
-                    _restore_from(safety, base_dir, include_files, lock, {}, merge_audit=False)
-                    for leftover in created:  # files this failed restore created and the old state never had
-                        with contextlib.suppress(OSError):
-                            Path(leftover).unlink()
-                    differences = _differences_to_backup(safety, base_dir, include_files)
-                except Exception as rollback_exc:
-                    raise ValueError(f"Wiederherstellung abgebrochen ({exc}); automatisches Zurücksetzen fehlgeschlagen "
-                                     f"({type(rollback_exc).__name__}) – bitte Sicherheitskopie {safety.name} wiederherstellen.") from exc
-                if differences:
-                    raise ValueError(f"Wiederherstellung abgebrochen ({exc}); das Zurücksetzen aus {safety.name} ist "
-                                     "UNVOLLSTÄNDIG (" + "; ".join(differences[:4]) + ") – bitte Sicherheitskopie manuell "
-                                     "wiederherstellen.") from exc
-                raise ValueError(f"Wiederherstellung abgebrochen ({exc}); der vorherige Stand wurde aus {safety.name} "
-                                 "zurückgespielt und geprüft.") from exc
-        finally:
-            _MAINTENANCE.clear()
-        report.pop("created", None)
-        report["safety_backup"] = safety.name
-        report["sqlite_metadata"] = read_manifest(path).get("sqlite_metadata", {})
-        return report
+                    _restore_from_archive(source, manifest, base_dir, include_files, lock, report)
+                    expected_sqlite = (manifest.get("sqlite_metadata") or {}).get("db/pulse.db")
+                    if expected_sqlite is not None:
+                        actual_sqlite = _sqlite_snapshot_metadata(sqlite_path(base_dir, "pulse.db"))
+                        if actual_sqlite != expected_sqlite:
+                            raise ValueError("Wiederhergestellte Melonly-Metadaten stimmen nicht mit dem Backup überein.")
+                except Exception as exc:
+                    created = list(report.get("created", []))
+                    try:
+                        _restore_from(safety, base_dir, include_files, lock, {}, merge_audit=False)
+                        for leftover in created:  # files this failed restore created and the old state never had
+                            with contextlib.suppress(OSError):
+                                Path(leftover).unlink()
+                        differences = _differences_to_backup(safety, base_dir, include_files)
+                    except Exception as rollback_exc:
+                        raise ValueError(f"Wiederherstellung abgebrochen ({exc}); automatisches Zurücksetzen fehlgeschlagen "
+                                         f"({type(rollback_exc).__name__}) – bitte Sicherheitskopie {safety.name} wiederherstellen.") from exc
+                    if differences:
+                        raise ValueError(f"Wiederherstellung abgebrochen ({exc}); das Zurücksetzen aus {safety.name} ist "
+                                         "UNVOLLSTÄNDIG (" + "; ".join(differences[:4]) + ") – bitte Sicherheitskopie manuell "
+                                         "wiederherstellen.") from exc
+                    raise ValueError(f"Wiederherstellung abgebrochen ({exc}); der vorherige Stand wurde aus {safety.name} "
+                                     "zurückgespielt und geprüft.") from exc
+            finally:
+                _MAINTENANCE.clear()
+            report.pop("created", None)
+            report["safety_backup"] = safety.name
+            report["sqlite_metadata"] = manifest.get("sqlite_metadata", {})
+            return report
     finally:
         _RESTORE_LOCK.release()
 
@@ -741,7 +828,7 @@ def restore_test(path) -> dict:
             manifest = read_manifest(path)
             result["skipped"] = len(manifest.get("skipped") or [])
             result["sqlite_metadata"] = manifest.get("sqlite_metadata", {})
-            with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restoretest-") as tmp:
+            with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restoretest-", dir=Path(path).resolve().parent) as tmp:
                 root = Path(tmp) / "restored"
                 for entry in manifest["files"]:
                     name, kind = str(entry["name"]), kind_of(str(entry["name"]))
@@ -752,8 +839,7 @@ def restore_test(path) -> dict:
                         continue
                     target = root.joinpath(*PurePosixPath(name).parts)
                     extracted = Path(tmp) / "x"
-                    with zf.open(name) as src, open(extracted, "wb") as dst:
-                        shutil.copyfileobj(src, dst, _CHUNK)
+                    _copy_verified_member(zf, entry, extracted)
                     try:
                         if kind == "sqlite":
                             restore_sqlite_file(extracted, target)
