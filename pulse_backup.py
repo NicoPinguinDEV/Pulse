@@ -16,8 +16,8 @@ This module never touches Discord and is safe to run in a worker thread.
 """
 from __future__ import annotations
 
-import contextlib
 from collections import Counter
+import contextlib
 import hashlib
 import json
 import os
@@ -528,15 +528,20 @@ def _copy_verified_member(zf, entry: dict, destination: Path) -> None:
 
     digest = hashlib.sha256()
     actual_size = 0
-    with zf.open(name) as src, open(destination, "wb") as dst:
-        for block in iter(lambda: src.read(_CHUNK), b""):
-            actual_size += len(block)
-            if actual_size > expected_size or actual_size > MAX_RESTORE_TOTAL_BYTES:
-                raise ValueError(f"{name}: entpackte Größe weicht vom Manifest ab.")
-            digest.update(block)
-            dst.write(block)
-    if actual_size != expected_size or digest.hexdigest() != expected_digest:
-        raise ValueError(f"{name}: Größe oder SHA-256-Prüfsumme hat sich beim Staging geändert.")
+    try:
+        with zf.open(name) as src, open(destination, "wb") as dst:
+            for block in iter(lambda: src.read(_CHUNK), b""):
+                actual_size += len(block)
+                if actual_size > expected_size or actual_size > MAX_RESTORE_TOTAL_BYTES:
+                    raise ValueError(f"{name}: entpackte Größe weicht vom Manifest ab.")
+                digest.update(block)
+                dst.write(block)
+        if actual_size != expected_size or digest.hexdigest() != expected_digest:
+            raise ValueError(f"{name}: Größe oder SHA-256-Prüfsumme hat sich beim Staging geändert.")
+    except BaseException:
+        with contextlib.suppress(OSError):
+            destination.unlink()
+        raise
 
 
 def _target_for(base_dir, name: str) -> Path | None:
