@@ -2086,7 +2086,7 @@ def register(app):
 
     # ---------------- Handover ----------------
     async def handover_page(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); items=db.list_handovers(100); tasks=db.list_tasks(status='in_progress',limit=20); tickets=db.list_tickets(limit=100,open_only=True)
+        c=cctx(request,user_session); items=db.list_handovers(100); tasks=db.list_tasks(status='in_progress',limit=20); tickets=[t for t in db.list_tickets(limit=100) if t['status']!='closed']
         rows=''.join(f'<article class="pulse-row"><div class="pulse-row-main"><div class="flex items-center gap-2">{pill("🚨 Dringend","bad") if x["priority"]=="urgent" else pill("Normal")}<div class="pulse-row-title">{e(x["title"])}</div></div><div class="text-[11px] text-slate-500 mt-2 whitespace-pre-wrap">{e(x["content"])}</div><div class="pulse-row-meta">{e(x["author_name"])} · {e(fmt_dt(x["created_at"]))}</div></div></article>' for x in items)
         context=f'<div class="grid grid-cols-1 sm:grid-cols-3 gap-2"><a href="/tickets" class="pulse-btn ghost">▣ {len(tickets)} offene Tickets</a><a href="/tasks" class="pulse-btn ghost">□ {len(tasks)} in Arbeit</a><a href="/team-status" class="pulse-btn ghost">◉ Teamstatus</a></div>'
         can_other=c.perms.get('can_manage_handover') or c.perms.get('can_promote') or c.perms.get('is_admin')
