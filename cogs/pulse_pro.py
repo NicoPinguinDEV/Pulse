@@ -588,7 +588,7 @@ class PulsePro(commands.Cog):
                 return
             shifts = webserver.load_shift_state()
             active = len(shifts.get("active_shifts", {}))
-            tickets = len([x for x in db.list_tickets(limit=1000, open_only=True) if x.get("status") != "closed"])
+            tickets = len(db.list_tickets(limit=1000, open_only=True))
             tasks_open = len([x for x in db.list_tasks(limit=1000) if x.get("status") in ("open", "in_progress")])
             promos = len(db.promotion_requests("pending", 100))
             embed = discord.Embed(title="⚡ Pulse TeamOS", description="Zentrale Teamverwaltung", color=_pulse_color("info"))
@@ -610,10 +610,7 @@ class PulsePro(commands.Cog):
                 task for task in db.list_tasks(assignee_id=uid, limit=100)
                 if task.get("status") not in ("done", "archived")
             ])
-            my_tickets = len([
-                ticket for ticket in db.list_tickets(claimed_by_id=uid, limit=100)
-                if ticket.get("status") != "closed"
-            ])
+            my_tickets = len(db.list_tickets(claimed_by_id=uid, limit=100, open_only=True))
             attempts = db.attempts(user_id=uid, limit=100)
             passed_trainings = {
                 str(item.get("training_id"))
@@ -903,8 +900,9 @@ class PulsePro(commands.Cog):
             return
         embed = discord.Embed(title="🧭 Dein Selbstservice", color=_pulse_color("info"))
         try:
-            tickets = db.list_user_tickets(interaction.guild.id, interaction.user.id, limit=10)
-            open_tickets = [t for t in tickets if str(t.get("status") or "") != "closed"]
+            open_tickets = db.list_user_tickets(
+                interaction.guild.id, interaction.user.id, limit=10, open_only=True
+            )
             lines = [
                 f"<#{t['channel_id']}>" if str(t.get("channel_id") or "").isdigit() else _private_label(t.get("id"), "Ticket", 50)
                 for t in open_tickets[:3]
@@ -1240,10 +1238,7 @@ class PulsePro(commands.Cog):
                 task for task in db.list_tasks(assignee_id=user_id, limit=100)
                 if task.get("status") not in ("done", "archived")
             ]
-            open_tickets = [
-                ticket for ticket in db.list_tickets(claimed_by_id=user_id, limit=100)
-                if ticket.get("status") != "closed"
-            ]
+            open_tickets = db.list_tickets(claimed_by_id=user_id, limit=100, open_only=True)
             attempts = db.attempts(user_id=user_id, limit=100)
             passed_training_ids = {
                 str(item.get("training_id"))
