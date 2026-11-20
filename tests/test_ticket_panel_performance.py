@@ -55,6 +55,31 @@ class TicketPanelWorkloadTests(unittest.TestCase):
         self.assertEqual(block.call_args.args[0], entries)
         layout.assert_called_once()
 
+    def test_ticket_select_batches_counts_and_reuses_category_definitions(self):
+        panel = {
+            "category_keys": ["support", "bug", "hidden"],
+            "show_load": True,
+            "component_style": "select",
+        }
+        with (
+            patch.object(tickets, "ticket_category_definitions", return_value=self.definitions) as definitions,
+            patch.object(
+                tickets._pulse_db, "open_ticket_category_counts",
+                return_value={"support": 4, "bug": 2},
+            ) as counts,
+        ):
+            view = tickets.panel_view(panel)
+
+        definitions.assert_called_once_with()
+        counts.assert_called_once_with(["support", "bug"])
+        select = view.children[0]
+        self.assertEqual([option.value for option in select.options], ["support", "bug"])
+        self.assertIn("4/10 offen", select.options[0].description)
+        self.assertEqual(
+            view._pulse_panel_entries,
+            [("Support", "🎫", 4, 10), ("Bug", "⚙️", 2, 5)],
+        )
+
     def test_legacy_panel_uses_one_grouped_category_count_query(self):
         guild = SimpleNamespace(icon=None)
         with patch.object(
