@@ -1149,9 +1149,7 @@ def register(app) -> None:
                     except Exception:
                         pass
             overdue_ticket_count = 0
-            for ticket in db.list_tickets(limit=5000):
-                if ticket.get("status") == "closed":
-                    continue
+            for ticket in db.list_tickets(limit=5000, open_only=True):
                 try:
                     opened = datetime.fromisoformat(str(ticket.get("opened_at","")).replace("Z","+00:00"))
                     sla = {"urgent":30,"high":240,"normal":1440}.get(str(ticket.get("priority") or "normal"),1440)
@@ -3052,7 +3050,7 @@ async def _run_automation(bot, automation: dict):
     if condition:
         team = team_members(guild) if guild else []
         open_cases_count = sum(x["status"] not in ("closed","resolved") for x in case_rows(500))
-        open_tickets_count = sum(x.get("status") != "closed" for x in db.list_tickets(limit=5000))
+        open_tickets_count = len(db.list_tickets(limit=5000, open_only=True))
         cond_type = str(condition.get("type","always"))
         threshold = float(condition.get("value",0) or 0)
         current = {
@@ -3135,9 +3133,7 @@ async def _run_automation(bot, automation: dict):
         minutes = max(5, min(1440, int(payload.get("minutes", 30))))
         overdue = []
         now_dt = utcnow()
-        for ticket in db.list_tickets(limit=5000):
-            if ticket.get("status") == "closed":
-                continue
+        for ticket in db.list_tickets(limit=5000, open_only=True):
             try:
                 opened = datetime.fromisoformat(str(ticket["opened_at"]).replace("Z","+00:00"))
                 if (now_dt - opened).total_seconds() >= minutes * 60:
