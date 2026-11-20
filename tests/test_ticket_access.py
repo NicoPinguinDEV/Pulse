@@ -24,6 +24,8 @@ HIGH = {"id": "T-HIGH", "guild_id": "1", "category": "highteam", "user_id": "9",
 NORMAL = {"id": "T-NORM", "guild_id": "1", "category": "support", "user_id": "9", "user_name": "Bürger",
           "status": "closed", "transcript_path": "T-NORM.txt", "channel_id": "6"}
 OTHER_GUILD = dict(NORMAL, id="T-OTHER", guild_id="2")
+UNBOUND_GUILD = dict(NORMAL, id="T-UNBOUND", guild_id="")
+NULL_GUILD = dict(NORMAL, id="T-NULL-GUILD", guild_id=None)
 
 SUPPORTER = {"can_view_dashboard": True, "can_manage_tickets": True, "is_admin": False}
 MEMBER_ONLY = {"can_view_dashboard": True, "can_manage_tickets": False, "is_admin": False}
@@ -79,6 +81,14 @@ class CanAccessTicketTests(unittest.TestCase):
             self.assertFalse(pta.can_access_ticket(ctx_for(ADMIN), OTHER_GUILD))             # guild binding
             self.assertFalse(pta.can_access_ticket(ctx_for(ADMIN), None))
 
+    def test_unbound_tickets_are_denied_even_for_administrators(self):
+        # A missing guild ID must never behave like a wildcard, including for normal
+        # categories and administrators. Only explicitly guild-bound rows are visible.
+        with CategoryPatch():
+            for ticket in (UNBOUND_GUILD, NULL_GUILD):
+                self.assertFalse(pta.can_access_ticket(ctx_for(SUPPORTER), ticket))
+                self.assertFalse(pta.can_access_ticket(ctx_for(ADMIN), ticket))
+
     def test_confidential_category_without_roles_is_admin_only(self):
         leadership = dict(HIGH, id="T-LEAD", category="leadership")
         with CategoryPatch():
@@ -87,7 +97,7 @@ class CanAccessTicketTests(unittest.TestCase):
 
     def test_filter_removes_forbidden_tickets(self):
         with CategoryPatch():
-            visible = pta.filter_tickets(ctx_for(SUPPORTER), [HIGH, NORMAL, OTHER_GUILD])
+            visible = pta.filter_tickets(ctx_for(SUPPORTER), [HIGH, NORMAL, OTHER_GUILD, UNBOUND_GUILD, NULL_GUILD])
         self.assertEqual([t["id"] for t in visible], ["T-NORM"])
 
 
