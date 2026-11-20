@@ -9,15 +9,37 @@ shortened user agent.
 """
 from __future__ import annotations
 
+import math
 import os
 import secrets
+import threading
 import time
 
-IDLE_SECONDS = max(900, int(float(os.getenv("PULSE_SESSION_IDLE_HOURS", "24")) * 3600))
+def _idle_seconds() -> int:
+    """Parse the configured idle timeout safely; invalid values fall back to the documented default."""
+    try:
+        hours = float(os.getenv("PULSE_SESSION_IDLE_HOURS", "24"))
+        if not math.isfinite(hours):
+            raise ValueError("idle timeout must be finite")
+        # Keep runtime behavior aligned with pulse_env_validation.FLOAT_RANGES.
+        hours = min(8760.0, max(0.25, hours))
+        return max(900, int(hours * 3600))
+    except (TypeError, ValueError, OverflowError):
+        return 24 * 3600
+
+
+IDLE_SECONDS = _idle_seconds()
 try:  # absolute lifetime: same setting as the cookie (SESSION_DAYS, default 7), enforced server-side as well
-    MAX_SESSION_SECONDS = max(3600, int(float(os.getenv("SESSION_DAYS", "7")) * 86400))
-except ValueError:
+    _session_days = float(os.getenv("SESSION_DAYS", "7"))
+    if not math.isfinite(_session_days):
+        raise ValueError("session lifetime must be finite")
+    MAX_SESSION_SECONDS = max(3600, int(_session_days * 86400))
+except (TypeError, ValueError, OverflowError):
     MAX_SESSION_SECONDS = 7 * 86400
+
+_SCHEMA_READY: dict[tuple[str, int, int], None] = {}
+_SCHEMA_READY_LOCK = threading.Lock()
+_SCHEMA_READY_MAX = 64
 TOUCH_EVERY = 60          # last_seen is written at most once a minute per session
 KEEP_DAYS = 30            # revoked/expired rows are cleaned up after this
 MAX_PER_USER = 20         # oldest sessions beyond this are revoked on login
@@ -29,11 +51,25 @@ def _db():
 
 
 def _init(db) -> None:
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS dashboard_sessions (sid TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at REAL NOT NULL,"
-        " last_seen REAL NOT NULL, user_agent TEXT, revoked_at REAL, revoke_reason TEXT)"
-    )
-    db.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_user ON dashboard_sessions(user_id, revoked_at)")
+    """Create the session table/index once per database file identity, not on every auth request."""
+    path = os.path.realpath(_db().DB_PATH)
+    try:
+        stat = os.stat(path)
+        cache_key = (path, int(stat.st_dev), int(stat.st_ino))
+    except OSError:
+        cache_key = (path, 0, 0)
+
+    with _SCHEMA_READY_LOCK:
+        if cache_key in _SCHEMA_READY:
+            return
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS dashboard_sessions (sid TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at REAL NOT NULL,"
+            " last_seen REAL NOT NULL, user_agent TEXT, revoked_at REAL, revoke_reason TEXT)"
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_user ON dashboard_sessions(user_id, revoked_at)")
+        _SCHEMA_READY[cache_key] = None
+        if len(_SCHEMA_READY) > _SCHEMA_READY_MAX:
+            _SCHEMA_READY.pop(next(iter(_SCHEMA_READY)))
 
 
 def device_label(user_agent: str) -> str:
