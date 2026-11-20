@@ -135,7 +135,7 @@ def configured_role_ids(guild, group: str):
 def category_open_count(key: str) -> int:
     return sum(
         1 for ticket in list_tickets(limit=2000, open_only=True)
-        if ticket.get("category") == key and ticket.get("status") != "closed"
+        if ticket.get("category") == key
     )
 
 
@@ -1466,7 +1466,7 @@ class Tickets(commands.Cog):
     def reload_ticket_channels(self):
         self.ticket_channel_ids = {
             int(t["channel_id"]) for t in list_tickets(limit=2000, open_only=True)
-            if t.get("status") != "closed" and str(t.get("channel_id") or "").isdigit()
+            if str(t.get("channel_id") or "").isdigit()
         }
 
     @commands.Cog.listener()
@@ -1518,7 +1518,7 @@ class Tickets(commands.Cog):
         if not automation_enabled(settings):
             return
         now = discord.utils.utcnow()
-        tickets = [t for t in list_tickets(limit=2000, open_only=True) if t.get("status") != "closed"]
+        tickets = list_tickets(limit=2000, open_only=True)
         self.ticket_channel_ids = {int(t["channel_id"]) for t in tickets if str(t.get("channel_id") or "").isdigit()}
         for ticket in tickets:
             ticket_settings = category_automation_settings(ticket.get("category"), settings)
