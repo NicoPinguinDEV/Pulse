@@ -77,11 +77,18 @@ def handover(ticket_id: str, new_id, new_name: str, actor_id, actor_name: str, n
         return False, "Das Ticket liegt bereits bei dieser Person."
     now = pulse_db._now()
     with pulse_db.connect() as db:
-        db.execute("UPDATE tickets SET claimed_by_id=?,claimed_by_name=?,claimed_at=?,status='in_progress' WHERE id=? AND status!='closed'",
-                   (str(new_id), new_name, now, ticket_id))
-        db.execute("INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
-                   (pulse_db.make_id("te"), ticket_id, str(actor_id), actor_name, "handover",
-                    f"an {new_name}: {note[:900]}", now))
+        updated = db.execute(
+            "UPDATE tickets SET claimed_by_id=?,claimed_by_name=?,claimed_at=?,status='in_progress' "
+            "WHERE id=? AND status!='closed'",
+            (str(new_id), new_name, now, ticket_id),
+        )
+        if updated.rowcount != 1:
+            return False, "Dieses Ticket ist nicht mehr offen."
+        db.execute(
+            "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+            (pulse_db.make_id("te"), ticket_id, str(actor_id), actor_name, "handover",
+             f"an {new_name}: {note[:900]}", now),
+        )
     pulse_db.notify(new_id, "🎫 Ticket übergeben", f"{actor_name} hat dir {ticket_id} übergeben: {note[:200]}",
                     "info", f"/ticket/{ticket_id}", f"handover:{ticket_id}:{new_id}", 600)
     return True, f"Ticket an {new_name} übergeben."
