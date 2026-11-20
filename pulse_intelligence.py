@@ -5,9 +5,7 @@ The simulator and workflow sandbox are read-only: neither executes Discord actio
 """
 import json
 import math
-import os
 import shutil
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -58,6 +56,54 @@ def ticket_is_overdue(ticket, now=None):
     priority = str(ticket.get("priority") or "normal").lower()
     sla_minutes = {"urgent": 30, "high": 240, "normal": 1440}.get(priority, 1440)
     return age_minutes >= sla_minutes
+
+
+def database_workload_counts(connection, now=None):
+    """Count complete ticket/task workload metrics in SQL without loading capped row samples."""
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    now_iso = current.astimezone(UTC).isoformat(timespec="microseconds")
+
+    open_ticket = "lower(coalesce(nullif(status,''),'open')) NOT IN ('closed','resolved','done','archived','cancelled')"
+    ticket_row = connection.execute(
+        f"""
+        SELECT
+            COUNT(CASE WHEN {open_ticket} THEN 1 END) AS open_tickets,
+            COUNT(CASE WHEN {open_ticket}
+                            AND lower(coalesce(nullif(priority,''),'normal'))='urgent'
+                       THEN 1 END) AS urgent_tickets,
+            COUNT(CASE WHEN {open_ticket}
+                            AND julianday(opened_at) IS NOT NULL
+                            AND julianday(opened_at) <= julianday(?) - (
+                                CASE lower(coalesce(nullif(priority,''),'normal'))
+                                    WHEN 'urgent' THEN 30.0
+                                    WHEN 'high' THEN 240.0
+                                    ELSE 1440.0
+                                END / 1440.0
+                            )
+                       THEN 1 END) AS ticket_sla_overdue
+        FROM tickets
+        """,
+        (now_iso,),
+    ).fetchone()
+    overdue_tasks = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM tasks
+        WHERE due_at IS NOT NULL
+          AND lower(coalesce(status,'')) NOT IN ('done','archived')
+          AND julianday(due_at) IS NOT NULL
+          AND julianday(due_at) < julianday(?)
+        """,
+        (now_iso,),
+    ).fetchone()[0]
+    return {
+        "open_tickets": int(ticket_row[0] or 0),
+        "urgent_tickets": int(ticket_row[1] or 0),
+        "ticket_sla_overdue": int(ticket_row[2] or 0),
+        "overdue_tasks": int(overdue_tasks or 0),
+    }
 
 
 def memory_state(rss_mb):
@@ -431,25 +477,8 @@ def collect_snapshot(request):
         with db.connect() as connection:
             connection.execute("SELECT 1").fetchone()
             metrics["primary_db_ok"] = True
-            tickets = [dict(row) for row in connection.execute(
-                "SELECT * FROM tickets WHERE lower(coalesce(status,'')) NOT IN ('closed','resolved','done','archived','cancelled') "
-                "ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, opened_at ASC LIMIT 2000"
-            ).fetchall()]
-            metrics["open_tickets"] = int(connection.execute(
-                "SELECT COUNT(*) FROM tickets WHERE lower(coalesce(status,'')) NOT IN ('closed','resolved','done','archived','cancelled')"
-            ).fetchone()[0])
-            metrics["urgent_tickets"] = int(connection.execute(
-                "SELECT COUNT(*) FROM tickets WHERE lower(coalesce(status,'')) NOT IN ('closed','resolved','done','archived','cancelled') AND lower(priority)='urgent'"
-            ).fetchone()[0])
-            metrics["ticket_sla_overdue"] = sum(ticket_is_overdue(ticket, now) for ticket in tickets)
+            metrics.update(database_workload_counts(connection, now))
             metrics.update(ticket_intake_counts(connection, now))
-            tasks = [dict(row) for row in connection.execute(
-                "SELECT due_at,status FROM tasks WHERE due_at IS NOT NULL AND lower(coalesce(status,'')) NOT IN ('done','archived') ORDER BY due_at ASC LIMIT 1000"
-            ).fetchall()]
-            metrics["overdue_tasks"] = sum(
-                1 for task in tasks
-                if (parse_timestamp(task.get("due_at")) is not None and parse_timestamp(task.get("due_at")) < now)
-            )
     except Exception as exc:
         metrics["primary_db_error"] = type(exc).__name__
     try:
@@ -563,7 +592,6 @@ def register(app):
     """Register TeamOS pages once; all expensive checks run only when a user opens them."""
     from fastapi import Cookie, Form, Request
     from fastapi.responses import HTMLResponse, JSONResponse
-    import pulse_db as db
     import pulse_ultimate as ultimate
 
     if getattr(app.state, "pulse_intelligence_registered", False):
