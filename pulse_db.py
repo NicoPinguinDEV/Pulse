@@ -1267,9 +1267,20 @@ def update_ticket_priority(tid, priority, actor_id=None, actor_name=None):
         old = db.execute("SELECT priority FROM tickets WHERE id=?", (tid,)).fetchone()
         if not old:
             return False
-        db.execute("UPDATE tickets SET priority=? WHERE id=? AND status!='closed'", (priority, tid))
+        updated = db.execute(
+            "UPDATE tickets SET priority=? WHERE id=? AND status!='closed'",
+            (priority, tid),
+        )
+        # A concurrent close (or an already closed ticket) can make the guarded UPDATE
+        # affect zero rows. Never report success or create an audit event in that case.
+        if updated.rowcount != 1:
+            return False
         if actor_id:
-            db.execute("INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)", (make_id("te"), tid, str(actor_id), actor_name or "System", "priority", f"{old[0]} → {priority}", _now()))
+            db.execute(
+                "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+                (make_id("te"), tid, str(actor_id), actor_name or "System", "priority",
+                 f"{old[0]} → {priority}", _now()),
+            )
         return True
 
 
