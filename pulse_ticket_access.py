@@ -28,7 +28,13 @@ def _category_info(category_key):
     except Exception:  # noqa: BLE001 - without the ticket cog definitions fail closed below
         return None, None
     key = str(category_key or "")
-    definition = ticket_category_definitions().get(key) or {}
+    definitions = ticket_category_definitions()
+    definition = definitions.get(key)
+    if not isinstance(definition, dict):
+        # A removed, misspelled or otherwise unknown category may have been
+        # confidential before its configuration disappeared. Do not let
+        # category_meta's display fallback ("team") turn it into a public ACL.
+        return None, None
     explicit = definition.get("role_ids") if isinstance(definition.get("role_ids"), list) else []
     return category_meta(key)[4], [str(r) for r in explicit if str(r).isdigit()]
 
