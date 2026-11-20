@@ -55,6 +55,31 @@ class ExtrasTests(TempDb):
         self.assertTrue(any(n["title"] == "🎫 Ticket übergeben" for n in pulse_db.notifications("7")))
         self.assertFalse(tx.handover(self.tid, 7, "Lena", 3, "Max", "nochmal dieselbe Person")[0])
 
+    def test_handover_reports_concurrent_close_without_audit_or_notification(self):
+        original_now = pulse_db._now
+
+        def close_between_read_and_update():
+            # Simulate another request closing the ticket after handover's initial
+            # read but before its guarded UPDATE executes.
+            with patch.object(pulse_db, "_now", original_now):
+                self.assertTrue(pulse_db.close_ticket(self.tid, "Parallel geschlossen"))
+            return original_now()
+
+        with patch.object(pulse_db, "_now", side_effect=close_between_read_and_update), patch.object(
+            pulse_db, "notify"
+        ) as notify:
+            ok, message = tx.handover(
+                self.tid, 7, "Lena", 3, "Max", "Bürger wartet auf Rückerstattung"
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("nicht mehr offen", message)
+        self.assertEqual(pulse_db.get_ticket(ticket_id=self.tid)["status"], "closed")
+        self.assertFalse(any(
+            event["event_type"] == "handover" for event in pulse_db.ticket_events(self.tid)
+        ))
+        notify.assert_not_called()
+
     def test_ticket_ban_with_expiry(self):
         with self.assertRaises(ValueError):
             tx.block(9, 3, "kurz", "Max")
