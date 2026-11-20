@@ -330,7 +330,11 @@ class PlayerSelfServiceCommandTests(unittest.TestCase):
         ]
         events = [{"title": "Teamabend", "start_at": "2030-01-01T18:00:00+00:00", "response": "going"}]
         prefs = {"dm": False, "muted": ["tickets", "events"], "quiet_from": 22, "quiet_to": 7}
-        with patch("cogs.pulse_pro.db.list_user_tickets", return_value=tickets) as ticket_query, \
+        def list_open_tickets(guild_id, user_id, limit=10, open_only=False):
+            rows = [ticket for ticket in tickets if not open_only or ticket.get("status") != "closed"]
+            return rows[:limit]
+
+        with patch("cogs.pulse_pro.db.list_user_tickets", side_effect=list_open_tickets) as ticket_query, \
              patch("pulse_ultimate.list_user_calendar_rsvps", return_value=events) as event_query, \
              patch("pulse_notify_prefs.load", return_value=prefs) as prefs_load:
             asyncio.run(PulsePro.self_service.callback(PulsePro.__new__(PulsePro), interaction))
