@@ -420,6 +420,12 @@ def member_row(uid):
     with cx() as c:r=c.execute("SELECT * FROM suite_members WHERE user_id=?",(str(uid),)).fetchone()
     return dict(r) if r else None
 
+def member_rows():
+    """Load the small suite member directory once for list pages."""
+    with cx() as c:
+        rows=c.execute("SELECT * FROM suite_members").fetchall()
+    return {str(row["user_id"]): dict(row) for row in rows}
+
 def upsert_member(m):
     joined = iso()
     with cx() as c:
@@ -667,6 +673,7 @@ def register_routes():
         ctx=auth(request,user_session,manager=True);web=webserver;rows=""
         # One request-scoped snapshot; per-member metrics are aggregated in SQLite/one history pass.
         team_members=members(ctx.guild,web)
+        member_snapshots=member_rows()
         shift_state=web.load_shift_state()
         if "history" in shift_state:
             credited_totals={}
@@ -691,7 +698,7 @@ def register_routes():
             s=team_score(m,web,team_data=team_data,shift_state=shift_state,weekly_totals=weekly_totals,
                          task_totals=task_totals,ticket_totals=ticket_totals,passed_attempts=passed_attempts,
                          weekly_goal_seconds=weekly_goal_seconds)
-            sm=member_row(m.id);cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
+            sm=member_snapshots.get(str(m.id)) or {};cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
             rows+=f'<tr><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a><div class=tiny>{m.id}</div></td><td>{esc(m.top_role.name)}</td><td>{secfmt(total_time(m,web,shift_state,credited_totals))}</td><td>{secfmt(weekly(m,web,shift_state,weekly_totals))}</td><td><span class="badge {cl}">{s["score"]}/100</span></td><td>{min(5,len(warns(m,web,team_data)))}/5</td><td>{esc(sm.get("probation_end") if sm else "—")}</td><td>{"🟢" if str(m.status) in {"online","idle","dnd"} else "⚪"}</td></tr>'
         body=f'<div class=card><input class=input id=tf placeholder="Name oder Discord-ID…" oninput="f(this.value)"><div class=scroll style="margin-top:10px"><table class=table id=tt><thead><tr><th>Teamler</th><th>Position</th><th>Gesamt</th><th>Woche</th><th>Score</th><th>Warnungen</th><th>Probezeit</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
         return page(ctx,"team","Teamakten","Digitale Personalakte mit Score, Dienstzeit, Warnungen und Probezeit",body,"function f(q){q=q.toLowerCase();document.querySelectorAll('#tt tbody tr').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none')}")
