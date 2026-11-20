@@ -54,6 +54,22 @@ class OpenTicketCountTests(unittest.TestCase):
         counts = pulse_db.open_ticket_counts([None, "", 321, "321", "0"])
         self.assertEqual(counts, {"321": 0, "0": 0})
 
+    def test_category_counts_include_all_open_tickets_and_exclude_closed(self):
+        rows = [
+            ("support-1", "guild-1", "customer", "Kunde", "support", "open", "normal", None, "2026-11-20T00:00:00+00:00"),
+            ("support-2", "guild-1", "customer", "Kunde", "support", "closed", "normal", None, "2026-11-20T00:01:00+00:00"),
+            ("bug-1", "guild-1", "customer", "Kunde", "bug", "in_progress", "high", None, "2026-11-20T00:02:00+00:00"),
+        ]
+        with pulse_db.connect() as connection:
+            connection.executemany(
+                "INSERT INTO tickets(id,guild_id,user_id,user_name,category,status,priority,claimed_by_id,opened_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+        counts = pulse_db.open_ticket_category_counts(["support", "bug", "missing", "support"])
+        self.assertEqual(counts, {"support": 1, "bug": 1, "missing": 0})
+
 
 if __name__ == "__main__":
     unittest.main()
