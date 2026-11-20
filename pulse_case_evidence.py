@@ -173,7 +173,17 @@ def remove_evidence(evidence_id, perms, *, guild_id, reason, actor_id, actor_nam
             raise ValueError("Bitte einen Grund für die Entfernung angeben.")
         if row["removed_at"]:
             raise ValueError("Dieser Beweis wurde bereits entfernt.")
-        db.execute(
+        updated = db.execute(
             "UPDATE case_evidence SET removed_at=?, removed_by_id=?, removed_by_name=?, remove_reason=? "
-            "WHERE id=? AND removed_at IS NULL", (_now(), str(actor_id), str(actor_name or "")[:80], reason, row["id"]))
-    return dict(row)
+            "WHERE id=? AND guild_id=? AND removed_at IS NULL",
+            (_now(), str(actor_id), str(actor_name or "")[:80], reason, row["id"], str(guild_id)),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("Dieser Beweis wurde bereits entfernt.")
+        result = db.execute(
+            "SELECT * FROM case_evidence WHERE id=? AND guild_id=?",
+            (row["id"], str(guild_id)),
+        ).fetchone()
+        if result is None:
+            raise PermissionError("Beweis nicht gefunden.")
+    return dict(result)
