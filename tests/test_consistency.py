@@ -49,6 +49,20 @@ class ConsistencyTests(unittest.TestCase):
         self.assertIn("c9", results["Voice-Support-Fälle"]["text"])
         self.assertEqual(ws.load_json(ws.SHIFTS_FILE, {}), before)
 
+    def test_consistency_checks_all_ticket_refs_beyond_the_list_limit(self):
+        refs = [(f"T-{index}", "500") for index in range(2005)]
+        refs.append(("T-ORPHAN-OLD", "999"))
+        guild = SimpleNamespace(
+            get_member=GUILD.get_member,
+            get_channel=lambda channel_id: CHANNEL if channel_id == 500 else None,
+        )
+        with patch.object(pulse_db, "list_open_ticket_channel_refs", return_value=refs):
+            results = {row["area"]: row for row in pulse_consistency.check(ws, guild)}
+
+        self.assertEqual(results["Offene Tickets"]["count"], 1)
+        self.assertIn("T-ORPHAN-OLD", results["Offene Tickets"]["text"])
+
+
     def test_clean_state_is_ok_and_growth_watch(self):
         MEMBER.roles = [SimpleNamespace(id=ws.WARN_ROLE_IDS[1])]
         try:
