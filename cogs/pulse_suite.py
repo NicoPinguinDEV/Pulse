@@ -2450,6 +2450,11 @@ class PulseSuite(commands.Cog):
     async def team_ping(self,i,scope:str="all",rolle:discord.Role=None):
         web=__import__("webserver")
         if not allowed(i,"team-ping",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
+        if web.rate_limited(f"team-ping:{i.guild.id}:{i.user.id}",limit=1,window=60):
+            return await i.response.send_message(
+                "⏳ Du hast das Team gerade erst angepingt. Bitte warte 60 Sekunden, bevor du erneut einen Team-Ping sendest.",
+                ephemeral=True,
+            )
         ms=members(i.guild,web)
         if rolle:ms=[m for m in ms if rolle in m.roles]
         if scope=="leadership":ms=managers(i.guild,web)
