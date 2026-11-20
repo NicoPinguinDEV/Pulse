@@ -271,11 +271,12 @@ class PanelLayoutTests(unittest.TestCase):
         from cogs import tickets
         panel = {"id": "immo", "title": "🏠 IMMOBILIEN-CENTER", "description": "Willkommen!", "show_load": True,
                  "category_keys": ["support", "bug"], "banner_url": "https://example.com/b.png", "footer": "Immobilienverwaltung"}
+        view = tickets.panel_view(panel)
         with patch.object(
             tickets._pulse_db, "open_ticket_category_counts",
             return_value={"support": 3, "bug": 5},
         ) as counts:
-            layout = tickets.build_panel_layout(SimpleNamespace(icon=None), panel, tickets.panel_view(panel))
+            layout = tickets.build_panel_layout(SimpleNamespace(icon=None), panel, view)
         counts.assert_called_once_with(["support", "bug"])
         components = layout.to_components()
         self.assertEqual([c["type"] for c in components], [17, 1])  # card, then the menu below it
