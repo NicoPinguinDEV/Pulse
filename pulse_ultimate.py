@@ -871,9 +871,12 @@ def stats_context() -> dict:
     Phase 10: also the per-member SQLite reads (tasks, training attempts, profiles) as one query each and the shift
     history grouped by member – a page with N members used ~4·N connections and N passes over the whole history."""
     import webserver
-    ticket_totals = db.ticket_totals_by_assignee(limit=5000)
-    claimed = {user_id: totals[0] for user_id, totals in ticket_totals.items()}
-    closed = {user_id: totals[1] for user_id, totals in ticket_totals.items()}
+    claimed, closed = {}, {}
+    for t in db.list_tickets(limit=5000):
+        key = str(t.get("claimed_by_id"))
+        claimed[key] = claimed.get(key, 0) + 1
+        if t.get("status") == "closed":
+            closed[key] = closed.get(key, 0) + 1
     shifts = webserver.load_shifts()
     return {"shifts": shifts, "claimed": claimed, "closed": closed,
             "team_data": webserver.load_json(webserver.DATA_FILE, {}), "config": webserver.load_config(),
@@ -1149,7 +1152,9 @@ def register(app) -> None:
                     except Exception:
                         pass
             overdue_ticket_count = 0
-            for ticket in db.list_tickets(limit=5000, open_only=True):
+            for ticket in db.list_tickets(limit=5000):
+                if ticket.get("status") == "closed":
+                    continue
                 try:
                     opened = datetime.fromisoformat(str(ticket.get("opened_at","")).replace("Z","+00:00"))
                     sla = {"urgent":30,"high":240,"normal":1440}.get(str(ticket.get("priority") or "normal"),1440)
@@ -3050,7 +3055,7 @@ async def _run_automation(bot, automation: dict):
     if condition:
         team = team_members(guild) if guild else []
         open_cases_count = sum(x["status"] not in ("closed","resolved") for x in case_rows(500))
-        open_tickets_count = len(db.list_tickets(limit=5000, open_only=True))
+        open_tickets_count = sum(x.get("status") != "closed" for x in db.list_tickets(limit=5000))
         cond_type = str(condition.get("type","always"))
         threshold = float(condition.get("value",0) or 0)
         current = {
