@@ -1386,14 +1386,13 @@ def register(app):
     async def support(request: Request, user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics")
         import webserver
-        tickets=db.list_tickets(limit=5000)
+        open_tickets=db.list_tickets(limit=5000,open_only=True)
+        closed_tickets=db.list_tickets(status="closed",limit=5000)
         now_dt=now()
         overdue=[]
         waiting=[]
         durations={}
-        for t in tickets:
-            if t.get("status")=="closed":
-                continue
+        for t in open_tickets:
             try:
                 opened=datetime.fromisoformat(str(t.get("opened_at","")).replace("Z","+00:00"))
                 age=(now_dt-opened).total_seconds()/60
@@ -1402,8 +1401,8 @@ def register(app):
             except Exception:
                 continue
         perf={}
-        for t in tickets:
-            if t.get("status")=="closed" and t.get("claimed_by_id"):
+        for t in closed_tickets:
+            if t.get("claimed_by_id"):
                 uid_s=str(t.get("claimed_by_id"))
                 perf[uid_s]=perf.get(uid_s,0)+1
         names={str(m.id):m.display_name for m in members(ctx.guild)}
