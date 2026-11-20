@@ -27,6 +27,7 @@ class DashboardTicketQueryTests(unittest.TestCase):
             "open-channel", "guild-a", "42", "Teammitglied", "Support", priority="normal"
         )
         self.assertTrue(pulse_db.claim_ticket(open_ticket, "42", "Teammitglied"))
+        self.assertTrue(pulse_db.claim_ticket(open_ticket, "42", "Teammitglied"))
         for index in range(55):
             closed_ticket = pulse_db.create_ticket(
                 f"closed-channel-{index}",
@@ -36,6 +37,7 @@ class DashboardTicketQueryTests(unittest.TestCase):
                 "Support",
                 priority="urgent",
             )
+            self.assertTrue(pulse_db.claim_ticket(closed_ticket, "42", "Teammitglied"))
             self.assertTrue(pulse_db.close_ticket(closed_ticket, "Erledigt"))
 
         rows = pulse_home.member_open_tickets("42", limit=50)
