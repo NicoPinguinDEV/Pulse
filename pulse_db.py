@@ -2051,7 +2051,7 @@ def passed_attempts_by_user(limit_per_user=200, user_ids=None) -> dict:
         placeholders = ",".join("?" for _ in selected)
         user_filter = f" WHERE user_id IN ({placeholders})"
         params.extend(selected)
-    params.append(max(1, min(int(limit_per_user), 1000)))
+    params.append(int(limit_per_user))
     with connect() as db:
         rows = db.execute(
             """SELECT user_id, SUM(passed != 0) FROM (
