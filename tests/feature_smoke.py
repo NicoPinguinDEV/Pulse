@@ -388,8 +388,8 @@ def main() -> None:
     assert "member_snapshots=member_rows()" in suite_actions
     assert "task_totals=db.task_totals_by_assignee(1000,shift_member_ids)" in suite_actions
     assert "passed_attempts=db.passed_attempts_by_user(200,shift_member_ids)" in suite_actions
-    assert "ticket_totals={}" in suite_actions
-    assert "for ticket in db.list_tickets(limit=2000)" in suite_actions
+    assert "_,ticket_totals=db.ticket_totals_by_assignee()" in suite_actions
+    assert "for ticket in db.list_tickets(limit=2000)" not in suite_actions
     assert "task_totals=task_totals" in suite_actions
     assert "passed_attempts=passed_attempts" in suite_actions
     assert "ctx=auth(request,user_session,manager=True);web=webserver;rows=\"\"" in suite_actions
