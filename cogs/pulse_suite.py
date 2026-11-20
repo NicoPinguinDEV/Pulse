@@ -690,7 +690,7 @@ def register_routes():
             credited_totals=web.shift_total_credited_seconds_by_member(shift_member_ids)
             weekly_totals=web.shift_weekly_totals(shift_member_ids)
         task_totals=db.task_totals_by_assignee(1000,shift_member_ids)
-        _,ticket_totals=db.ticket_totals_by_assignee()
+        ticket_totals=db.closed_ticket_totals_by_assignee()
         passed_attempts=db.passed_attempts_by_user(200,shift_member_ids)
         weekly_goal_seconds=max(1,float(setting("weekly_goal_hours",3))*3600)
         team_data=web.load_json(web.DATA_FILE,{})
