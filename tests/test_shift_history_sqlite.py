@@ -505,6 +505,25 @@ class BackupRestoreTests(ShiftHistoryBase):
         self.assertEqual(len(self.raw_file()["history"]), 301)  # JSON mode: writes go to the file again
 
 
+class AggregatedMemberTotalsTests(ShiftHistoryBase):
+    def test_all_time_totals_match_in_json_and_sqlite_modes(self):
+        history = synthetic_history(240, members=12, seed=123)
+        history.extend([
+            {"mod_id": "legacy-user", "date": "2026-1-5", "duration_seconds": 900},
+            {"mod_id": "legacy-user", "duration_seconds": 120},
+            "malformed-entry",
+        ])
+        self.seed(history)
+        expected = team_hours(history)
+
+        self.assertEqual(store.total_credited_seconds_by_member(ws), expected)
+        self.assertEqual(ws.shift_total_credited_seconds_by_member(), expected)
+
+        self.assertEqual(store.migrate(ws)["status"], "migrated")
+        self.assertEqual(store.total_credited_seconds_by_member(ws), expected)
+        self.assertEqual(ws.shift_total_credited_seconds_by_member(), expected)
+
+
 class DashboardResultTests(ShiftHistoryBase):
     PAGES = ("/stats", "/dashboard", "/ultimate/reports.csv", "/ultimate/export.json", "/ultimate/api/team", "/export/team.csv")
 
