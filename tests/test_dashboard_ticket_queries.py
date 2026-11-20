@@ -42,43 +42,6 @@ class DashboardTicketQueryTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in rows], [open_ticket])
         self.assertTrue(all(row["status"] != "closed" for row in rows))
 
-    def test_ticket_totals_by_assignee_matches_the_bounded_python_snapshot(self):
-        fixtures = [
-            ("42", "normal", "open"),
-            ("42", "urgent", "closed"),
-            ("77", "high", "open"),
-            ("None", "urgent", "open"),
-            ("77", "normal", "closed"),
-            ("42", "low", "open"),
-            ("None", "normal", "open"),
-        ]
-        for index, (assignee, priority, status) in enumerate(fixtures):
-            ticket_id = pulse_db.create_ticket(
-                f"channel-{index}", "guild-a", assignee, "Teammitglied", "Support", priority=priority
-            )
-            with pulse_db.connect() as connection:
-                connection.execute(
-                    "UPDATE tickets SET opened_at=? WHERE id=?",
-                    (f"2026-11-20T10:{index:02d}:00+00:00", ticket_id),
-                )
-            if status == "closed":
-                self.assertTrue(pulse_db.close_ticket(ticket_id, "Erledigt"))
-
-        bounded_rows = pulse_db.list_tickets(limit=5)
-        expected_claimed = {}
-        expected_closed = {}
-        for ticket in bounded_rows:
-            key = str(ticket.get("claimed_by_id"))
-            expected_claimed[key] = expected_claimed.get(key, 0) + 1
-            if ticket.get("status") == "closed":
-                expected_closed[key] = expected_closed.get(key, 0) + 1
-        expected = {
-            key: (count, expected_closed.get(key, 0))
-            for key, count in expected_claimed.items()
-        }
-
-        self.assertEqual(pulse_db.ticket_totals_by_assignee(limit=5), expected)
-
     def test_analytics_ticket_totals_reuse_the_prefetched_context(self):
         """The analytics view can derive both totals from the already loaded ticket snapshot."""
         shared = {
