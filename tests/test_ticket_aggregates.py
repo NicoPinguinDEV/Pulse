@@ -29,6 +29,26 @@ class TicketAggregateTests(unittest.TestCase):
              status, priority, claimed_by_id, opened_at),
         )
 
+    def test_open_ticket_channel_refs_include_rows_beyond_list_limit(self):
+        with pulse_db.connect() as connection:
+            rows = []
+            for index in range(2005):
+                rows.append((
+                    f"orphan-probe-{index}", f"probe-channel-{index}", "1", "2", "Test", "support",
+                    "open", "normal", None, "2026-11-18T12:00:00+00:00",
+                ))
+            connection.executemany(
+                "INSERT INTO tickets(id,channel_id,guild_id,user_id,user_name,category,status,priority,claimed_by_id,opened_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+        self.assertEqual(len(pulse_db.list_tickets(limit=5000)), 2000)
+        refs = pulse_db.list_open_ticket_channel_refs()
+        self.assertEqual(len(refs), 2005)
+        self.assertIn(("orphan-probe-2004", "probe-channel-2004"), refs)
+
+
     def test_support_sla_counts_and_detail_page_data_match_existing_thresholds(self):
         now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
         with pulse_db.connect() as connection:
