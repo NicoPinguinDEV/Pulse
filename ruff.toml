@@ -37,6 +37,8 @@ include = [
     "tests/test_shift_history_sqlite.py",
     "tests/test_suite_team_performance.py",
     "pulse_db.py",
+    "pulse_intelligence.py",
+    "tests/test_pulse_intelligence.py",
 ]
 
 [lint]
