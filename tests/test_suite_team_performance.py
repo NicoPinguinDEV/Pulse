@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pulse_db
 import cogs.pulse_suite as suite
@@ -155,6 +155,73 @@ class SuiteTeamBatchMetricsTests(unittest.TestCase):
         list_tasks.assert_not_called()
         list_attempts.assert_not_called()
         list_tickets.assert_not_called()
+
+
+    def test_achievements_batch_loads_shared_snapshots_once_and_counts_all_tickets(self):
+        suite_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(suite_tmp.cleanup)
+        apps = {
+            f"app-{index}": {"processor_id": self.member_a, "status": "accepted"}
+            for index in range(30)
+        }
+        team_data = {
+            self.member_b: {"warns_list": [{"id": "WARN-1", "reason": "Test"}]},
+        }
+        load_json = Mock(side_effect=lambda path, _default: apps if path == "apps.json" else team_data)
+        web = SimpleNamespace(
+            APPS_FILE="apps.json",
+            DATA_FILE="team.json",
+            load_shift_state=Mock(return_value={"active_shifts": {}}),
+            shift_total_credited_seconds_by_member=Mock(
+                return_value={self.member_a: 50 * 3600, self.member_b: 0}
+            ),
+            load_json=load_json,
+            user_entry=Mock(side_effect=lambda data, uid: data.get(uid, {})),
+            active_warns=Mock(side_effect=lambda entry: entry.get("warns_list", [])),
+        )
+        team = [
+            SimpleNamespace(id=int(self.member_a), display_name="Mitglied A"),
+            SimpleNamespace(id=int(self.member_b), display_name="Mitglied B"),
+        ]
+
+        with patch.object(suite, "DB_PATH", str(Path(suite_tmp.name) / "suite.db")):
+            suite.init_db()
+            with patch.object(
+                suite.db,
+                "closed_ticket_totals_by_assignee",
+                return_value={self.member_a: 105, self.member_b: 0},
+            ) as closed_counts, patch.object(
+                suite.db,
+                "list_tickets",
+                side_effect=AssertionError("achievement cards must not materialize ticket rows"),
+            ):
+                cards = suite.achievement_texts(team, web)
+
+            closed_counts.assert_called_once_with()
+            web.load_shift_state.assert_called_once_with()
+            web.shift_total_credited_seconds_by_member.assert_called_once_with()
+            self.assertEqual(load_json.call_count, 2)
+            self.assertIn("✅ 🏆 100 Tickets", cards[self.member_a])
+            self.assertIn("✅ 🔥 50 Dienststunden", cards[self.member_a])
+            self.assertIn("✅ ⭐ 30 Bewerbungen", cards[self.member_a])
+            self.assertIn("✅ 🛡 0 aktive Warnungen", cards[self.member_a])
+            self.assertIn("⏳ 🏆 100 Tickets", cards[self.member_b])
+            self.assertIn("⏳ 🛡 0 aktive Warnungen", cards[self.member_b])
+
+            with suite.cx() as connection:
+                earned = {
+                    (row["key"], row["user_id"])
+                    for row in connection.execute("SELECT key,user_id FROM suite_achievements").fetchall()
+                }
+        self.assertEqual(
+            earned,
+            {
+                ("tickets", self.member_a),
+                ("hours", self.member_a),
+                ("applications", self.member_a),
+                ("warnings", self.member_a),
+            },
+        )
 
 
 if __name__ == "__main__":
