@@ -27,6 +27,7 @@ import sqlite3
 import tempfile
 import threading
 import zipfile
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
@@ -440,7 +441,8 @@ def _verify_full_backup_archive(zf) -> list[str]:
 
     try:
         manifest = _read_manifest_archive(zf)
-    except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError,
+            UnicodeDecodeError, NotImplementedError, EOFError, zlib.error) as exc:
         return [f"Manifest fehlt oder ist ungültig ({type(exc).__name__}: {exc})"]
 
     problems = []
@@ -506,7 +508,7 @@ def verify_full_backup(path) -> list[str]:
         with zipfile.ZipFile(path) as zf:
             return _verify_full_backup_archive(zf)
     except (OSError, RuntimeError, KeyError, ValueError, TypeError, zipfile.BadZipFile,
-            json.JSONDecodeError, UnicodeDecodeError) as exc:
+            json.JSONDecodeError, UnicodeDecodeError, NotImplementedError, EOFError, zlib.error) as exc:
         return [f"Archiv konnte nicht vollständig geprüft werden ({type(exc).__name__}: {exc})"]
 
 
