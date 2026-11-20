@@ -1937,12 +1937,12 @@ def shift_total_credited_seconds(mod_id=None) -> int:
         return 0
 
 
-def shift_total_credited_seconds_by_member() -> dict[str, int]:
+def shift_total_credited_seconds_by_member(mod_ids=None) -> dict[str, int]:
     """All-time credited seconds grouped by member without materializing SQLite history."""
     import sys
     import pulse_shift_history
     try:
-        return pulse_shift_history.total_credited_seconds_by_member(sys.modules[__name__])
+        return pulse_shift_history.total_credited_seconds_by_member(sys.modules[__name__], mod_ids=mod_ids)
     except Exception as exc:
         _mark_corrupt(SHIFTS_FILE, exc)
         return {}
