@@ -81,6 +81,27 @@ class SuiteTeamBatchMetricsTests(unittest.TestCase):
         self.assertFalse(any(row["assignee_id"] == self.member_b for row in global_snapshot))
         self.assertEqual(batch_tasks[self.member_b][0], 4)
 
+    def test_ticket_totals_count_all_closed_tickets_beyond_list_limit(self):
+        rows = [
+            (
+                f"closed-{index}", None, "1", self.member_b, "Kunde", "support",
+                "closed", "normal", self.member_b, "Mitglied B",
+                f"2026-11-20T22:{index // 60 % 60:02d}:{index % 60:02d}",
+            )
+            for index in range(2005)
+        ]
+        with pulse_db.connect() as db:
+            db.executemany(
+                "INSERT INTO tickets(id,channel_id,guild_id,user_id,user_name,category,status,priority,"
+                "claimed_by_id,claimed_by_name,opened_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+        claimed, closed = pulse_db.ticket_totals_by_assignee()
+        self.assertEqual(claimed[self.member_b], 2005)
+        self.assertEqual(closed[self.member_b], 2005)
+        self.assertEqual(len(pulse_db.list_tickets(limit=2000)), 2000)
+
     def test_member_directory_snapshot_returns_all_rows_in_one_read(self):
         suite_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(suite_tmp.cleanup)
