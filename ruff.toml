@@ -24,4 +24,5 @@ include = [
 [lint]
 # E9/F63/F7/F82: syntax and undefined names · F401/F841: unused imports/variables
 # E722: bare except · B006: mutable default argument
-select = ["E9", "F63", "F7", "F82", "F401", "F841", "E722", "B006"]
+select = ["E9", "F63", "F7", "F82", "F401", "F841", "E722", "B006"    "tests/test_ticket_priority.py",
+]
