@@ -271,8 +271,12 @@ class PanelLayoutTests(unittest.TestCase):
         from cogs import tickets
         panel = {"id": "immo", "title": "🏠 IMMOBILIEN-CENTER", "description": "Willkommen!", "show_load": True,
                  "category_keys": ["support", "bug"], "banner_url": "https://example.com/b.png", "footer": "Immobilienverwaltung"}
-        with patch.object(tickets, "category_open_count", side_effect=lambda key: {"support": 3, "bug": 5}[key]):
+        with patch.object(
+            tickets._pulse_db, "open_ticket_category_counts",
+            return_value={"support": 3, "bug": 5},
+        ) as counts:
             layout = tickets.build_panel_layout(SimpleNamespace(icon=None), panel, tickets.panel_view(panel))
+        counts.assert_called_once_with(["support", "bug"])
         components = layout.to_components()
         self.assertEqual([c["type"] for c in components], [17, 1])  # card, then the menu below it
         inner = components[0]["components"]
@@ -288,8 +292,11 @@ class PanelLayoutTests(unittest.TestCase):
         from unittest.mock import patch
         from cogs import tickets
         panel = {"id": "immo", "title": "T", "show_load": True, "category_keys": ["support"]}
-        with patch.object(tickets, "category_open_count", return_value=4):
+        with patch.object(
+            tickets._pulse_db, "open_ticket_category_counts", return_value={"support": 4}
+        ) as counts:
             embed = tickets.build_panel_embed(SimpleNamespace(icon=None), panel)
+        counts.assert_called_once_with(["support"])
         self.assertEqual(embed.fields[0].name, "📊 Ticket-Auslastung")
         self.assertIn("Verfügbar `4/10` (40 %)", embed.fields[0].value)
 
