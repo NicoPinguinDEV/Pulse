@@ -48,7 +48,9 @@ class ReviewRuleTests(Base):
             )
         state = review.state(self.page)
         self.assertEqual(state["state"], "approved")
-        self.assertEqual(state["reviewer_id"], "3")
+        saved = review._row(self.page, state["version"])
+        self.assertEqual(saved["status"], "approved")
+        self.assertEqual(saved["reviewer_id"], "3")
 
     def test_rejection_needs_a_comment_and_allows_a_new_request(self):
         review.request_review(self.page, "1", "Ann")
