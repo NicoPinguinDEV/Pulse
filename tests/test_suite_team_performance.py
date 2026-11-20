@@ -64,6 +64,10 @@ class SuiteTeamBatchMetricsTests(unittest.TestCase):
     def test_batch_totals_preserve_the_per_member_1000_task_and_200_attempt_caps(self):
         batch_tasks = pulse_db.task_totals_by_assignee(1000)
         batch_attempts = pulse_db.passed_attempts_by_user(200)
+        selected_tasks = pulse_db.task_totals_by_assignee(1000, [self.member_b])
+        selected_attempts = pulse_db.passed_attempts_by_user(200, [self.member_b])
+        self.assertEqual(selected_tasks, {self.member_b: batch_tasks[self.member_b]})
+        self.assertEqual(selected_attempts, {self.member_b: batch_attempts[self.member_b]})
 
         for uid in (self.member_a, self.member_b):
             expected_tasks = pulse_db.list_tasks(assignee_id=uid, limit=1000, include_archived=True)
