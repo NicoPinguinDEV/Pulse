@@ -1488,7 +1488,9 @@ def register_routes():
     @app.get("/suite/achievements",response_class=HTMLResponse)
     async def achievements_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session);web=webserver;cards=[]
-        for m in members(ctx.guild,web):cards.append(f'<div class=card><h3>{esc(m.display_name)}</h3><div>{achievement_text(m,web)}</div></div>')
+        team_members=members(ctx.guild,web)
+        achievement_rows=achievement_texts(team_members,web)
+        for m in team_members:cards.append(f'<div class=card><h3>{esc(m.display_name)}</h3><div>{achievement_rows.get(str(m.id), "")}</div></div>')
         return page(ctx,"ach","Team-Erfolge","100 Tickets · 50 Dienststunden · 30 Bewerbungen · Warnfreiheit",f'<div class="grid g3">{"".join(cards)}</div>')
 
     _ROUTES=True
@@ -1583,13 +1585,74 @@ def search_all(q,ctx):
         if k not in seen:seen.add(k);res.append(x)
     return res[:80]
 
-def achievement_text(m,web):
-    tickets=sum(str(t.get("claimed_by_id"))==str(m.id) and t.get("status")=="closed" for t in db.list_tickets(limit=3000));hours=total_time(m,web)/3600;apps=sum(str(a.get("processor_id"))==str(m.id) and str(a.get("status")) in {"accepted","rejected"} for a in web.load_json(web.APPS_FILE,{}).values());clean=not warns(m,web)
-    items=[("🏆","100 Tickets",tickets>=100),("🔥","50 Dienststunden",hours>=50),("⭐","30 Bewerbungen",apps>=30),("🛡","0 aktive Warnungen",clean)]
-    with cx() as c:
-        for key,name,ok in [("tickets",x[1],x[2]) for x in items]:
-            if ok:c.execute("INSERT OR IGNORE INTO suite_achievements VALUES(?,?,?)",(key,str(m.id),iso()))
-    return " · ".join(("✅ " if ok else "⏳ ")+em+" "+name for em,name,ok in items)
+def achievement_texts(team_members, web):
+    """Build all team achievement cards from one shared snapshot and one batched write."""
+    team_members = list(team_members or ())
+    if not team_members:
+        return {}
+
+    closed_ticket_counts = db.closed_ticket_totals_by_assignee()
+    shift_state = web.load_shift_state()
+    credited_totals = web.shift_total_credited_seconds_by_member()
+    applications = web.load_json(web.APPS_FILE, {})
+    team_data = web.load_json(web.DATA_FILE, {})
+
+    closed_ticket_counts = closed_ticket_counts if isinstance(closed_ticket_counts, dict) else {}
+    shift_state = shift_state if isinstance(shift_state, dict) else {}
+    credited_totals = credited_totals if isinstance(credited_totals, dict) else {}
+    applications = applications if isinstance(applications, dict) else {}
+    team_data = team_data if isinstance(team_data, dict) else {}
+
+    application_counts = {}
+    for application in applications.values():
+        if not isinstance(application, dict):
+            continue
+        if str(application.get("status")) not in {"accepted", "rejected"}:
+            continue
+        processor_id = str(application.get("processor_id") or "")
+        if processor_id:
+            application_counts[processor_id] = application_counts.get(processor_id, 0) + 1
+
+    rendered = {}
+    earned_rows = []
+    earned_at = iso()
+
+    for member in team_members:
+        user_id = str(member.id)
+        tickets = int(closed_ticket_counts.get(user_id, 0) or 0)
+        hours = total_time(
+            member, web, shift_state=shift_state, credited_totals=credited_totals
+        ) / 3600
+        apps = application_counts.get(user_id, 0)
+        clean = not warns(member, web, team_data=team_data)
+        items = [
+            ("tickets", "🏆", "100 Tickets", tickets >= 100),
+            ("hours", "🔥", "50 Dienststunden", hours >= 50),
+            ("applications", "⭐", "30 Bewerbungen", apps >= 30),
+            ("warnings", "🛡", "0 aktive Warnungen", clean),
+        ]
+        earned_rows.extend(
+            (key, user_id, earned_at)
+            for key, _emoji, _name, unlocked in items
+            if unlocked
+        )
+        rendered[user_id] = " · ".join(
+            ("✅ " if unlocked else "⏳ ") + emoji + " " + name
+            for _key, emoji, name, unlocked in items
+        )
+
+    if earned_rows:
+        with cx() as connection:
+            connection.executemany(
+                "INSERT OR IGNORE INTO suite_achievements VALUES(?,?,?)",
+                earned_rows,
+            )
+    return rendered
+
+
+def achievement_text(member, web):
+    """Compatibility wrapper for callers that need a single member's achievement text."""
+    return achievement_texts([member], web).get(str(member.id), "")
 
 class _AnsweredResponse:
     """K-09: the click is answered at once; later `response.*` calls of a callback edit that answer instead."""
@@ -1979,7 +2042,7 @@ class PulseSuite(commands.Cog):
                 for x in team_managers:db.notify(x.id,"⚠️ Inaktivität",f"{m.display_name}: {days} Tage · {level}.","warning","/suite/member/"+str(m.id),f"inactive:{m.id}:{n.date()}:{level}",86400)
             if sm and sm.get("probation_end") and local(sm["probation_end"])<=n+timedelta(hours=24):
                 for x in team_managers:db.notify(x.id,"🎯 Probezeit",f"Probezeit von {m.display_name} endet bald.","info","/suite/member/"+str(m.id),f"probation:{m.id}:{sm['probation_end']}",86400)
-            achievement_text(m,web)
+        achievement_texts(team_members, web)
 
     async def reports(self,g):
         web=__import__("webserver");tz=getattr(web,"TZ",None);n=datetime.now(tz) if tz else now()
