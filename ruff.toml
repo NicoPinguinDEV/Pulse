@@ -19,6 +19,7 @@ include = [
     "cogs/application_reminders.py", "tests/test_application_reminders.py",
     "pulse_interviews.py", "tests/test_interview_calendar.py", "tests/test_feature_audit_counts.py", "tools/audit_counts.py",
     "pulse_live_refresh.py", "pulse_teamakte_pages.py", "tests/test_live_refresh.py", "tests/test_teamakte_pages.py", "tests/test_application_dm_library.py",
+    "pulse_shift_history.py", "tests/test_shift_history_sqlite.py", "tests/test_suite_team_performance.py",
     "tests/test_ticket_priority.py",
 ]
 
