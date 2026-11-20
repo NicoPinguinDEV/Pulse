@@ -254,7 +254,7 @@ class TeamStatsQueryTests(_TempDb):
     2 × 5000 tickets, the shifts, the team data and the config – 50 s with 300 members and 5000 tickets, inside
     the event loop the bot shares. The shared inputs are now read once per page; the figures stay identical."""
 
-    def test_same_figures_and_one_ticket_query_per_page(self):
+    def test_same_figures_and_one_ticket_aggregate_per_page(self):
         from types import SimpleNamespace
 
         from tests.test_pulse_admin_area import GUILD
@@ -272,14 +272,19 @@ class TeamStatsQueryTests(_TempDb):
         self.assertEqual((single[500]["tickets"], single[500]["closed_tickets"]), (4, 2))
 
         calls = []
+        aggregate_calls = []
         real = pulse_db.list_tickets
+        real_aggregate = pulse_db.ticket_totals_by_assignee
         with patch.object(ws, "auth", fake_auth_for(ADMIN)), patch.object(GUILD, "members", people), \
                 patch.object(ws, "load_config", lambda: {"team_role_ids": [100]}), \
-                patch.object(pulse_db, "list_tickets", lambda *a, **k: calls.append(1) or real(*a, **k)):
+                patch.object(pulse_db, "list_tickets", lambda *a, **k: calls.append(1) or real(*a, **k)), \
+                patch.object(pulse_db, "ticket_totals_by_assignee",
+                             lambda *a, **k: aggregate_calls.append(1) or real_aggregate(*a, **k)):
             response = self.client.get("/ultimate/team")
         self.assertEqual(response.status_code, 200)
         self.assertIn("P5", response.text)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls, [])
+        self.assertEqual(len(aggregate_calls), 1)
 
 
 class SchemaUpgradeTests(unittest.TestCase):
