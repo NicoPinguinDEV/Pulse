@@ -1206,7 +1206,7 @@ def ticket_totals_by_assignee(limit=2000) -> dict[str, tuple[int, int]]:
     }
 
 
-def list_user_tickets(guild_id, user_id, limit=10):
+def list_user_tickets(guild_id, user_id, limit=10, open_only=False):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
     guild = str(guild_id or "").strip()
     user = str(user_id or "").strip()
@@ -1216,12 +1216,13 @@ def list_user_tickets(guild_id, user_id, limit=10):
         bounded_limit = max(1, min(int(limit), 25))
     except (TypeError, ValueError):
         bounded_limit = 10
+    status_filter = " AND status!='closed'" if open_only else ""
     with connect() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT id, channel_id, category, status, priority, opened_at, closed_at
             FROM tickets
-            WHERE guild_id=? AND user_id=?
+            WHERE guild_id=? AND user_id=?{status_filter}
             ORDER BY opened_at DESC
             LIMIT ?
             """,
