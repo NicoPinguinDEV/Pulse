@@ -1233,6 +1233,121 @@ def open_ticket_category_counts(category_keys):
     return counts
 
 
+def list_open_ticket_channel_refs() -> list[tuple[str, str]]:
+    """Return every open ticket's ID and channel ID for consistency checks, without loading ticket payloads."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT id, channel_id FROM tickets WHERE COALESCE(status,'')!='closed'"
+        ).fetchall()
+    return [(str(row["id"]), str(row["channel_id"] or "")) for row in rows]
+
+
+def count_open_tickets() -> int:
+    """Count every non-closed ticket without the bounded list API's 2,000-row cap."""
+    with connect() as db:
+        row = db.execute("SELECT COUNT(*) FROM tickets WHERE COALESCE(status,'')!='closed'").fetchone()
+    return int(row[0] or 0)
+
+
+_TICKET_TIMEZONE_SUFFIX_SQL = """(
+    substr(opened_at,20) LIKE '%+%'
+    OR substr(opened_at,20) LIKE '%-%'
+    OR substr(opened_at,20) LIKE '%Z%'
+)"""
+_TICKET_SLA_MINUTES_SQL = """CASE COALESCE(NULLIF(priority,''),'normal')
+    WHEN 'urgent' THEN 30.0
+    WHEN 'high' THEN 240.0
+    ELSE 1440.0
+END"""
+
+
+def _utc_ticket_time(now: datetime | None = None) -> datetime:
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=timezone.utc)
+    return now.astimezone(timezone.utc)
+
+
+def count_tickets() -> int:
+    """Count every ticket, without the bounded list API's 2,000-row cap."""
+    with connect() as db:
+        row = db.execute("SELECT COUNT(*) FROM tickets").fetchone()
+    return int(row[0] or 0)
+
+
+def sla_ticket_counts(now: datetime | None = None) -> tuple[int, int]:
+    """Return (valid open tickets, SLA-overdue open tickets) across the complete database."""
+    now_iso = _utc_ticket_time(now).isoformat(timespec="microseconds")
+    with connect() as db:
+        row = db.execute(
+            f"""
+            SELECT
+                SUM(CASE WHEN julianday(opened_at) IS NOT NULL
+                              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+                         THEN 1 ELSE 0 END) AS valid_open,
+                SUM(CASE WHEN julianday(opened_at) IS NOT NULL
+                              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+                              AND julianday(opened_at) <= julianday(?) - ({_TICKET_SLA_MINUTES_SQL} / 1440.0)
+                         THEN 1 ELSE 0 END) AS overdue
+            FROM tickets
+            WHERE COALESCE(status,'')!='closed'
+            """,
+            (now_iso,),
+        ).fetchone()
+    return int(row["valid_open"] or 0), int(row["overdue"] or 0)
+
+
+def count_sla_overdue_tickets(now: datetime | None = None) -> int:
+    """Count all SLA-overdue open tickets, preserving the dashboard's existing thresholds."""
+    return sla_ticket_counts(now)[1]
+
+
+def list_sla_overdue_tickets(now: datetime | None = None, limit: int = 20) -> list[tuple[dict, float, float]]:
+    """Return the oldest SLA-overdue open ticket details, bounded for dashboard display."""
+    now_iso = _utc_ticket_time(now).isoformat(timespec="microseconds")
+    bounded_limit = max(1, min(int(limit), 100))
+    with connect() as db:
+        rows = db.execute(
+            f"""
+            SELECT tickets.*,
+                   (julianday(?) - julianday(opened_at)) * 1440.0 AS age_minutes,
+                   {_TICKET_SLA_MINUTES_SQL} AS sla_minutes
+            FROM tickets
+            WHERE COALESCE(status,'')!='closed'
+              AND julianday(opened_at) IS NOT NULL
+              AND {_TICKET_TIMEZONE_SUFFIX_SQL}
+              AND julianday(opened_at) <= julianday(?) - ({_TICKET_SLA_MINUTES_SQL} / 1440.0)
+            ORDER BY julianday(opened_at) ASC
+            LIMIT ?
+            """,
+            (now_iso, now_iso, bounded_limit),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        age = float(item.pop("age_minutes"))
+        sla = float(item.pop("sla_minutes"))
+        result.append((item, age, sla))
+    return result
+
+
+def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
+    """Aggregate all tickets by assignee for team performance stats without loading ticket rows."""
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT claimed_by_id,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+            FROM tickets
+            GROUP BY claimed_by_id
+            """
+        ).fetchall()
+    claimed = {str(row["claimed_by_id"]): int(row["total"] or 0) for row in rows}
+    closed = {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
+    return claimed, closed
+
+
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
     guild = str(guild_id or "").strip()

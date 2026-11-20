@@ -39,12 +39,10 @@ def check(ws, guild) -> list[dict]:
 
     import pulse_db
     orphan_tickets = []
-    for ticket in pulse_db.list_tickets(limit=5000):
-        if str(ticket.get("status")) == "closed":
-            continue
-        cid = str(ticket.get("channel_id") or "")
+    for ticket_id, channel_id in pulse_db.list_open_ticket_channel_refs():
+        cid = str(channel_id or "")
         if cid.isdigit() and guild.get_channel(int(cid)) is None:
-            orphan_tickets.append(f"Ticket {ticket.get('id')} ohne Kanal")
+            orphan_tickets.append(f"Ticket {ticket_id} ohne Kanal")
     results.append(_finding("Offene Tickets", orphan_tickets, "alle offenen Tickets haben einen Kanal"))
 
     role_ids = ws.get_warn_role_ids(ws.load_config())
@@ -92,3 +90,4 @@ def growth(base_dir) -> list[dict]:
         size = os.path.getsize(path) if os.path.isfile(path) else 0
         out.append({"name": name, "size": size, "ok": size < GROWTH_WARN_BYTES})
     return out
+
