@@ -42,6 +42,29 @@ class PlayerSelfServiceDataTests(unittest.TestCase):
         self.assertNotIn("user_id", rows[0])
         self.assertNotIn("transcript_path", rows[0])
 
+    def test_open_ticket_listing_filters_closed_rows_before_applying_limit(self):
+        open_id = pulse_db.create_ticket("channel-open", "guild-a", "42", "Muster", "Support")
+        with pulse_db.connect() as connection:
+            connection.execute(
+                "UPDATE tickets SET opened_at=? WHERE id=?",
+                ("2026-11-19T00:00:00+00:00", open_id),
+            )
+        for index in range(11):
+            closed_id = pulse_db.create_ticket(
+                f"channel-closed-{index}", "guild-a", "42", "Muster", "Support", priority="urgent"
+            )
+            self.assertTrue(pulse_db.close_ticket(closed_id, "Erledigt"))
+            with pulse_db.connect() as connection:
+                connection.execute(
+                    "UPDATE tickets SET opened_at=? WHERE id=?",
+                    (f"2026-11-20T00:{index:02d}:00+00:00", closed_id),
+                )
+
+        rows = pulse_db.list_user_tickets("guild-a", "42", limit=10, open_only=True)
+
+        self.assertEqual([row["id"] for row in rows], [open_id])
+        self.assertTrue(all(row["status"] != "closed" for row in rows))
+
     def test_ticket_listing_rejects_missing_identity_and_bounds_limit(self):
         self.assertEqual(pulse_db.list_user_tickets("", 42), [])
         self.assertEqual(pulse_db.list_user_tickets("guild-a", None), [])
@@ -307,11 +330,15 @@ class PlayerSelfServiceCommandTests(unittest.TestCase):
         ]
         events = [{"title": "Teamabend", "start_at": "2030-01-01T18:00:00+00:00", "response": "going"}]
         prefs = {"dm": False, "muted": ["tickets", "events"], "quiet_from": 22, "quiet_to": 7}
-        with patch("cogs.pulse_pro.db.list_user_tickets", return_value=tickets) as ticket_query, \
+        def list_open_tickets(guild_id, user_id, limit=10, open_only=False):
+            rows = [ticket for ticket in tickets if not open_only or ticket.get("status") != "closed"]
+            return rows[:limit]
+
+        with patch("cogs.pulse_pro.db.list_user_tickets", side_effect=list_open_tickets) as ticket_query, \
              patch("pulse_ultimate.list_user_calendar_rsvps", return_value=events) as event_query, \
              patch("pulse_notify_prefs.load", return_value=prefs) as prefs_load:
             asyncio.run(PulsePro.self_service.callback(PulsePro.__new__(PulsePro), interaction))
-        ticket_query.assert_called_once_with(77, 42, limit=10)
+        ticket_query.assert_called_once_with(77, 42, limit=10, open_only=True)
         event_query.assert_called_once_with(42, limit=3)
         prefs_load.assert_called_once_with(42)
         sent = interaction.response.send_message.await_args.kwargs
@@ -346,3 +373,4 @@ class PlayerSelfServiceCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
