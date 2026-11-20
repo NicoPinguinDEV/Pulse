@@ -1178,6 +1178,33 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def open_ticket_counts(claimed_by_ids):
+    """Return complete open-ticket counts for supplied assignees using grouped SQL."""
+    ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in (claimed_by_ids or [])
+        if value is not None and str(value).strip()
+    ))
+    counts = {user_id: 0 for user_id in ids}
+    if not ids:
+        return counts
+
+    # Stay below SQLite's commonly configured bound-parameter limit while using one
+    # grouped query for normal team sizes.
+    chunk_size = 500
+    with connect() as db:
+        for offset in range(0, len(ids), chunk_size):
+            chunk = ids[offset:offset + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = db.execute(
+                "SELECT claimed_by_id, COUNT(*) AS open_count FROM tickets "
+                "WHERE claimed_by_id IN (" + placeholders + ") "
+                "AND COALESCE(status, '') != 'closed' GROUP BY claimed_by_id",
+                chunk,
+            ).fetchall()
+            counts.update({str(row["claimed_by_id"]): int(row["open_count"]) for row in rows})
+    return counts
+
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
     guild = str(guild_id or "").strip()
