@@ -1178,6 +1178,34 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def ticket_totals_by_assignee(limit=2000) -> dict[str, tuple[int, int]]:
+    """Aggregate the same priority-ordered, bounded ticket snapshot used by list_tickets()."""
+    bounded_limit = max(1, min(int(limit), 2000))
+    with connect() as db:
+        rows = db.execute(
+            """SELECT claimed_by_id,
+                      COUNT(*) AS ticket_count,
+                      SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_count
+               FROM (
+                   SELECT claimed_by_id, status
+                   FROM tickets
+                   ORDER BY CASE priority
+                       WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3
+                   END, opened_at DESC
+                   LIMIT ?
+               )
+               GROUP BY claimed_by_id""",
+            (bounded_limit,),
+        ).fetchall()
+    return {
+        str(row["claimed_by_id"]): (
+            int(row["ticket_count"] or 0),
+            int(row["closed_count"] or 0),
+        )
+        for row in rows
+    }
+
+
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
     guild = str(guild_id or "").strip()
