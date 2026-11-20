@@ -133,10 +133,7 @@ def configured_role_ids(guild, group: str):
 
 
 def category_open_count(key: str) -> int:
-    return sum(
-        1 for ticket in list_tickets(limit=2000, open_only=True)
-        if ticket.get("category") == key and ticket.get("status") != "closed"
-    )
+    return _pulse_db.open_ticket_category_counts([key]).get(str(key), 0)
 
 
 def ticket_category_definitions() -> dict:
@@ -171,8 +168,7 @@ def ticket_category_definitions() -> dict:
     return definitions
 
 
-def category_meta(key: str):
-    definition = ticket_category_definitions().get(str(key))
+def _category_meta_from_definition(definition: dict | None):
     if not definition:
         return ("Ticket", "Allgemeines Anliegen", "🎫", 10, "team")
     try:
@@ -186,6 +182,10 @@ def category_meta(key: str):
         maximum,
         str(definition.get("group") or "team"),
     )
+
+
+def category_meta(key: str):
+    return _category_meta_from_definition(ticket_category_definitions().get(str(key)))
 
 
 def category_roles(guild, key: str):
@@ -285,33 +285,58 @@ def panel_files(panel: dict) -> list[discord.File]:
     return files
 
 
-def panel_entries(panel: dict) -> list[tuple]:
-    """(name, emoji, open tickets, maximum) for every active category of a panel."""
-    definitions = ticket_category_definitions()
+def panel_entries(
+    panel: dict,
+    *,
+    definitions: dict | None = None,
+    counts: dict | None = None,
+) -> list[tuple]:
+    """(name, emoji, open tickets, maximum) using an optional request-scoped snapshot."""
+    definitions = definitions if isinstance(definitions, dict) else ticket_category_definitions()
+    selected = [
+        (str(key), definitions.get(str(key)))
+        for key in panel.get("category_keys", [])[:25]
+    ]
+    selected = [
+        (key, definition)
+        for key, definition in selected
+        if definition and definition.get("active", True)
+    ]
+    if counts is None:
+        counts = (
+            _pulse_db.open_ticket_category_counts([key for key, _definition in selected])
+            if panel.get("show_load") and selected else {}
+        )
     entries = []
-    for key in panel.get("category_keys", [])[:25]:
-        definition = definitions.get(str(key))
-        if not definition or not definition.get("active", True):
-            continue
-        name, _, emoji, maximum, _ = category_meta(str(key))
-        entries.append((name, emoji, category_open_count(str(key)) if panel.get("show_load") else 0, maximum))
+    for key, definition in selected:
+        name, _, emoji, maximum, _ = _category_meta_from_definition(definition)
+        entries.append((name, emoji, counts.get(key, 0), maximum))
     return entries
 
 
 def build_panel_layout(guild, panel_config: dict, view, image_urls: dict | None = None):
     """Modern ticket panel like GalaxyBot: big title, text, load section, banner, footer, menu below."""
     panel = normalize_panel(panel_config)
-    embed = build_panel_embed(guild, panel_config, image_urls)
+    entries = getattr(view, "_pulse_panel_entries", None)
+    if not isinstance(entries, list):
+        entries = panel_entries(panel)
+    embed = build_panel_embed(guild, panel_config, image_urls, entries=entries)
     spec = embed_to_spec(embed)
     spec["fields"] = []
     spec["timestamp"] = None  # a pinned panel needs no "today at …" footer
-    block = category_block(panel_entries(panel), show_load=bool(panel.get("show_load")),
+    block = category_block(entries, show_load=bool(panel.get("show_load")),
                            list_categories=bool(panel_config.get("list_categories", True)))
     return layout_from_spec(spec, heading="##", extra_blocks=[block] if block else [],
                             action_rows=view_rows(view), rows_outside=True)
 
 
-def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict | None = None) -> discord.Embed:
+def build_panel_embed(
+    guild,
+    panel_config: dict | None = None,
+    image_urls: dict | None = None,
+    *,
+    entries: list[tuple] | None = None,
+) -> discord.Embed:
     if isinstance(panel_config, dict):
         panel = normalize_panel(panel_config)
         panel_title = str(panel.get("title") or panel.get("name") or "Ticket-Support").strip()[:256]
@@ -321,7 +346,7 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         except (TypeError, ValueError):
             embed_color = _pulse_color("info")
         embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
-        entries = panel_entries(panel)
+        entries = panel_entries(panel) if entries is None else entries
         if panel.get("show_load"):
             lines = [load_line(*entry) for entry in entries]
         elif panel_config.get("list_categories", True):
@@ -373,8 +398,9 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         "Hier siehst du die aktuelle Auslastung unserer Tickets. Bei einer höheren Auslastung kann es zu längeren Bearbeitungszeiten kommen. Ein Ticket kannst du jedoch jederzeit eröffnen, unabhängig von der Auslastung.",
         "",
     ]
+    counts = _pulse_db.open_ticket_category_counts(CATEGORY_META)
     for key, meta in CATEGORY_META.items():
-        current = category_open_count(key)
+        current = counts.get(key, 0)
         maximum = meta[3]
         percent = int((current / maximum) * 100) if maximum else 0
         lines.append(f"- <:ut_low:1360768000239769621> **{meta[0]}:** Verfügbar `{current}/{maximum}` ({percent}%)")
@@ -1246,24 +1272,39 @@ class TicketQuestionModal(Modal):
 
 
 class TicketSelect(Select):
-    def __init__(self, panel_id: str | None = None, category_keys=None, placeholder: str | None = None):
-        definitions = ticket_category_definitions()
+    def __init__(
+        self,
+        panel_id: str | None = None,
+        category_keys=None,
+        placeholder: str | None = None,
+        *,
+        definitions: dict | None = None,
+        category_counts: dict | None = None,
+    ):
+        definitions = definitions if isinstance(definitions, dict) else ticket_category_definitions()
         keys = category_keys if isinstance(category_keys, list) else list(definitions)
+        selected = []
+        for raw_key in keys[:25]:
+            key = str(raw_key)
+            definition = definitions.get(key)
+            if definition and definition.get("active", True):
+                selected.append((key, definition))
+        if category_counts is None:
+            category_counts = (
+                _pulse_db.open_ticket_category_counts([key for key, _definition in selected])
+                if selected else {}
+            )
         options = []
-        for key in keys:
-            definition = definitions.get(str(key))
-            if not definition or not definition.get("active", True):
-                continue
-            name, description, emoji, maximum, _ = category_meta(str(key))
-            count = category_open_count(str(key))
+        for key, definition in selected:
+            name, description, emoji, maximum, _ = _category_meta_from_definition(definition)
+            count = category_counts.get(key, 0)
             suffix = f" · {count}/{maximum} offen" if maximum else f" · {count} offen"
             options.append(discord.SelectOption(
                 label=name[:100],
                 description=(description + suffix)[:100],
                 emoji=emoji[:100] if emoji else "🎫",
-                value=str(key)[:100],
+                value=key[:100],
             ))
-        options = options[:25]
         if not options:
             options = [discord.SelectOption(label="Noch nicht eingerichtet", value="__not_configured__", emoji="⚠️")]
         custom_id = "pulse_ticket_category_v3"
@@ -1290,7 +1331,7 @@ class TicketCategoryButton(Button):
     }
 
     def __init__(self, panel_id: str, key: str, definition: dict):
-        name, _, emoji, _, _ = category_meta(key)
+        name, _, emoji, _, _ = _category_meta_from_definition(definition)
         super().__init__(
             label=name[:80],
             emoji=emoji or "🎫",
@@ -1305,21 +1346,58 @@ class TicketCategoryButton(Button):
 
 
 class TicketView(View):
-    def __init__(self, panel_id: str | None = None, category_keys=None, style: str = "select", placeholder: str | None = None):
+    def __init__(
+        self,
+        panel_id: str | None = None,
+        category_keys=None,
+        style: str = "select",
+        placeholder: str | None = None,
+        *,
+        definitions: dict | None = None,
+        category_counts: dict | None = None,
+        panel_entries_snapshot: list[tuple] | None = None,
+    ):
         super().__init__(timeout=None)
+        definitions = definitions if isinstance(definitions, dict) else ticket_category_definitions()
+        self._pulse_panel_entries = panel_entries_snapshot
         if style == "buttons" and panel_id:
-            definitions = ticket_category_definitions()
-            keys = [str(k) for k in (category_keys or []) if definitions.get(str(k), {}).get("active", True) and str(k) in definitions]
+            keys = [
+                str(k) for k in (category_keys or [])
+                if str(k) in definitions and definitions[str(k)].get("active", True)
+            ]
             for key in keys[:25]:
                 self.add_item(TicketCategoryButton(str(panel_id), key, definitions[key]))
             if keys:
                 return
-        self.add_item(TicketSelect(panel_id=panel_id, category_keys=category_keys, placeholder=placeholder))
+        self.add_item(TicketSelect(
+            panel_id=panel_id,
+            category_keys=category_keys,
+            placeholder=placeholder,
+            definitions=definitions,
+            category_counts=category_counts,
+        ))
 
 
-def panel_view(panel: dict) -> TicketView:
+def panel_view(panel: dict, *, definitions: dict | None = None) -> TicketView:
     panel = normalize_panel(panel)
-    return TicketView(str(panel.get("id")), panel.get("category_keys", []), panel.get("component_style"), panel.get("placeholder"))
+    definitions = definitions if isinstance(definitions, dict) else ticket_category_definitions()
+    keys = [
+        str(key) for key in panel.get("category_keys", [])[:25]
+        if str(key) in definitions and definitions[str(key)].get("active", True)
+    ]
+    uses_select = str(panel.get("component_style") or "select") != "buttons" or not keys
+    needs_counts = bool(panel.get("show_load")) or uses_select
+    counts = _pulse_db.open_ticket_category_counts(keys) if needs_counts and keys else {}
+    entries = panel_entries(panel, definitions=definitions, counts=counts)
+    return TicketView(
+        str(panel.get("id")),
+        panel.get("category_keys", []),
+        panel.get("component_style"),
+        panel.get("placeholder"),
+        definitions=definitions,
+        category_counts=counts,
+        panel_entries_snapshot=entries,
+    )
 
 
 class TicketControlView(View):
@@ -1655,9 +1733,15 @@ class Tickets(commands.Cog):
                         "thumbnail": existing.thumbnail.url if existing and existing.thumbnail and panel_image_path(panel.get("thumbnail_file")) else None,
                         "image": existing.image.url if existing and existing.image and panel_image_path(panel.get("banner_file")) else None,
                     }
-                    await self._edit_if_changed(message, build_panel_embed(guild, panel, image_urls), panel_view(panel),
-                                                files=panel_files(panel) if is_v2(message) else None,
-                                                layout=build_panel_layout(guild, panel, panel_view(panel)) if is_v2(message) else None)
+                    view = panel_view(panel)
+                    entries = getattr(view, "_pulse_panel_entries", None)
+                    await self._edit_if_changed(
+                        message,
+                        build_panel_embed(guild, panel, image_urls, entries=entries),
+                        view,
+                        files=panel_files(panel) if is_v2(message) else None,
+                        layout=build_panel_layout(guild, panel, view) if is_v2(message) else None,
+                    )
                 except discord.NotFound:
                     # The dashboard publishing helper creates a replacement
                     # message and writes its new ID back into the settings.
@@ -1726,7 +1810,7 @@ class Tickets(commands.Cog):
                     await old_message.delete(reason="Pulse-Ticketpanel im Dashboard in einen anderen Kanal verschoben")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
                     pass
-        view = panel_view(panel)
+        view = panel_view(panel, definitions=definitions)
         # Explicit publish always re-uploads the images so a changed thumbnail/banner appears.
         files = panel_files(panel)
         if message is not None and is_v2(message) != is_modern():
@@ -1736,19 +1820,26 @@ class Tickets(commands.Cog):
             except discord.NotFound:
                 pass
             message = None
-        layout = build_panel_layout(guild, panel, panel_view(panel)) if is_modern() else None
+        entries = getattr(view, "_pulse_panel_entries", None)
+        layout = build_panel_layout(guild, panel, view) if is_modern() else None
         if message is None:
-            message = await send_styled(channel, embed=build_panel_embed(guild, panel), view=view, files=files, layout=layout)
+            message = await send_styled(
+                channel, embed=build_panel_embed(guild, panel, entries=entries),
+                view=view, files=files, layout=layout,
+            )
         else:
             if is_v2(message) and layout is None:
-                layout = build_panel_layout(guild, panel, panel_view(panel))
-            await edit_styled(message, embed=build_panel_embed(guild, panel), view=view, attachments=files, layout=layout)
+                layout = build_panel_layout(guild, panel, view)
+            await edit_styled(
+                message, embed=build_panel_embed(guild, panel, entries=entries),
+                view=view, attachments=files, layout=layout,
+            )
         self._panel_signatures.pop(message.id, None)
         panel["message_id"] = message.id
         panel["published_channel_id"] = channel.id
         settings["ticket_panels"] = panels
         save_ticket_config(settings)
-        self.bot.add_view(panel_view(panel))
+        self.bot.add_view(view)
         return {"channel": channel.mention, "message_id": message.id, "panel_name": str(panel.get("name") or panel.get("title") or "Panel")}
 
     async def setup_panels_for_guild(self, guild: discord.Guild) -> dict:

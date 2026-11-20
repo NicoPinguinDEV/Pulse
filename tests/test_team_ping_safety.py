@@ -54,7 +54,7 @@ class TeamPingAuthorizationTests(unittest.TestCase):
 
 
 class TeamPingCooldownTests(unittest.TestCase):
-    def test_team_ping_has_a_per_user_and_per_guild_cooldown(self):
+    def test_team_ping_uses_only_the_shared_rate_limiter(self):
         source = Path(suite.__file__).read_text(encoding="utf-8")
         module = ast.parse(source)
         function = next(
@@ -62,18 +62,26 @@ class TeamPingCooldownTests(unittest.TestCase):
             for node in ast.walk(module)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "team_ping"
         )
-        cooldown = next(
-            decorator
+        decorators = [
+            ast.unparse(decorator)
             for decorator in function.decorator_list
-            if isinstance(decorator, ast.Call)
-            and ast.unparse(decorator.func) == "app_commands.checks.cooldown"
+        ]
+        self.assertFalse(any("app_commands.checks.cooldown" in item for item in decorators))
+
+        rate_calls = [
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call) and ast.unparse(node.func) == "web.rate_limited"
+        ]
+        self.assertEqual(len(rate_calls), 1)
+        call = rate_calls[0]
+        self.assertEqual(
+            {keyword.arg: ast.literal_eval(keyword.value) for keyword in call.keywords},
+            {"limit": 1, "window": 60},
         )
-        self.assertEqual([ast.literal_eval(value) for value in cooldown.args], [1, 60.0])
-        key = next(keyword.value for keyword in cooldown.keywords if keyword.arg == "key")
-        self.assertIsInstance(key, ast.Lambda)
-        key_expression = ast.unparse(key.body)
-        self.assertIn("interaction.guild_id", key_expression)
-        self.assertIn("interaction.user.id", key_expression)
+        key = call.args[0]
+        self.assertIn("i.guild.id", ast.unparse(key))
+        self.assertIn("i.user.id", ast.unparse(key))
 
 
 if __name__ == "__main__":

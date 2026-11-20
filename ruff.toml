@@ -22,6 +22,10 @@ include = [
     "tests/test_ticket_priority.py",
     "pulse_ticket_access.py",
     "tests/test_ticket_access.py",
+    "tests/test_team_ping_safety.py",
+    "tests/test_pulse_suite_manager_cache.py",
+    "tests/test_ticket_load_counts.py",
+    "tests/test_ticket_panel_performance.py",
 ]
 
 [lint]

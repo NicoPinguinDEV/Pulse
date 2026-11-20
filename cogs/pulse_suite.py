@@ -405,14 +405,18 @@ def esc(v):
 def secfmt(s):
     s=max(0,int(s or 0));return f"{s//3600}h {(s%3600)//60}m"
 
-def members(guild,web):
-    ids={int(x) for x in web.load_config().get("team_role_ids",[])}
+def members(guild,web,config=None):
+    # Accept a shared snapshot so callers that also calculate permissions do not
+    # reread the JSON configuration for every member.
+    config = web.load_config() if config is None else config
+    ids={int(x) for x in config.get("team_role_ids",[])}
     return [m for m in guild.members if not m.bot and any(r.id in ids for r in m.roles)]
 
 def managers(guild,web):
+    config = web.load_config()
     out=[]
-    for m in members(guild,web):
-        p,_=web.compute_perms(guild,m.id,web.load_config())
+    for m in members(guild,web,config=config):
+        p,_=web.compute_perms(guild,m.id,config)
         if p.get("can_promote") or p.get("is_admin"):out.append(m)
     return out
 
@@ -1620,7 +1624,8 @@ async def suite_ticket_action(i,action,tid):
     ]
     if not eligible:
         return await i.response.send_message("❌ Keine andere berechtigte Führungskraft für diese Ticketkategorie.",ephemeral=True)
-    member=min(eligible,key=lambda x:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=x.id)))
+    loads = db.open_ticket_counts([candidate.id for candidate in eligible])
+    member=min(eligible,key=lambda candidate:loads.get(str(candidate.id),0))
     if not db.transfer_ticket(tid,member.id,member.display_name,actor_id=i.user.id,actor_name=i.user.display_name):
         return await i.response.send_message("❌ Ticket konnte nicht übergeben werden (bereits zugewiesen oder geschlossen).",ephemeral=True)
     db.notify(member.id,"👤 Ticket übergeben",f"{tid} wurde dir zugewiesen.","info","/tickets",f"transfer:{tid}:{member.id}",21600)
@@ -2446,7 +2451,6 @@ class PulseSuite(commands.Cog):
             )
 
     @app_commands.command(name="team-ping",description="Ping für alle, Führung, Aktive oder Diensthabende.")
-    @app_commands.checks.cooldown(1, 60.0, key=lambda interaction: (interaction.guild_id, interaction.user.id))
     async def team_ping(self,i,scope:str="all",rolle:discord.Role=None):
         web=__import__("webserver")
         if not allowed(i,"team-ping",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
@@ -2466,7 +2470,10 @@ class PulseSuite(commands.Cog):
     async def pulse_ticket(self,i,kategorie:str,beschreibung:str,prioritaet:str="normal"):
         web=__import__("webserver")
         if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
-        tid=db.create_ticket(str(i.channel.id),str(i.guild.id),str(i.user.id),i.user.display_name,kategorie[:80],prioritaet);ms=sorted(managers(i.guild,web),key=lambda m:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=m.id)))
+        tid=db.create_ticket(str(i.channel.id),str(i.guild.id),str(i.user.id),i.user.display_name,kategorie[:80],prioritaet)
+        ms=managers(i.guild,web)
+        loads=db.open_ticket_counts([manager.id for manager in ms])
+        ms.sort(key=lambda manager:loads.get(str(manager.id),0))
         if ms:db.notify(ms[0].id,"🎫 Ticket zugewiesen",f"{tid} · {kategorie}","warning","/tickets",f"auto:{tid}",21600)
         e=discord.Embed(title=f"🎫 Fall {tid}",description=beschreibung[:3500],color=_pulse_color("info"));e.add_field(name="Kategorie",value=kategorie[:80]);e.add_field(name="Priorität",value=prioritaet);await i.response.send_message(embed=e,view=TicketView(tid));audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_created",kategorie)
 
