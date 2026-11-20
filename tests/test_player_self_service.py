@@ -334,7 +334,7 @@ class PlayerSelfServiceCommandTests(unittest.TestCase):
              patch("pulse_ultimate.list_user_calendar_rsvps", return_value=events) as event_query, \
              patch("pulse_notify_prefs.load", return_value=prefs) as prefs_load:
             asyncio.run(PulsePro.self_service.callback(PulsePro.__new__(PulsePro), interaction))
-        ticket_query.assert_called_once_with(77, 42, limit=10)
+        ticket_query.assert_called_once_with(77, 42, limit=10, open_only=True)
         event_query.assert_called_once_with(42, limit=3)
         prefs_load.assert_called_once_with(42)
         sent = interaction.response.send_message.await_args.kwargs
