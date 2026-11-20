@@ -5,9 +5,7 @@ The simulator and workflow sandbox are read-only: neither executes Discord actio
 """
 import json
 import math
-import os
 import shutil
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -594,7 +592,6 @@ def register(app):
     """Register TeamOS pages once; all expensive checks run only when a user opens them."""
     from fastapi import Cookie, Form, Request
     from fastapi.responses import HTMLResponse, JSONResponse
-    import pulse_db as db
     import pulse_ultimate as ultimate
 
     if getattr(app.state, "pulse_intelligence_registered", False):
