@@ -333,8 +333,6 @@ class PulsePro(commands.Cog):
                 record_error("Housekeeping (5 min)", exc)
 
             for ticket in db.list_tickets(limit=1000, open_only=True):
-                if ticket.get("status") == "closed":
-                    continue
                 try:
                     opened = datetime.fromisoformat(str(ticket["opened_at"]).replace("Z", "+00:00"))
                     if opened.tzinfo is None:
