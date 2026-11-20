@@ -48,7 +48,7 @@ class RestoreHardeningTests(unittest.TestCase):
             destination = Path(self.tmp.name) / "staged.bin"
             with self.assertRaisesRegex(ValueError, "SHA-256-Prüfsumme"):
                 pulse_backup._copy_verified_member(archive, entry, destination)
-        self.assertTrue(destination.is_file())
+        self.assertFalse(destination.exists())
 
     def test_restore_staging_uses_data_volume_not_container_tmpfs(self):
         real_temporary_directory = tempfile.TemporaryDirectory
