@@ -405,14 +405,18 @@ def esc(v):
 def secfmt(s):
     s=max(0,int(s or 0));return f"{s//3600}h {(s%3600)//60}m"
 
-def members(guild,web):
-    ids={int(x) for x in web.load_config().get("team_role_ids",[])}
+def members(guild,web,config=None):
+    # Accept a shared snapshot so callers that also calculate permissions do not
+    # reread the JSON configuration for every member.
+    config = web.load_config() if config is None else config
+    ids={int(x) for x in config.get("team_role_ids",[])}
     return [m for m in guild.members if not m.bot and any(r.id in ids for r in m.roles)]
 
 def managers(guild,web):
+    config = web.load_config()
     out=[]
-    for m in members(guild,web):
-        p,_=web.compute_perms(guild,m.id,web.load_config())
+    for m in members(guild,web,config=config):
+        p,_=web.compute_perms(guild,m.id,config)
         if p.get("can_promote") or p.get("is_admin"):out.append(m)
     return out
 
@@ -2446,7 +2450,6 @@ class PulseSuite(commands.Cog):
             )
 
     @app_commands.command(name="team-ping",description="Ping für alle, Führung, Aktive oder Diensthabende.")
-    @app_commands.checks.cooldown(1, 60.0, key=lambda interaction: (interaction.guild_id, interaction.user.id))
     async def team_ping(self,i,scope:str="all",rolle:discord.Role=None):
         web=__import__("webserver")
         if not allowed(i,"team-ping",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
