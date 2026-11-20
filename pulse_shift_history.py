@@ -1072,13 +1072,20 @@ def total_credited_seconds_by_member(ws, mod_ids=None) -> dict[str, int]:
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
             _register_read_functions(con)
-            member_sql, params = "", []
+            # JSON mode only counts dictionary entries. Ignore malformed scalar payloads
+            # that have no indexed mod_id instead of emitting a synthetic "None": 0 bucket.
+            member_sql = (
+                " WHERE (mod_id IS NOT NULL OR "
+                "(json_valid(payload) AND json_type(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END)='object'))"
+            )
+            params = []
             if selected is not None:
                 placeholders = ",".join("?" for _ in selected)
-                member_sql = (
-                    f" WHERE (mod_id IN ({placeholders}) OR mod_id IS NULL)"
-                    if "None" in selected else f" WHERE mod_id IN ({placeholders})"
-                )
+                if "None" in selected:
+                    member_sql += f" AND (mod_id IN ({placeholders}) OR (mod_id IS NULL AND "
+                    member_sql += "json_valid(payload) AND json_type(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END)='object'))"
+                else:
+                    member_sql += f" AND mod_id IN ({placeholders})"
                 params = selected
             rows = con.execute(
                 "SELECT mod_id, COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
