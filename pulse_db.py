@@ -1187,21 +1187,18 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
 
-def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
-    """Aggregate all tickets by handler, without applying the UI list limit."""
+def closed_ticket_totals_by_assignee() -> dict[str, int]:
+    """Count all closed tickets per handler without applying the UI list limit."""
     with connect() as db:
         rows = db.execute(
             """
-            SELECT claimed_by_id,
-                   COUNT(*) AS total,
-                   SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+            SELECT claimed_by_id, COUNT(*) AS closed
             FROM tickets
+            WHERE status='closed' AND claimed_by_id IS NOT NULL AND claimed_by_id!=''
             GROUP BY claimed_by_id
             """
         ).fetchall()
-    claimed = {str(row["claimed_by_id"]): int(row["total"] or 0) for row in rows}
-    closed = {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
-    return claimed, closed
+    return {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
 
 def list_user_tickets(guild_id, user_id, limit=10):
     """Return a bounded, metadata-only list of tickets created by this user in this guild."""
