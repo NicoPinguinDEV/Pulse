@@ -12905,10 +12905,31 @@ async def handle_action(
         note = (note_text or "").strip()[:500]
         if not user_id or not note:
             return back(member_url, "Notiz ist leer.", False)
+
+        # Resolve the submitted ID against this guild before touching the personnel file.
+        target = guild.get_member(int(user_id))
+        if target is None or getattr(target, "bot", False):
+            return back("/team", "Teammitglied wurde nicht gefunden.", False)
+        configured_role_ids = set(team_role_ids)
+        if (
+            configured_role_ids
+            and str(target.id) != str(actor_id)
+            and not any(
+                getattr(role, "id", None) in configured_role_ids
+                for role in (getattr(target, "roles", ()) or ())
+            )
+        ):
+            return back("/team", "Interne Notizen können nur für Teammitglieder erstellt werden.", False)
+
         team_db = load_json(DATA_FILE, {})
-        user_entry(team_db, str(user_id))["notes"].append(f"[{now_de().strftime('%d.%m.%Y')}] {note} (von {actor})")
-        save_json(DATA_FILE, team_db)
-        log_audit(actor, actor_id, "Notiz Erstellt", f"User-ID {user_id}: {note}")
+        if not isinstance(team_db, dict):
+            return back(member_url, "Die Teamakte konnte nicht geladen werden.", False)
+        entry = user_entry(team_db, str(target.id))
+        tracker = track_member_entry(target.id, entry)
+        entry["notes"].append(f"[{now_de().strftime('%d.%m.%Y')}] {note} (von {actor})")
+        # K-04: merge this note into the latest entry so concurrent updates are not overwritten.
+        tracker.commit()
+        log_audit(actor, actor_id, "Notiz Erstellt", f"User-ID {target.id}: {note}")
         return back(member_url, "Notiz gespeichert.")
 
     # ---------- Abmeldungen ----------
