@@ -59,16 +59,17 @@ class TicketAggregateTests(unittest.TestCase):
             self._insert_ticket(connection, "urgent-closed", status="closed", priority="urgent",
                                 opened_at=old, claimed_by_id=None)
             self._insert_ticket(connection, "invalid-date", opened_at="not-a-date", claimed_by_id=None)
+            self._insert_ticket(connection, "naive-date", opened_at="2026-11-18T12:00:00", claimed_by_id=None)
 
         # list_tickets intentionally returns at most 2,000 rows; aggregate helpers must not inherit that cap.
         self.assertEqual(len(pulse_db.list_tickets(limit=5000)), 2000)
-        self.assertEqual(pulse_db.count_open_tickets(), 2011)
+        self.assertEqual(pulse_db.count_open_tickets(), 2012)
         self.assertEqual(pulse_db.count_sla_overdue_tickets(now), 2007)
 
         claimed, closed = pulse_db.ticket_totals_by_assignee()
         self.assertEqual(claimed["7"], 2005)
         self.assertEqual(closed["7"], 1)
-        self.assertEqual(claimed["None"], 8)
+        self.assertEqual(claimed["None"], 9)
         self.assertEqual(closed["None"], 1)
 
 
