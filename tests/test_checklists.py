@@ -55,6 +55,19 @@ class ChecklistTests(TempDb):
         with self.assertRaises(ValueError):
             pc.toggle(item["id"], "nope", "Lena")
 
+    def test_parallel_start_creates_only_one_open_checklist(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        with patch.object(pc, "open_for", side_effect=AssertionError("start must serialize its existence check")):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(pc.start, 7, "Max", "onboarding"),
+                    pool.submit(pc.start, 7, "Max", "onboarding"),
+                ]
+                results = [future.result(timeout=5) for future in futures]
+        self.assertEqual(results[0]["id"], results[1]["id"])
+        self.assertEqual(len([item for item in pc.list_open() if item["user_id"] == "7" and item["kind"] == "onboarding"]), 1)
+
     def test_parallel_toggles_preserve_both_steps(self):
         from concurrent.futures import ThreadPoolExecutor
 
