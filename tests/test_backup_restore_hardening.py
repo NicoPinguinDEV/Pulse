@@ -36,6 +36,12 @@ class RestoreHardeningTests(unittest.TestCase):
             problems = pulse_backup.verify_full_backup(self.archive)
         self.assertTrue(any("Gesamtgröße" in problem for problem in problems))
 
+    def test_unsupported_zip_compression_returns_a_validation_problem(self):
+        with patch.object(zipfile.ZipFile, "open", side_effect=NotImplementedError("unknown compression")):
+            problems = pulse_backup.verify_full_backup(self.archive)
+        self.assertTrue(problems)
+        self.assertTrue(any("NotImplementedError" in problem for problem in problems))
+
     def test_manifest_has_its_own_size_limit(self):
         with patch.object(pulse_backup, "MAX_RESTORE_MANIFEST_BYTES", 1):
             problems = pulse_backup.verify_full_backup(self.archive)
