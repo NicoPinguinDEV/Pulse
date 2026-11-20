@@ -675,16 +675,20 @@ def register_routes():
         team_members=members(ctx.guild,web)
         member_snapshots=member_rows()
         shift_state=web.load_shift_state()
+        shift_member_ids=[str(m.id) for m in team_members]
         if "history" in shift_state:
             credited_totals={}
+            selected_members=set(shift_member_ids)
             for entry in shift_state.get("history",[]):
                 if isinstance(entry,dict):
                     uid=str(entry.get("mod_id"))
-                    credited_totals[uid]=credited_totals.get(uid,0)+web.credited_shift_seconds(entry)
+                    if uid in selected_members:
+                        credited_totals[uid]=credited_totals.get(uid,0)+web.credited_shift_seconds(entry)
             weekly_totals=web.weekly_history_totals(shift_state.get("history",[]))
+            weekly_totals={uid:seconds for uid,seconds in weekly_totals.items() if uid in selected_members}
         else:
-            credited_totals=web.shift_total_credited_seconds_by_member()
-            weekly_totals=web.shift_weekly_totals()
+            credited_totals=web.shift_total_credited_seconds_by_member(shift_member_ids)
+            weekly_totals=web.shift_weekly_totals(shift_member_ids)
         task_totals=db.task_totals_by_assignee(1000)
         ticket_totals={}
         for ticket in db.list_tickets(limit=2000):
