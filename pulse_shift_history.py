@@ -1049,6 +1049,33 @@ def total_credited_seconds(ws, mod_id=None) -> int:
             con.close()
 
 
+def total_credited_seconds_by_member(ws) -> dict[str, int]:
+    """All-time credited seconds for every member in one pass/query."""
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            shifts = ws.load_shifts()
+            totals: dict[str, int] = {}
+            for entry in shifts.get("history", []):
+                if not isinstance(entry, dict):
+                    continue
+                uid = str(entry.get("mod_id"))
+                totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+            return totals
+
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            rows = con.execute(
+                "SELECT mod_id, COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
+                "FROM shift_history GROUP BY mod_id"
+            ).fetchall()
+            return {str(uid): int(seconds or 0) for uid, seconds in rows}
+        finally:
+            con.close()
+
+
 def _visible_active_shifts(ws, raw: dict, only_mod_id=None) -> dict:
     active = raw.get("active_shifts", {})
     active = dict(active) if isinstance(active, dict) else {}
