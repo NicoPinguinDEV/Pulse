@@ -518,10 +518,18 @@ class AggregatedMemberTotalsTests(ShiftHistoryBase):
 
         self.assertEqual(store.total_credited_seconds_by_member(ws), expected)
         self.assertEqual(ws.shift_total_credited_seconds_by_member(), expected)
+        self.assertEqual(
+            ws.shift_total_credited_seconds_by_member(["legacy-user"]),
+            {"legacy-user": expected["legacy-user"]},
+        )
 
         self.assertEqual(store.migrate(ws)["status"], "migrated")
         self.assertEqual(store.total_credited_seconds_by_member(ws), expected)
         self.assertEqual(ws.shift_total_credited_seconds_by_member(), expected)
+        self.assertEqual(
+            ws.shift_total_credited_seconds_by_member(["legacy-user"]),
+            {"legacy-user": expected["legacy-user"]},
+        )
 
 
 class DashboardResultTests(ShiftHistoryBase):
