@@ -1339,6 +1339,25 @@ def list_sla_overdue_tickets(now: datetime | None = None, limit: int = 20) -> li
     return result
 
 
+def user_achievement_counts(user_id) -> tuple[int, int]:
+    """Return complete closed-ticket and completed-task counts for one user in a single indexed DB read."""
+    uid = str(user_id or "").strip()
+    if not uid:
+        return 0, 0
+    with connect() as db:
+        row = db.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM tickets WHERE claimed_by_id=? AND status='closed') AS tickets_closed,
+                (SELECT COUNT(*) FROM tasks WHERE assignee_id=? AND status='done') AS tasks_done
+            """,
+            (uid, uid),
+        ).fetchone()
+    if row is None:
+        return 0, 0
+    return int(row["tickets_closed"] or 0), int(row["tasks_done"] or 0)
+
+
 def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
     """Aggregate all tickets by assignee for team performance stats without loading ticket rows."""
     with connect() as db:
