@@ -556,7 +556,7 @@ def allowed(i,key,web):
             return False
     if key in {"warn", "warns", "warn-remove"}:
         return bool(p.get("can_manage_team_warnings"))
-    need={"warn":"can_manage_team_warnings","warns":"can_manage_team_warnings","warn-remove":"can_manage_team_warnings","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
+    need={"warn":"can_manage_team_warnings","warns":"can_manage_team_warnings","warn-remove":"can_manage_team_warnings","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_promote","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
     rm=setting("command_roles",{}) or {};ids={int(x) for x in rm.get(key,[]) if str(x).isdigit()}
     return bool(p.get(need)) or any(r.id in ids for r in i.user.roles)
 
@@ -2446,6 +2446,7 @@ class PulseSuite(commands.Cog):
             )
 
     @app_commands.command(name="team-ping",description="Ping für alle, Führung, Aktive oder Diensthabende.")
+    @app_commands.checks.cooldown(1, 60.0, key=lambda interaction: (interaction.guild_id, interaction.user.id))
     async def team_ping(self,i,scope:str="all",rolle:discord.Role=None):
         web=__import__("webserver")
         if not allowed(i,"team-ping",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
