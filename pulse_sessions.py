@@ -15,6 +15,7 @@ import secrets
 import threading
 import time
 
+
 def _idle_seconds() -> int:
     """Parse the configured idle timeout safely; invalid values fall back to the documented default."""
     try:
