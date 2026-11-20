@@ -55,6 +55,32 @@ class ChecklistTests(TempDb):
         with self.assertRaises(ValueError):
             pc.toggle(item["id"], "nope", "Lena")
 
+    def test_parallel_toggles_preserve_both_steps(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        item = pc.start(7, "Max", "onboarding")
+        # A stale read before the write was the race: both calls read the empty
+        # done_json and the later UPDATE overwrote the earlier step.
+        with patch.object(pc, "get", side_effect=AssertionError("toggle must not read outside its transaction")):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(pc.toggle, item["id"], "roles", "Lena"),
+                    pool.submit(pc.toggle, item["id"], "channels", "Mia"),
+                ]
+                for future in futures:
+                    future.result(timeout=5)
+        updated = pc.get(item["id"])
+        self.assertEqual(set(updated["done"]), {"roles", "channels"})
+        self.assertEqual(updated["progress"], 2)
+
+    def test_assigning_mentor_does_not_untick_an_existing_mentor_step(self):
+        item = pc.start(7, "Max", "onboarding")
+        pc.toggle(item["id"], "mentor", "Lena")
+        updated = pc.set_mentor(item["id"], 3, "Lena", "Admin")
+        self.assertIn("mentor", updated["done"])
+        self.assertTrue(next(step for step in updated["steps"] if step["key"] == "mentor")["done"])
+        self.assertEqual(updated["mentor_id"], "3")
+
     def test_mentor_ticks_step_and_notifies(self):
         item = pc.start(7, "Max", "onboarding")
         item = pc.set_mentor(item["id"], 3, "Lena", "Admin")
