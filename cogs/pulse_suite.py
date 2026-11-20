@@ -1789,6 +1789,12 @@ class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-V
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+def team_ping_message(members_list, limit: int = 30) -> str:
+    """Build the /team-ping response, including a visible empty state."""
+    mentions = " ".join(member.mention for member in members_list[:limit])
+    return f"📣 {mentions}" if mentions else "📣 Keine passenden Teamler."
+
+
 class PulseSuite(commands.Cog):
     def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
 
@@ -2448,7 +2454,7 @@ class PulseSuite(commands.Cog):
         if scope=="leadership":ms=managers(i.guild,web)
         elif scope=="active":ms=[m for m in ms if str(m.status) in {"online","idle","dnd"}]
         elif scope=="duty":ms=[m for m in ms if str(m.id) in web.load_shifts().get("active_shifts",{})]
-        await i.response.send_message("📣 "+" ".join(m.mention for m in ms[:30]) or "📣 Keine passenden Teamler.")
+        await i.response.send_message(team_ping_message(ms))
 
     @app_commands.command(name="pulse-ticket",description="Erstellt ein internes Pulse-Ticket.")
     async def pulse_ticket(self,i,kategorie:str,beschreibung:str,prioritaet:str="normal"):
