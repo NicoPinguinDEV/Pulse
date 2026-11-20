@@ -871,12 +871,9 @@ def stats_context() -> dict:
     Phase 10: also the per-member SQLite reads (tasks, training attempts, profiles) as one query each and the shift
     history grouped by member – a page with N members used ~4·N connections and N passes over the whole history."""
     import webserver
-    claimed, closed = {}, {}
-    for t in db.list_tickets(limit=5000):
-        key = str(t.get("claimed_by_id"))
-        claimed[key] = claimed.get(key, 0) + 1
-        if t.get("status") == "closed":
-            closed[key] = closed.get(key, 0) + 1
+    ticket_totals = db.ticket_totals_by_assignee(limit=5000)
+    claimed = {user_id: totals[0] for user_id, totals in ticket_totals.items()}
+    closed = {user_id: totals[1] for user_id, totals in ticket_totals.items()}
     shifts = webserver.load_shifts()
     return {"shifts": shifts, "claimed": claimed, "closed": closed,
             "team_data": webserver.load_json(webserver.DATA_FILE, {}), "config": webserver.load_config(),
