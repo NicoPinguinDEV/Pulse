@@ -21,6 +21,7 @@ include = [
     "pulse_live_refresh.py", "pulse_teamakte_pages.py", "tests/test_live_refresh.py", "tests/test_teamakte_pages.py", "tests/test_application_dm_library.py",
     "tests/test_ticket_priority.py", "tests/test_team_ping_safety.py", "tests/test_pulse_suite_manager_cache.py",
     "tests/test_ticket_load_counts.py",
+    "tests/test_ticket_panel_performance.py",
 ]
 
 [lint]
