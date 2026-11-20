@@ -611,7 +611,7 @@ class PulsePro(commands.Cog):
                 if task.get("status") not in ("done", "archived")
             ])
             my_tickets = len([
-                ticket for ticket in db.list_tickets(claimed_by_id=uid, limit=100)
+                ticket for ticket in db.list_tickets(claimed_by_id=uid, limit=100, open_only=True)
                 if ticket.get("status") != "closed"
             ])
             attempts = db.attempts(user_id=uid, limit=100)
@@ -903,7 +903,7 @@ class PulsePro(commands.Cog):
             return
         embed = discord.Embed(title="🧭 Dein Selbstservice", color=_pulse_color("info"))
         try:
-            tickets = db.list_user_tickets(interaction.guild.id, interaction.user.id, limit=10)
+            tickets = db.list_user_tickets(interaction.guild.id, interaction.user.id, limit=10, open_only=True)
             open_tickets = [t for t in tickets if str(t.get("status") or "") != "closed"]
             lines = [
                 f"<#{t['channel_id']}>" if str(t.get("channel_id") or "").isdigit() else _private_label(t.get("id"), "Ticket", 50)
@@ -1241,7 +1241,7 @@ class PulsePro(commands.Cog):
                 if task.get("status") not in ("done", "archived")
             ]
             open_tickets = [
-                ticket for ticket in db.list_tickets(claimed_by_id=user_id, limit=100)
+                ticket for ticket in db.list_tickets(claimed_by_id=user_id, limit=100, open_only=True)
                 if ticket.get("status") != "closed"
             ]
             attempts = db.attempts(user_id=user_id, limit=100)
