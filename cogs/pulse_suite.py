@@ -690,11 +690,7 @@ def register_routes():
             credited_totals=web.shift_total_credited_seconds_by_member(shift_member_ids)
             weekly_totals=web.shift_weekly_totals(shift_member_ids)
         task_totals=db.task_totals_by_assignee(1000,shift_member_ids)
-        ticket_totals={}
-        for ticket in db.list_tickets(limit=2000):
-            if ticket.get("status")=="closed" and ticket.get("claimed_by_id") is not None:
-                uid=str(ticket.get("claimed_by_id"))
-                ticket_totals[uid]=ticket_totals.get(uid,0)+1
+        _,ticket_totals=db.ticket_totals_by_assignee()
         passed_attempts=db.passed_attempts_by_user(200,shift_member_ids)
         weekly_goal_seconds=max(1,float(setting("weekly_goal_hours",3))*3600)
         team_data=web.load_json(web.DATA_FILE,{})
