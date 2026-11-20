@@ -1049,8 +1049,11 @@ def total_credited_seconds(ws, mod_id=None) -> int:
             con.close()
 
 
-def total_credited_seconds_by_member(ws) -> dict[str, int]:
-    """All-time credited seconds for every member in one pass/query."""
+def total_credited_seconds_by_member(ws, mod_ids=None) -> dict[str, int]:
+    """All-time credited seconds grouped by member, optionally limited to selected members."""
+    selected = None if mod_ids is None else list(dict.fromkeys(str(value) for value in mod_ids))
+    if selected == []:
+        return {}
     path = ws.SHIFTS_FILE
     with ws._io_lock:
         raw = _read_raw(path)
@@ -1061,15 +1064,26 @@ def total_credited_seconds_by_member(ws) -> dict[str, int]:
                 if not isinstance(entry, dict):
                     continue
                 uid = str(entry.get("mod_id"))
+                if selected is not None and uid not in selected:
+                    continue
                 totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
             return totals
 
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
             _register_read_functions(con)
+            member_sql, params = "", []
+            if selected is not None:
+                placeholders = ",".join("?" for _ in selected)
+                member_sql = (
+                    f" WHERE (mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                    if "None" in selected else f" WHERE mod_id IN ({placeholders})"
+                )
+                params = selected
             rows = con.execute(
                 "SELECT mod_id, COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
-                "FROM shift_history GROUP BY mod_id"
+                "FROM shift_history" + member_sql + " GROUP BY mod_id",
+                params,
             ).fetchall()
             return {str(uid): int(seconds or 0) for uid, seconds in rows}
         finally:
