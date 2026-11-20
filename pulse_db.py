@@ -1200,6 +1200,13 @@ def count_sla_overdue_tickets(now: datetime | None = None) -> int:
             FROM tickets
             WHERE COALESCE(status,'')!='closed'
               AND julianday(opened_at) IS NOT NULL
+              -- The previous Python implementation skipped naive timestamps because subtracting them
+              -- from an aware UTC datetime raises TypeError. Keep that behavior for legacy rows.
+              AND (
+                  substr(opened_at,20) LIKE '%+%'
+                  OR substr(opened_at,20) LIKE '%-%'
+                  OR substr(opened_at,20) LIKE '%Z%'
+              )
               AND julianday(opened_at) <= julianday(?) - (
                   CASE COALESCE(NULLIF(priority,''),'normal')
                       WHEN 'urgent' THEN 30.0
