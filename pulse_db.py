@@ -961,16 +961,24 @@ def list_tasks(status=None, assignee_id=None, limit=200, include_archived=False)
 _TASK_ORDER = "CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, due_at IS NULL, due_at, created_at DESC"
 
 
-def task_totals_by_assignee(limit_per_assignee=1000) -> dict:
-    """Phase 10: {assignee_id: (tasks, done)} for all assignees in one query – the same figures member_stats got from
-    list_tasks(assignee_id=…, limit=1000, include_archived=True) with one connection per member (same order and cap)."""
+def task_totals_by_assignee(limit_per_assignee=1000, assignee_ids=None) -> dict:
+    """Per-assignee task totals in one query, matching list_tasks' sort order and cap exactly."""
+    selected = None if assignee_ids is None else list(dict.fromkeys(str(value) for value in assignee_ids))
+    if selected == []:
+        return {}
+    assignee_filter, params = "", []
+    if selected is not None:
+        placeholders = ",".join("?" for _ in selected)
+        assignee_filter = f" AND assignee_id IN ({placeholders})"
+        params.extend(selected)
+    params.append(max(1, min(int(limit_per_assignee), 1000)))
     with connect() as db:
         rows = db.execute(
             f"""SELECT assignee_id, COUNT(*), SUM(status IN ('done','archived')) FROM (
                   SELECT assignee_id, status, ROW_NUMBER() OVER (PARTITION BY assignee_id ORDER BY {_TASK_ORDER}) AS rn
-                  FROM tasks WHERE assignee_id IS NOT NULL AND assignee_id != '')
+                  FROM tasks WHERE assignee_id IS NOT NULL AND assignee_id != ''{assignee_filter})
                 WHERE rn <= ? GROUP BY assignee_id""",
-            (max(1, min(int(limit_per_assignee), 1000)),),
+            params,
         ).fetchall()
     return {str(r[0]): (int(r[1]), int(r[2] or 0)) for r in rows}
 
@@ -1346,6 +1354,20 @@ def ticket_totals_by_assignee() -> tuple[dict[str, int], dict[str, int]]:
     claimed = {str(row["claimed_by_id"]): int(row["total"] or 0) for row in rows}
     closed = {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
     return claimed, closed
+
+
+def closed_ticket_totals_by_assignee() -> dict[str, int]:
+    """Count all closed tickets per handler without applying the UI list limit."""
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT claimed_by_id, COUNT(*) AS closed
+            FROM tickets
+            WHERE status='closed' AND claimed_by_id IS NOT NULL AND claimed_by_id!=''
+            GROUP BY claimed_by_id
+            """
+        ).fetchall()
+    return {str(row["claimed_by_id"]): int(row["closed"] or 0) for row in rows}
 
 
 def list_user_tickets(guild_id, user_id, limit=10, open_only=False):
@@ -2204,16 +2226,24 @@ def attempts(user_id=None, limit=100):
         return [dict(r) for r in rows]
 
 
-def passed_attempts_by_user(limit_per_user=200) -> dict:
-    """Phase 10: {user_id: passed attempts among the latest `limit_per_user`} in one query – what member_stats counted
-    from attempts(user_id=…, limit=200) with one connection per member."""
+def passed_attempts_by_user(limit_per_user=200, user_ids=None) -> dict:
+    """Count passed attempts among each selected user's latest attempts in one query."""
+    selected = None if user_ids is None else list(dict.fromkeys(str(value) for value in user_ids))
+    if selected == []:
+        return {}
+    user_filter, params = "", []
+    if selected is not None:
+        placeholders = ",".join("?" for _ in selected)
+        user_filter = f" WHERE user_id IN ({placeholders})"
+        params.extend(selected)
+    params.append(int(limit_per_user))
     with connect() as db:
         rows = db.execute(
             """SELECT user_id, SUM(passed != 0) FROM (
                  SELECT user_id, passed, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) AS rn
-                 FROM training_attempts)
+                 FROM training_attempts""" + user_filter + """)
                WHERE rn <= ? GROUP BY user_id""",
-            (int(limit_per_user),),
+            params,
         ).fetchall()
     return {str(r[0]): int(r[1] or 0) for r in rows}
 
@@ -2901,3 +2931,4 @@ def import_state(state):
 
 
 # A-04: no init_db() on import – webserver.init_runtime() creates the tables at start, connect() on first use.
+
