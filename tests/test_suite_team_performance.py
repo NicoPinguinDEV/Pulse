@@ -77,6 +77,19 @@ class SuiteTeamBatchMetricsTests(unittest.TestCase):
         self.assertFalse(any(row["assignee_id"] == self.member_b for row in global_snapshot))
         self.assertEqual(batch_tasks[self.member_b][0], 4)
 
+    def test_member_directory_snapshot_returns_all_rows_in_one_read(self):
+        suite_tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(suite_tmp.cleanup)
+        with patch.object(suite, "DB_PATH", str(Path(suite_tmp.name) / "suite.db")):
+            suite.init_db()
+            suite.upsert_members_batch([
+                ("100000000000000001", "2026-11-20T20:00:00+00:00", "2026-12-04T20:00:00+00:00"),
+                ("100000000000000002", "2026-11-20T20:01:00+00:00", "2026-12-04T20:01:00+00:00"),
+            ])
+            rows = suite.member_rows()
+        self.assertEqual(set(rows), {"100000000000000001", "100000000000000002"})
+        self.assertEqual(rows["100000000000000002"]["probation_end"], "2026-12-04T20:01:00+00:00")
+
     def test_batched_score_matches_the_previous_per_member_path_without_n_plus_one_reads(self):
         member = SimpleNamespace(id=int(self.member_b))
         uid = str(member.id)
