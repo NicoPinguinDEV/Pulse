@@ -101,6 +101,7 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(ev.safe_int("SERVER_PORT", 25095, 1, 65535, env), 25095)
         self.assertEqual(ev.safe_int("SESSION_DAYS", 7, 1, 365, env), 7)
         self.assertEqual(ev.safe_int("MAX_BACKUPS", 30, 1, 1000, env), 30)
+        self.assertEqual(ev.safe_int("DISCORD_GUILD_ID", 0, 0, 2**63 - 1, {"DISCORD_GUILD_ID": ""}), 0)
         self.assertEqual(ev.safe_float("AUTO_BACKUP_HOURS", 24.0, 0.0, 8760.0, env), 24.0)
         self.assertEqual(ev.safe_float("PULSE_BACKUP_MAX_MB", 500.0, 1.0, 100000.0, env), 500.0)
         self.assertEqual(ev.safe_float("PULSE_BACKUP_TOTAL_MAX_MB", 4000.0, 1.0, 1000000.0, env), 4000.0)
@@ -120,7 +121,7 @@ class StartupTests(unittest.TestCase):
                 "AUTO_BACKUP_HOURS": "Infinity",
                 "MAX_BACKUPS": "-5",
                 "PULSE_SESSION_IDLE_HOURS": "NaN",
-                "DISCORD_GUILD_ID": "",
+                "DISCORD_GUILD_ID": "not-a-snowflake",
             }
             code = (
                 "import pulse_backup as b; import webserver as w; import pulse_sessions as s; "
@@ -129,7 +130,9 @@ class StartupTests(unittest.TestCase):
                 "assert (w.SESSION_DAYS, w.AUTO_BACKUP_HOURS, w.MAX_BACKUPS) == (7, 24.0, 30); "
                 "assert s.MAX_SESSION_SECONDS == 7 * 86400; "
                 "assert s.IDLE_SECONDS == 24 * 3600; "
-                "import pulse_ids; assert w.GUILD_ID == pulse_ids.GUILD_ID"
+                "import pulse_ids; assert w.GUILD_ID == pulse_ids.GUILD_ID; "
+                "import cogs.pulse_pro as pro; import cogs.pulse_suite as suite; "
+                "assert pro.GUILD_ID == 0 and suite.GUILD_ID == 0"
             )
             result = subprocess.run(
                 [sys.executable, "-c", code],
