@@ -356,7 +356,8 @@ def assets() -> str:
     start:start,
     skip:completeTour,
     isCompleted:()=>readFlag(storageKey),
-    steps:()=>available.length
+    steps:()=>available.length,
+    titles:()=>available.map(step=>step.title)
   };
 
   function init(){
