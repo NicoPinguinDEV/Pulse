@@ -136,9 +136,9 @@ class _PreviewE2EBase(unittest.TestCase):
             # Dedicated tutorial tests opt in to the real first-run experience below.
             page.add_init_script(
                 """document.addEventListener('DOMContentLoaded', () => {
-                  const shell = document.querySelector('.pulse-shell');
-                  if (!shell) return;
-                  try { localStorage.setItem('pulse.team-intro.v1:' + (shell.dataset.pulseUser || 'browser'), '1'); } catch (_) {}
+                  const account = document.getElementById('pulseTutorialAccount');
+                  if (!account) return;
+                  try { localStorage.setItem('pulse.team-intro.v1:' + (account.dataset.pulseUser || 'browser'), '1'); } catch (_) {}
                 }, {once: true});"""
             )
         page.set_default_timeout(15_000)
@@ -395,7 +395,7 @@ class TeamDashboardTutorialE2ETests(_PreviewE2EBase):
         card.wait_for(state="visible")
         self.assertIn("Willkommen bei Pulse TeamOS", card.inner_text())
 
-        user_id = page.locator(".pulse-shell").get_attribute("data-pulse-user")
+        user_id = page.locator("#pulseTutorialAccount").get_attribute("data-pulse-user")
         storage_key = "pulse.team-intro.v1:" + (user_id or "browser")
         self.assertIsNone(page.evaluate("(key) => localStorage.getItem(key)", storage_key))
 
