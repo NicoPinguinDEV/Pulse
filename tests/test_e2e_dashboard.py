@@ -400,7 +400,7 @@ class TeamDashboardTutorialE2ETests(_PreviewE2EBase):
         self.assertIsNone(page.evaluate("(key) => localStorage.getItem(key)", storage_key))
 
         page.locator("#pulseTutorialNext").click()
-        self.assertIn("Deine Navigation", card.inner_text())
+        self.assertIn("So ist das Dashboard aufgebaut", card.inner_text())
         self.assertTrue(page.locator("#pulseSidebar nav").evaluate("el => el.classList.contains('pulse-tour-highlight')"))
 
         page.locator("#pulseTutorialNext").click()
