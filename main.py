@@ -176,7 +176,8 @@ class CustomBot(commands.Bot):
         task = self._pulse_web_server_task
         if task is not None and not task.done():
             return task
-        port = int(os.getenv("SERVER_PORT", 25095))
+        from pulse_env_validation import safe_int
+        port = safe_int("SERVER_PORT", 25095, 1, 65535)
         # O-02: behind a reverse proxy (Caddy) the real client IP comes from X-Forwarded-For – trusted only from
         # PULSE_FORWARDED_ALLOW_IPS (default 127.0.0.1), otherwise anyone could fake it to dodge rate limits.
         config = uvicorn.Config(
