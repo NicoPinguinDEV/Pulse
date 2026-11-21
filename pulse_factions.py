@@ -293,19 +293,30 @@ def warnings_for(faction_id: int) -> list[dict]:
 
 
 def add_warning(faction_id: int, reason, warned_on, actor_id, actor_name: str) -> tuple[dict, dict]:
+    # Fast pre-check for a missing faction and a useful validation message. This snapshot is
+    # not authoritative for the warning limit: another request may add a warning immediately after it.
     item = get_faction(faction_id)
     if not item:
         raise LookupError("Diese Fraktion gibt es nicht (mehr).")
     reason = str(reason or "").strip()
     if len(reason) < 3 or len(reason) > REASON_MAX:
         raise ValueError(f"Grund: Bitte 3 bis {REASON_MAX} Zeichen angeben.")
-    if item["at_max"]:
-        raise ValueError(f"{item['name']} hat bereits {item['warnings']}/{item['max_warnings']} Verwarnungen. "
-                         "Erst eine Verwarnung zurückziehen oder das Maximum anpassen.")
+    warned_on = clean_date(warned_on)
+
     with pulse_db.connect() as db:
+        # Acquire the SQLite write reservation before re-reading the counter. This makes the
+        # check + insert atomic across threads and separate Pulse processes, not just best-effort.
+        db.execute("BEGIN IMMEDIATE")
         _tables(db)
+        current_row = db.execute(_FACTION_SELECT + " WHERE f.id=?", (int(faction_id),)).fetchone()
+        if current_row is None:
+            raise LookupError("Diese Fraktion gibt es nicht (mehr).")
+        current = _faction(current_row)
+        if current["at_max"]:
+            raise ValueError(f"{current['name']} hat bereits {current['warnings']}/{current['max_warnings']} Verwarnungen. "
+                             "Erst eine Verwarnung zurückziehen oder das Maximum anpassen.")
         cur = db.execute("INSERT INTO faction_warnings(faction_id,reason,warned_on,issued_by_id,issued_by_name,created_at) "
-                         "VALUES (?,?,?,?,?,?)", (int(faction_id), reason, clean_date(warned_on), str(actor_id), actor_name, _now()))
+                         "VALUES (?,?,?,?,?,?)", (int(faction_id), reason, warned_on, str(actor_id), actor_name, _now()))
         db.execute("UPDATE factions SET updated_at=? WHERE id=?", (_now(), int(faction_id)))
         warning_id = cur.lastrowid
     warning = next(w for w in warnings_for(faction_id) if w["id"] == warning_id)
