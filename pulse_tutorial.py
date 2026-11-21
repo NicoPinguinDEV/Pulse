@@ -95,8 +95,8 @@ def assets() -> str:
   const launcher=document.getElementById('pulseTutorialLauncher');
   if(!card||!launcher)return;
 
-  const shell=document.querySelector('.pulse-shell');
-  const userId=shell&&shell.dataset.pulseUser?shell.dataset.pulseUser:'browser';
+  const account=document.getElementById('pulseTutorialAccount');
+  const userId=account&&account.dataset.pulseUser?account.dataset.pulseUser:'browser';
   const storageKey='pulse.team-intro.v1:'+userId;
   const snoozeKey='pulse.team-intro.snoozed.v1:'+userId;
   const title=document.getElementById('pulseTutorialTitle');
@@ -127,7 +127,7 @@ def assets() -> str:
     {
       title:'Mein Pulse – dein persönlicher Startpunkt',
       text:'Hier findest du deine Schicht, Wochenziele, eigene Aufgaben und Tickets, persönliche Hinweise sowie anstehende Besprechungen. Von hier aus startest du typischerweise in deinen Arbeitstag.',
-      selector:'#pulseSidebar a[href="/me"]',
+      selector:'#pulseSidebar a[aria-label="Mein Pulse"]',
       open:'/me'
     },
     {
