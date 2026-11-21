@@ -1230,15 +1230,16 @@ def heatmap_inputs(start_at, end_at) -> tuple[list[dict], list[dict]]:
     )
 
 
-def open_ticket_counts(claimed_by_ids):
-    """Return complete open-ticket counts for supplied assignees using grouped SQL."""
+def open_ticket_counts(claimed_by_ids, *, guild_id):
+    """Return complete open-ticket counts for supplied assignees in one Discord guild."""
     ids = list(dict.fromkeys(
         str(value).strip()
         for value in (claimed_by_ids or [])
         if value is not None and str(value).strip()
     ))
     counts = {user_id: 0 for user_id in ids}
-    if not ids:
+    guild_key = str(guild_id or "").strip()
+    if not ids or not guild_key:
         return counts
 
     # Stay below SQLite's commonly configured bound-parameter limit while using one
@@ -1250,23 +1251,24 @@ def open_ticket_counts(claimed_by_ids):
             placeholders = ",".join("?" for _ in chunk)
             rows = db.execute(
                 "SELECT claimed_by_id, COUNT(*) AS open_count FROM tickets "
-                "WHERE claimed_by_id IN (" + placeholders + ") "
+                "WHERE guild_id=? AND claimed_by_id IN (" + placeholders + ") "
                 "AND COALESCE(status, '') != 'closed' GROUP BY claimed_by_id",
-                chunk,
+                (guild_key, *chunk),
             ).fetchall()
             counts.update({str(row["claimed_by_id"]): int(row["open_count"]) for row in rows})
     return counts
 
 
-def open_ticket_category_counts(category_keys):
-    """Return complete open-ticket counts for the requested categories in grouped SQL."""
+def open_ticket_category_counts(category_keys, *, guild_id):
+    """Return complete open-ticket counts for the requested categories in one Discord guild."""
     keys = list(dict.fromkeys(
         str(value).strip()
         for value in (category_keys or [])
         if value is not None and str(value).strip()
     ))
     counts = {key: 0 for key in keys}
-    if not keys:
+    guild_key = str(guild_id or "").strip()
+    if not keys or not guild_key:
         return counts
 
     chunk_size = 500
@@ -1276,9 +1278,9 @@ def open_ticket_category_counts(category_keys):
             placeholders = ",".join("?" for _ in chunk)
             rows = db.execute(
                 "SELECT category, COUNT(*) AS open_count FROM tickets "
-                "WHERE category IN (" + placeholders + ") "
+                "WHERE guild_id=? AND category IN (" + placeholders + ") "
                 "AND COALESCE(status, '') != 'closed' GROUP BY category",
-                chunk,
+                (guild_key, *chunk),
             ).fetchall()
             counts.update({str(row["category"]): int(row["open_count"]) for row in rows})
     return counts
