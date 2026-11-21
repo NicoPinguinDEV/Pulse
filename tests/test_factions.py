@@ -5,7 +5,9 @@ Runs the real FastAPI routes with a fake login (no Discord connection, temp data
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -136,6 +138,42 @@ class DataModelTests(TempDb):
         with self.assertRaises(LookupError):                              # warning of another faction
             other = pf.create_faction({"name": "Crips", "status": "official"})
             pf.revoke_warning(other["id"], w1["id"], "Admin", "Falsche Fraktion")
+
+    def test_concurrent_warning_creation_cannot_exceed_maximum(self):
+        item = pf.create_faction({"name": "Parallel", "status": "official", "max_warnings": "1"})
+        original_get_faction = pf.get_faction
+        first_reads = 0
+        reads_lock = threading.Lock()
+        both_have_stale_snapshot = threading.Barrier(2)
+
+        def synchronized_get_faction(faction_id):
+            nonlocal first_reads
+            snapshot = original_get_faction(faction_id)
+            with reads_lock:
+                should_wait = first_reads < 2
+                if should_wait:
+                    first_reads += 1
+            if should_wait:
+                both_have_stale_snapshot.wait(timeout=5)
+            return snapshot
+
+        with patch.object(pf, "get_faction", side_effect=synchronized_get_faction):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(pf.add_warning, item["id"], f"Parallelgrund {index}", "", index + 10, f"Admin {index}")
+                    for index in range(2)
+                ]
+                outcomes = []
+                for future in futures:
+                    try:
+                        future.result(timeout=10)
+                        outcomes.append("created")
+                    except ValueError:
+                        outcomes.append("blocked")
+
+        self.assertCountEqual(outcomes, ["created", "blocked"])
+        self.assertEqual(pf.get_faction(item["id"])["warnings"], 1)
+        self.assertEqual(len(pf.warnings_for(item["id"])), 1)
 
     def test_delete_category_keeps_factions_and_delete_faction_removes_warnings(self):
         cid = self.cat_id("Illegal")
