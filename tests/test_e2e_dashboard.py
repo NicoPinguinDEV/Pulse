@@ -438,7 +438,9 @@ class TeamDashboardTutorialE2ETests(_PreviewE2EBase):
           hasAnalytics: !!document.querySelector('#pulseSidebar a[href="/stats"]')
         })""")
         self.assertGreaterEqual(selectors["steps"], 8)
-        self.assertEqual(selectors["hasWarns"], selectors["hasMelonly"] or selectors["hasWarns"])
+        titles = page.evaluate("() => window.PulseTeamTutorial.titles()")
+        self.assertEqual("Melonly & Verwarnungen" in titles, selectors["hasWarns"] or selectors["hasMelonly"])
+        self.assertEqual("Analytics – Entwicklungen erkennen" in titles, selectors["hasAnalytics"])
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
 
