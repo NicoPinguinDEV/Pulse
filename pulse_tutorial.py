@@ -69,7 +69,7 @@ def assets() -> str:
       <div class="pulse-tour-kicker">Pulse TeamOS · Einführung</div>
       <div class="flex items-center justify-between gap-3 mt-2">
         <span id="pulseTutorialCount" class="text-[10px] font-bold text-slate-400">Schritt 1 von 1</span>
-        <button id="pulseTutorialClose" class="pulse-tour-close" type="button" aria-label="Einführung später fortsetzen">✕</button>
+        <button id="pulseTutorialClose" class="pulse-tour-close" type="button" aria-label="Einführung schließen">✕</button>
       </div>
     </div>
   </div>
@@ -173,6 +173,24 @@ def assets() -> str:
       open:'/wiki'
     },
     {
+      title:'Activity Check – tägliche Rückmeldung',
+      text:'Wenn du diesen Menüpunkt sehen kannst, ist er Teil deiner Aufgaben. Hier wird die tägliche Team-Aktivität bestätigt und der Überblick über Rückmeldungen geführt.',
+      selector:'#pulseSidebar a[href="/activity-check"]',
+      open:'/activity-check'
+    },
+    {
+      title:'Melonly & Verwarnungen',
+      text:'Moderations- und Verwarnungsbereiche sind nur für freigeschaltete Teamrollen sichtbar. Nutze sie sorgfältig und dokumentiere Vorgänge nachvollziehbar.',
+      selector:'#pulseSidebar a[href="/melonly"], #pulseSidebar a[href="/warns"]',
+      open:'/melonly'
+    },
+    {
+      title:'Analytics – Entwicklungen erkennen',
+      text:'Wenn dir Analytics freigegeben wurde, kannst du Kennzahlen und Entwicklungen auswerten. Werte dienen als Orientierung und sollten immer im Zusammenhang betrachtet werden.',
+      selector:'#pulseSidebar a[href="/stats"]',
+      open:'/stats'
+    },
+    {
       title:'Weitere Funktionen',
       text:'Unter „Erweiterte Funktionen“ findest du – abhängig von deinen Rechten – unter anderem Command Center, Abstimmungen, Feedback, Aufgaben und Operations Suite. Klappe den Bereich auf, um die verfügbaren Module zu entdecken.',
       selector:'#pulseSidebar .pulse-advanced-group',
@@ -192,7 +210,6 @@ def assets() -> str:
 
   const available=steps.filter(step=>!step.selector||document.querySelector(step.selector));
   let index=0,activeTarget=null,restoreFocus=null,openedMobileNav=false,collapsedSidebar=false;
-  let completed=false;
 
   function readFlag(key){
     try{return localStorage.getItem(key)==='1'}catch(_){return false}
@@ -229,12 +246,16 @@ def assets() -> str:
     card.hidden=true;
     setLauncher(false);
     if(permanentSnooze)writeSessionFlag(snoozeKey);
+    if(collapsedSidebar){
+      const sidebar=document.getElementById('pulseSidebar');
+      if(sidebar)sidebar.classList.add('pulse-sidebar-collapsed');
+      collapsedSidebar=false;
+    }
     closeMobileNavIfNeeded();
     if(restoreFocus&&typeof restoreFocus.focus==='function')restoreFocus.focus();
     restoreFocus=null;
   }
   function completeTour(){
-    completed=true;
     writeFlag(storageKey,true);
     writeSessionFlag(snoozeKey);
     closeTour(false);
@@ -290,7 +311,6 @@ def assets() -> str:
   }
   function start(){
     restoreFocus=document.activeElement;
-    completed=false;
     index=0;
     card.hidden=false;
     setLauncher(true);
