@@ -122,6 +122,7 @@ class StartupTests(unittest.TestCase):
                 "MAX_BACKUPS": "-5",
                 "PULSE_SESSION_IDLE_HOURS": "NaN",
                 "DISCORD_GUILD_ID": "not-a-snowflake",
+                "PULSE_REPORT_CHANNEL_ID": "not-a-channel",
             }
             code = (
                 "import pulse_backup as b; import webserver as w; import pulse_sessions as s; "
@@ -132,7 +133,8 @@ class StartupTests(unittest.TestCase):
                 "assert s.IDLE_SECONDS == 24 * 3600; "
                 "import pulse_ids; assert w.GUILD_ID == pulse_ids.GUILD_ID; "
                 "import cogs.pulse_pro as pro; import cogs.pulse_suite as suite; "
-                "assert pro.GUILD_ID == 0 and suite.GUILD_ID == 0"
+                "assert pro.GUILD_ID == 0 and suite.GUILD_ID == 0; "
+                "suite.init_db(); suite.seed(); assert suite.setting('report_channel_id') == 0"
             )
             result = subprocess.run(
                 [sys.executable, "-c", code],
