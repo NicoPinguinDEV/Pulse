@@ -405,7 +405,7 @@ class TeamDashboardTutorialE2ETests(_PreviewE2EBase):
 
         page.locator("#pulseTutorialNext").click()
         self.assertIn("Mein Pulse", card.inner_text())
-        self.assertTrue(page.locator('#pulseSidebar a[href="/me"]').evaluate("el => el.classList.contains('pulse-tour-highlight')"))
+        self.assertTrue(page.locator('#pulseSidebar a[aria-label="Mein Pulse"]').evaluate("el => el.classList.contains('pulse-tour-highlight')"))
         with page.expect_popup() as popup_info:
             page.locator("#pulseTutorialOpen").click()
         popup = popup_info.value
