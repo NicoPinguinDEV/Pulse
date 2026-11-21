@@ -136,7 +136,7 @@ def set_setting(key,value):
     with cx() as c:c.execute("INSERT OR REPLACE INTO suite_settings(key,value) VALUES(?,?)",(key,json.dumps(value,ensure_ascii=False)))
 
 def seed():
-    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"shift_reminder_minutes":shift_reminders_logic.DEFAULT_LEAD_MINUTES,"report_channel_id":int(os.getenv("PULSE_REPORT_CHANNEL_ID","0") or 0),"last_daily":"","last_weekly":""}
+    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"shift_reminder_minutes":shift_reminders_logic.DEFAULT_LEAD_MINUTES,"report_channel_id":safe_int("PULSE_REPORT_CHANNEL_ID", 0, 0, 2**63 - 1),"last_daily":"","last_weekly":""}
     for k,v in vals.items():
         if setting(k,None) is None:set_setting(k,v)
 
