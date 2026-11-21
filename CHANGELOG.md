@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Befehls-Hilfe: Rechte verschachtelter Slash-Commands (21.11.2026)
+
+- Die Befehls-Hilfe wertet Rechte anhand des tatsächlichen Unterbefehls aus, statt bei gewöhnlichen Gruppen-Unterbefehlen versehentlich den Gruppennamen als Rechteschlüssel zu verwenden.
+- Die thematische Einordnung bleibt an der übergeordneten Gruppe orientiert; Alias-Befehle behalten ihre bisherigen ursprünglichen Rechte und Kategorien.
+- Regressionstest für einen eingeschränkten Unterbefehl innerhalb einer Gruppe ergänzt.
+
+
+
 ## Manuelle Teameinstellung: automatische Team- und Ebenenrollen (21.11.2026)
 
 - Bei einer manuellen Einstellung vergibt Pulse weiterhin genau die ausgewählte konfigurierte Rangrolle und ergänzt automatisch die allgemeine Teamler-Rolle, die passende Positions-Ebene sowie die zugehörige Gruppenrolle.
