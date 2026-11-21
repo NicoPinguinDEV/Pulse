@@ -724,8 +724,13 @@ def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
 
 
 def pro_body_extra():
-    """The interaction layer and global live-change listener for every shared-shell page."""
-    return PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS + __import__("pulse_live_refresh").script_for("*")
+    """The interaction layer, first-run guide and global live-change listener for every shared-shell page."""
+    return (
+        PULSE_INTERACTION_CSS
+        + PULSE_INTERACTION_JS
+        + __import__("pulse_live_refresh").script_for("*")
+        + __import__("pulse_tutorial").assets()
+    )
 
 
 def make_shell_helpers(ws):
@@ -1002,7 +1007,17 @@ PULSE_INTERACTION_JS = r"""
 def render_pro_page(ws, title, ctx, page, body, extra=""):
     import pulse_flags
     import pulse_keys
-    body = '<div class="pulse-shell">' + __import__("pulse_testmode").banner_html(ws.esc) + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung' + pulse_keys.button_html() + '</div></div>' + pulse_keys.dialog_html() + build_command_modal(ws, getattr(ctx, "perms", None))
+    user = getattr(ctx, "user", None) or {}
+    user_id = user.get("id", "") if isinstance(user, dict) else getattr(user, "id", "")
+    body = (
+        '<div class="pulse-shell" data-pulse-user="' + ws.esc(user_id) + '">'
+        + __import__("pulse_testmode").banner_html(ws.esc)
+        + pulse_flags.banner_html(ws.esc)
+        + body
+        + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung' + pulse_keys.button_html() + '</div></div>'
+        + pulse_keys.dialog_html()
+        + build_command_modal(ws, getattr(ctx, "perms", None))
+    )
     return ws.render_page(title, ctx, page, body, extra)
 
 
