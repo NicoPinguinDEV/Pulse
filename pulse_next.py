@@ -18,9 +18,9 @@ import sqlite3
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 from pulse_env_validation import safe_int
-from typing import Optional
 
 from fastapi import Cookie, Form, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
