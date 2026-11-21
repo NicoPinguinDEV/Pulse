@@ -95,10 +95,9 @@ def assets() -> str:
   const launcher=document.getElementById('pulseTutorialLauncher');
   if(!card||!launcher)return;
 
-  const account=document.getElementById('pulseTutorialAccount');
-  const userId=account&&account.dataset.pulseUser?account.dataset.pulseUser:'browser';
-  const storageKey='pulse.team-intro.v1:'+userId;
-  const snoozeKey='pulse.team-intro.snoozed.v1:'+userId;
+  let userId='browser';
+  let storageKey='pulse.team-intro.v1:'+userId;
+  let snoozeKey='pulse.team-intro.snoozed.v1:'+userId;
   const title=document.getElementById('pulseTutorialTitle');
   const copy=document.getElementById('pulseTutorialCopy');
   const count=document.getElementById('pulseTutorialCount');
@@ -361,6 +360,12 @@ def assets() -> str:
   };
 
   function init(){
+    // webserver.render_page injects this asset before the page body, so resolve the
+    // authenticated account only after the shell's account marker has been parsed.
+    const account=document.getElementById('pulseTutorialAccount');
+    userId=account&&account.dataset.pulseUser?account.dataset.pulseUser:'browser';
+    storageKey='pulse.team-intro.v1:'+userId;
+    snoozeKey='pulse.team-intro.snoozed.v1:'+userId;
     launcher.hidden=false;
     if(!readFlag(storageKey)&&!readSessionFlag(snoozeKey)){
       window.setTimeout(start,450);
