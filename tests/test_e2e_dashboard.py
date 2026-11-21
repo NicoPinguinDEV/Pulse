@@ -126,10 +126,21 @@ class _PreviewE2EBase(unittest.TestCase):
             raise RuntimeError(f"Preview-Server lauscht nach dem Beenden noch auf Port {cls.port}")
 
     def _page(self, **context_args):
+        show_tutorial = bool(context_args.pop("show_tutorial", False))
         context = self.browser.new_context(**context_args)
         self.addCleanup(context.close)
         context.route("**/*", _block_external)
         page = context.new_page()
+        if not show_tutorial:
+            # Keep the existing dashboard E2E flows focused on their own feature.
+            # Dedicated tutorial tests opt in to the real first-run experience below.
+            page.add_init_script(
+                """document.addEventListener('DOMContentLoaded', () => {
+                  const shell = document.querySelector('.pulse-shell');
+                  if (!shell) return;
+                  try { localStorage.setItem('pulse.team-intro.v1:' + (shell.dataset.pulseUser || 'browser'), '1'); } catch (_) {}
+                }, {once: true});"""
+            )
         page.set_default_timeout(15_000)
         errors = []
         page.on("pageerror", lambda exc: errors.append(str(exc)))
@@ -371,6 +382,63 @@ class DashboardNavigationE2ETests(_PreviewE2EBase):
         page.route("**/admin/server/api/diagnose", lambda r: r.abort())
         page.locator('[data-refresh="diagnose"]').click()
         page.wait_for_function("document.querySelector('#scc-diagnose').innerText.includes('Laden fehlgeschlagen')")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class TeamDashboardTutorialE2ETests(_PreviewE2EBase):
+    """The onboarding is shown once, can be skipped and remains available from every page."""
+
+    def test_first_run_tour_can_be_skipped_reopened_and_open_a_section(self):
+        page, errors = self._page(show_tutorial=True, viewport={"width": 1366, "height": 900})
+        self.assertEqual(page.goto(self._url("/me")).status, 200)
+        card = page.locator("#pulseTutorialCard")
+        card.wait_for(state="visible")
+        self.assertIn("Willkommen bei Pulse TeamOS", card.inner_text())
+
+        user_id = page.locator(".pulse-shell").get_attribute("data-pulse-user")
+        storage_key = "pulse.team-intro.v1:" + (user_id or "browser")
+        self.assertIsNone(page.evaluate("(key) => localStorage.getItem(key)", storage_key))
+
+        page.locator("#pulseTutorialNext").click()
+        self.assertIn("Deine Navigation", card.inner_text())
+        self.assertTrue(page.locator("#pulseSidebar nav").evaluate("el => el.classList.contains('pulse-tour-highlight')"))
+
+        page.locator("#pulseTutorialNext").click()
+        self.assertIn("Mein Pulse", card.inner_text())
+        self.assertTrue(page.locator('#pulseSidebar a[href="/me"]').evaluate("el => el.classList.contains('pulse-tour-highlight')"))
+        with page.expect_popup() as popup_info:
+            page.locator("#pulseTutorialOpen").click()
+        popup = popup_info.value
+        popup.wait_for_load_state("domcontentloaded")
+        self.assertTrue(popup.url.endswith("/me"), popup.url)
+
+        page.locator("#pulseTutorialSkip").click()
+        self.assertTrue(card.is_hidden())
+        self.assertEqual(page.evaluate("(key) => localStorage.getItem(key)", storage_key), "1")
+
+        page.reload()
+        self.assertTrue(page.locator("#pulseTutorialCard").is_hidden(), "Abgeschlossene Einführung darf nicht erneut automatisch starten")
+        page.locator("#pulseTutorialLauncher").click()
+        self.assertTrue(card.is_visible(), "Einführung muss manuell erneut geöffnet werden")
+        self.assertIn("Willkommen bei Pulse TeamOS", card.inner_text())
+        page.locator("#pulseTutorialClose").click()
+        self.assertTrue(card.is_hidden())
+        page.locator("#pulseTutorialLauncher").click()
+        self.assertTrue(card.is_visible(), "Später schließen darf den Abschluss nicht speichern")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_permission_gated_steps_follow_the_rendered_sidebar(self):
+        page, errors = self._page(show_tutorial=True, viewport={"width": 1366, "height": 900})
+        self.assertEqual(page.goto(self._url("/me")).status, 200)
+        page.locator("#pulseTutorialCard").wait_for(state="visible")
+        selectors = page.evaluate("""() => ({
+          steps: window.PulseTeamTutorial.steps(),
+          hasWarns: !!document.querySelector('#pulseSidebar a[href="/warns"]'),
+          hasMelonly: !!document.querySelector('#pulseSidebar a[href="/melonly"]'),
+          hasAnalytics: !!document.querySelector('#pulseSidebar a[href="/stats"]')
+        })""")
+        self.assertGreaterEqual(selectors["steps"], 8)
+        self.assertEqual(selectors["hasWarns"], selectors["hasMelonly"] or selectors["hasWarns"])
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
 
