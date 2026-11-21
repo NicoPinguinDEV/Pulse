@@ -100,6 +100,9 @@ def add_alias_groups(tree) -> list[str]:
 
             original_name_before_move = original.name
             original.name = sub_name
+            # Keep automatic command-name localization aligned with the new qualified path.
+            if hasattr(original, "_locale_name"):
+                original._locale_name = app_commands.locale_str(sub_name)
             try:
                 group.add_command(original)
             except Exception:
