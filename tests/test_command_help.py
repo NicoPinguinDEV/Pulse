@@ -210,9 +210,9 @@ class HelpTests(unittest.TestCase):
 
         member = [
             command
-            for rows in ch.build_help(
+            for _section, rows in ch.build_help(
                 ch.entries(tree), {"can_view_dashboard": True}, discord.Permissions.none()
-            ).values()
+            )
             for command, _description in rows
         ]
         self.assertNotIn("/dienst warn", member)
