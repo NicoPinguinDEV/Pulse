@@ -691,8 +691,8 @@ def main() -> None:
     assert "⬆️ Befördern" in web
     assert "⬇️ Degradieren" in web
     assert "1531132354272170115" in read("pulse_ids.py")  # A-09
-    # Manual team hiring: resolve ID/name safely, assign only a configured rank role,
-    # require a reason, respect role hierarchy, notify the member, and log the change.
+    # Manual hiring assigns the selected configured rank plus the mapped team/level bundle.
+    # Every supplementary role is checked before the write; rank roles stay separate from bundle roles.
     assert 'name="target_user_id"' in web
     assert 'name="hire_role_id"' in web
     assert "➕ Teamler manuell einstellen" in web
@@ -701,6 +701,9 @@ def main() -> None:
     assert "guild.fetch_member(target_id)" in web
     assert "name_query in field(m)" in web
     assert "selected_rank = team_role_ids.index(role.id)" in web
+    assert "manual_hire_role_ids(role.name)" in web
+    assert "await target.add_roles(" in web and "*roles_to_add" in web
+    assert "Zugehörige Team-/Ebenenrollen" in web
     assert 'team_entry["team_since"] = hired_at' in web
     assert 'source="manual_hire"' in web
     assert "store_employment_event(team_entry, build_employment_event(" in web

@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Manuelle Teameinstellung: automatische Team- und Ebenenrollen (21.11.2026)
+
+- Bei einer manuellen Einstellung vergibt Pulse weiterhin genau die ausgewählte konfigurierte Rangrolle und ergänzt automatisch die allgemeine Teamler-Rolle, die passende Positions-Ebene sowie die zugehörige Gruppenrolle.
+- Positions-Ebenen: Supporter, Moderation, Admin, Eventleitung, Fraktionsverwaltung, Ausbilder, Teamleitung, Management, Serverleitung, Projektleitung, Owner-Team und Rechte Hand.
+- Gruppenrollen: Low-Team (Supporter bis Admin), High-Team (Eventleitung bis Management), Leitungsebene (Serverleitung bis Projektleitung) und Führungsebene (Owner bis Founder).
+- Alle Zusatzrollen werden vor der ersten Discord-Änderung auf Existenz, Verwaltbarkeit, Bot-Rollenhierarchie und Administratorrechte geprüft. Bei einem fehlgeschlagenen Discord-Schreibvorgang versucht Pulse, teilweise gesetzte neue Rollen zurückzunehmen.
+- Rangrollen und bestehende Berechtigungsgruppen bleiben unverändert; Zusatzrollen werden nicht in `team_role_ids` aufgenommen. Keine Datenmigration und keine Änderung bestehender Teammitglieder.
+
 ## Backup-Restore: Ressourcenlimits und Race-Condition-Härtung (21.11.2026)
 
 - ZIP-Prüfung begrenzt die Anzahl der Einträge (25.000), die entpackte Gesamtgröße (4 GiB) und die Manifestgröße (32 MiB); Ordner-Einträge und verschlüsselte ZIP-Einträge werden fail-closed abgewiesen.

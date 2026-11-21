@@ -12701,17 +12701,90 @@ async def handle_action(
         if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
             return back("/team", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
 
+        # The selected rank stays the only rank role. The other roles are a deterministic
+        # membership/level bundle and are deliberately not added to team_role_ids.
+        from pulse_hire_roles import manual_hire_role_ids
+
+        automatic_role_ids = manual_hire_role_ids(role.name)
+        if not automatic_role_ids:
+            return back("/team", "Für diese Teamrolle ist keine sichere Ebenen-Zuordnung hinterlegt. Bitte die Teamrollen-Zuordnung prüfen.", False)
+
+        automatic_roles = []
+        for automatic_role_id in automatic_role_ids:
+            automatic_role = guild.get_role(automatic_role_id)
+            if automatic_role is None or automatic_role.managed or automatic_role.is_default():
+                return back(
+                    "/team",
+                    f"Eine benötigte Team-/Ebenenrolle ({automatic_role_id}) fehlt oder kann nicht vergeben werden. Es wurde nichts geändert.",
+                    False,
+                )
+            if automatic_role.position >= guild.me.top_role.position:
+                return back(
+                    "/team",
+                    f"Die Bot-Rolle muss über der zusätzlichen Team-/Ebenenrolle {automatic_role.name} stehen. Es wurde nichts geändert.",
+                    False,
+                )
+            if (
+                not ctx.perms.get("is_admin")
+                and getattr(getattr(automatic_role, "permissions", None), "administrator", False)
+            ):
+                return back(
+                    "/team",
+                    f"Die zusätzliche Rolle {automatic_role.name} besitzt Administratorrechte und darf nicht automatisch vergeben werden.",
+                    False,
+                )
+            if automatic_role.id != role.id:
+                automatic_roles.append(automatic_role)
+
+        hire_role_bundle = [role, *automatic_roles]
+        existing_role_ids = {member_role.id for member_role in target.roles}
+        roles_to_add = [hire_role for hire_role in hire_role_bundle if hire_role.id not in existing_role_ids]
+        assigned_role_names = ", ".join(hire_role.name for hire_role in hire_role_bundle)
+
+        async def rollback_partial_hire_roles():
+            current_role_ids = {member_role.id for member_role in target.roles}
+            partial = [
+                hire_role for hire_role in roles_to_add
+                if hire_role.id not in existing_role_ids and hire_role.id in current_role_ids
+            ]
+            if not partial:
+                return True
+            try:
+                await target.remove_roles(
+                    *partial,
+                    reason=f"Rücknahme unvollständiger Teameinstellung durch {actor}: {action_reason}",
+                )
+                return True
+            except (discord.Forbidden, discord.HTTPException):
+                return False
+
         try:
-            await target.add_roles(role, reason=f"Manuelle Teameinstellung durch {actor}: {action_reason}")
+            if roles_to_add:
+                await target.add_roles(
+                    *roles_to_add,
+                    reason=f"Manuelle Teameinstellung durch {actor}: {action_reason}",
+                )
         except discord.Forbidden:
-            return back("/team", "Discord hat die Rollenänderung verweigert. Prüfe die Rollenrechte und die Position der Bot-Rolle.", False)
+            rolled_back = await rollback_partial_hire_roles()
+            message = (
+                "Discord hat die Rollenänderung verweigert. Teilweise gesetzte Rollen wurden zurückgenommen."
+                if rolled_back else
+                "Discord hat die Rollenänderung verweigert; eine teilweise Vergabe konnte nicht vollständig zurückgenommen werden. Bitte Mitgliedsrollen prüfen."
+            )
+            return back("/team", message, False)
         except discord.HTTPException:
-            return back("/team", "Die Teamrolle konnte gerade nicht vergeben werden. Bitte versuche es erneut.", False)
+            rolled_back = await rollback_partial_hire_roles()
+            message = (
+                "Die Teamrollen konnten gerade nicht vollständig vergeben werden. Teilweise gesetzte Rollen wurden zurückgenommen."
+                if rolled_back else
+                "Die Rollenvergabe ist fehlgeschlagen und eine teilweise Vergabe konnte nicht vollständig zurückgenommen werden. Bitte Mitgliedsrollen prüfen."
+            )
+            return back("/team", message, False)
 
         hired_at = now_de().isoformat(timespec="seconds")
         audit_ref = log_audit(
             actor, actor_id, "Manuelle Einstellung",
-            f"{target.display_name} ({target.id}) -> {role.name} · Grund: {action_reason}",
+            f"{target.display_name} ({target.id}) -> {assigned_role_names} · Grund: {action_reason}",
         )
         team_db = load_json(DATA_FILE, {})
         team_entry = user_entry(team_db, str(target.id))
@@ -12730,7 +12803,8 @@ async def handle_action(
 
         await send_dm_notification(
             target,
-            f"🎉 Du wurdest von **{guild.name}** in das Team aufgenommen. Deine neue Teamrolle: **{role.name}**. Bei Fragen wende dich bitte an die Führungsebene."
+            f"🎉 Du wurdest von **{guild.name}** in das Team aufgenommen. Deine neue Teamrolle: **{role.name}**. "
+            f"Zugehörige Team- und Ebenenrollen: **{', '.join(r.name for r in automatic_roles)}**. Bei Fragen wende dich bitte an die Führungsebene."
         )
         await send_team_update_embed(
             guild,
@@ -12742,13 +12816,17 @@ async def handle_action(
             actor=actor,
             fields=[
                 ("Teamrolle", role.mention, True),
+                ("Zugehörige Team-/Ebenenrollen", ", ".join(r.mention for r in automatic_roles), False),
                 ("Discord-ID", str(target.id), True),
                 ("Grund", action_reason, False),
                 ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True),
             ],
             thumbnail=target.display_avatar.url,
         )
-        return back("/team", f"{target.display_name} wurde mit der Rolle {role.name} erfolgreich eingestellt.")
+        return back(
+            "/team",
+            f"{target.display_name} wurde mit {role.name} und {len(automatic_roles)} zugehörigen Team-/Ebenenrollen erfolgreich eingestellt.",
+        )
 
     # ---------- Befördern / Degradieren / Kicken ----------
     if action in ("promote", "demote", "team_kick"):
