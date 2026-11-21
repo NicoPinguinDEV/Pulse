@@ -117,7 +117,7 @@ class ManualHireRouteTests(unittest.TestCase):
             patch.object(ws, "load_json", return_value={}),
             patch.object(ws, "save_json"),
             patch.object(ws, "store_employment_event"),
-            patch.object(ws, "log_audit", return_value="audit-1"),
+            patch.object(ws, "log_audit", return_value="audit_abcdef"),
             patch.object(ws, "send_dm_notification", new_callable=AsyncMock),
             patch.object(ws, "send_team_update_embed", new_callable=AsyncMock),
         )
