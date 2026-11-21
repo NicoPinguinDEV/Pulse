@@ -1,4 +1,5 @@
 """O-06: optional .env settings are checked without ever echoing their values; every variable is documented."""
+import os
 import re
 import subprocess
 import sys
@@ -85,6 +86,28 @@ class StartupTests(unittest.TestCase):
     def test_validator_module_imports_without_side_effects(self):
         code = "import sys; sys.path.insert(0, '.'); import pulse_env_validation; sys.exit(0 if pulse_env_validation.validate_environment({}) == [] else 1)"
         self.assertEqual(subprocess.run([sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True).returncode, 0)
+
+
+    def test_invalid_backup_budget_settings_do_not_break_import(self):
+        # These optional settings are validated with warnings; they must still fall back safely
+        # instead of raising while pulse_backup is imported by dashboard startup.
+        env = dict(os.environ)
+        env["PULSE_BACKUP_MAX_MB"] = "NaN"
+        env["PULSE_BACKUP_TOTAL_MAX_MB"] = "not-a-number"
+        code = (
+            "import pulse_backup as b; "
+            "assert b.DEFAULT_BUDGET_BYTES == 500 * 1024 * 1024; "
+            "assert b.TOTAL_MAX_BYTES == 4000 * 1024 * 1024"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
 
 if __name__ == "__main__":
