@@ -49,7 +49,6 @@ import pulse_paths
 import pulse_sqlite
 import pulse_logging
 from pulse_safe_path import contained_file
-from pulse_env_validation import safe_float, safe_int
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
@@ -166,7 +165,7 @@ def oauth_redirect_uri(request: Request, application: bool = False) -> str:
 
 def oauth_cookie_secure(request: Request) -> bool:
     return oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", str(_pulse_ids.GUILD_ID)))
+GUILD_ID = safe_int("DISCORD_GUILD_ID", _pulse_ids.GUILD_ID, 1, 2**63 - 1)
 APPLICATION_REQUIRED_ROLE_ID = _pulse_ids.APPLICATION_REQUIRED_ROLE_ID
 APPLICATION_ALERT_CHANNEL_ID = _pulse_ids.APPLICATION_ALERT_CHANNEL_ID
 APPLICATION_ALERT_ROLE_ID = _pulse_ids.APPLICATION_ALERT_ROLE_ID
@@ -184,15 +183,15 @@ DEFAULT_AUTO_WARN_DURATION_DAYS = 7
 TEST_SUPPORTER_ROLE_ID = _pulse_ids.TEST_SUPPORTER_ROLE_ID
 VALID_PROBATION_DAYS = (3, 7)
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
-SESSION_DAYS = safe_int("SESSION_DAYS", 7, 1, 365)              # Login-Dauer
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 # Vergessene Schichten werden nach genau 24 Stunden automatisch beendet und verwarnt.
 # MAX_SHIFT_HOURS bleibt als kompatible Konstante für alte Integrationen bestehen.
 MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
 # E-2 / O-06: .env MAX_SHIFT_HOURS (0.5–24, Standard 12) begrenzt die von einer Führungskraft bestätigte Dauer
 # einer automatisch beendeten Schicht. Unbestätigt zählt sie 0 h; der Auto-Abschluss bleibt bei 24 h.
 MAX_CONFIRMED_SHIFT_HOURS = parse_max_shift_hours(os.getenv("MAX_SHIFT_HOURS"))
-AUTO_BACKUP_HOURS = safe_float("AUTO_BACKUP_HOURS", 24.0, 0.0, 8760.0) # 0 = aus
-MAX_BACKUPS = safe_int("MAX_BACKUPS", 30, 1, 1000)
+AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
+MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
 VOICE_SUPPORT_AUDIO_DIR = DATA_DIR / "uploads" / "voice_support_audio"
 MAX_VOICE_SUPPORT_AUDIO_BYTES = 10 * 1024 * 1024
 VOICE_SUPPORT_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
