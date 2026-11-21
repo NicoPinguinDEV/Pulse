@@ -35,9 +35,30 @@ Die Teamrollen in Pulse werden zentral in `pulse_team_roles.py` beschrieben. Die
 8. Supporter
 9. Test Supporter
 
+## Automatische Rollenvergabe bei manueller Einstellung
+
+Die Dashboard-Funktion „Teamler manuell einstellen“ vergibt die ausgewählte Rangrolle zusammen mit drei Zusatzrollen: der allgemeinen Teamler-Rolle, der Positions-Ebene und einer der vier Gruppenrollen. Die IDs liegen zentral in `pulse_ids.py`; die Zuordnung nach dem normalisierten Rangnamen steht in `pulse_hire_roles.py`.
+
+| Aktuelle Teamposition | Positions-Ebene | Gruppenrolle |
+|---|---|---|
+| Test Supporter, Supporter, Sr.Supporter | Sup Ebene | Low-Team |
+| Jr.Moderator, Moderator, Sr.Moderator | Mod Ebene | Low-Team |
+| Jr.Admin, Admin, Sr.Admin | Admin Ebene | Low-Team |
+| Eventleitung | Eventleitung-Ebene | High-Team |
+| Fraktionsverwaltung | Fraktionsverwaltung-Ebene | High-Team |
+| Ausbilder | Ausbilder-Ebene | High-Team |
+| Teamleitung, Stv.Teamleitung | Teamleitung-Ebene | High-Team |
+| Management, Stv.Management | Management-Ebene | High-Team |
+| Serverleitung, Stv.Serverleitung | Serverleitungs-Ebene | Leitungsebene |
+| Projektleitung, Stv.Projektleitung | Projektleitungs-Ebene | Leitungsebene |
+| Owner, Co.Owner, Founder | Owner-Team | Führungsebene |
+| Rechte Hand | Rechte-Hand-Ebene | Führungsebene |
+
+Diese Gruppenrollen sind reine zusätzliche Discord-Zugehörigkeitsrollen. Sie ersetzen nicht die bestehenden drei TeamBot-Kategorien und werden nicht in `team_role_ids` eingetragen. Die für die Dashboard-Berechtigungen maßgebliche Rangrolle bleibt unverändert.
+
 ## Technische Regeln
 
-- Diese Datei enthält Rollennamen und Rangfolge, keine Discord-Rollen-IDs. IDs neu erstellter Rollen bleiben in den Laufzeit-Konfigurationen bzw. der TeamBot-Rollenverwaltung.
+- Diese Datei enthält Rollennamen und Rangfolge, keine Discord-Rollen-IDs. Die eigentlichen Rangrollen bleiben in der Laufzeit-Konfiguration bzw. der TeamBot-Rollenverwaltung; fest zugeordnete Zusatzrollen-IDs liegen zentral in `pulse_ids.py`.
 - TeamBot-Kategorien bleiben `fuehrungsebene`, `highteam` und `lowteam`.
 - Team-Warnungen können ab `Teamleitung` vergeben bzw. verwaltet werden; `Stv.Teamleitung` liegt darunter.
 - Die Empfehlung für Dashboard-Rechte richtet sich nach der konkreten aktuellen Rolle. Insbesondere erhalten `Jr.Admin`, `Admin` und `Sr.Admin` nicht automatisch die vollständigen Führungsrechte.

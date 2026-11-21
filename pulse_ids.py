@@ -17,6 +17,28 @@ APPLICATION_ROLE_ID = 1496070682126188604
 APPLICATION_REMINDER_CHANNEL_ID = 1559242374658662602
 # zentraler Team-Updates-Kanal
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
+# Rollenpaket für manuelle Teameinstellungen (Rangrollen bleiben in team_role_ids konfiguriert)
+TEAM_MEMBER_ROLE_ID = 1531459374004834424
+TEAM_HIRE_LEVEL_ROLE_IDS = {
+    "supporter": 1488966369448820817,
+    "moderation": 1488966520095768616,
+    "admin": 1488966652488843395,
+    "eventleitung": 1488966740074299503,
+    "fraktionsverwaltung": 1489612447420780646,
+    "ausbilder": 1531369673658990642,
+    "teamleitung": 1488968538667483176,
+    "management": 1570887312013918330,
+    "serverleitung": 1537046970722680952,
+    "projektleitung": 1488968681231745074,
+    "owner_team": 1488968787800752298,
+    "rechte_hand": 1552037456776536144,
+}
+TEAM_HIRE_GROUP_ROLE_IDS = {
+    "low_team": 1525911904055459861,
+    "high_team": 1568733182394634311,
+    "leitungsebene": 1525930922405265568,
+    "fuehrungsebene": 1561359045238067300,
+}
 # Rollen, die nach einem Team-Kick bleiben
 TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)
 # Warnstufen 1–5
