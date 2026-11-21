@@ -13,17 +13,17 @@ import hashlib
 import os
 from collections import OrderedDict, deque
 
+from pulse_env_validation import safe_int
 
-def _env_int(name: str, default: int) -> int:
-    try:
-        return max(1, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
+
+def _env_int(name: str, default: int, maximum: int = 1000) -> int:
+    """Parse a raid threshold within the same bounds shown by the config validator."""
+    return safe_int(name, default, 1, maximum)
 
 
 JOIN_WAVE = max(2, _env_int("PULSE_RAID_JOINS_PER_MINUTE", 10))  # legacy/elevated threshold
 NEW_ACCOUNTS = max(2, _env_int("PULSE_RAID_NEW_ACCOUNTS_5MIN", 5))  # legacy/elevated threshold
-NEW_ACCOUNT_DAYS = _env_int("PULSE_RAID_NEW_ACCOUNT_DAYS", 7)
+NEW_ACCOUNT_DAYS = _env_int("PULSE_RAID_NEW_ACCOUNT_DAYS", 7, 3650)
 MASS_MENTIONS = max(2, _env_int("PULSE_RAID_MASS_MENTIONS", 8))  # legacy/elevated threshold
 COPY_CHANNELS = max(2, _env_int("PULSE_RAID_COPY_CHANNELS", 3))  # legacy/elevated threshold
 
@@ -37,8 +37,8 @@ LEVEL_LABELS = {
 
 def _thresholds(prefix: str, elevated: int, warning_default: int, critical_default: int) -> dict[str, int]:
     """Build strictly ordered warning/elevated/critical thresholds from bounded environment values."""
-    warning = _env_int(f"{prefix}_WARNING", warning_default)
-    critical = _env_int(f"{prefix}_CRITICAL", critical_default)
+    warning = _env_int(f"{prefix}_WARNING", warning_default, 10000)
+    critical = _env_int(f"{prefix}_CRITICAL", critical_default, 10000)
     warning = min(warning, max(1, elevated - 1))
     critical = max(critical, elevated + 1)
     return {"warning": warning, "elevated": elevated, "critical": critical}
