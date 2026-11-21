@@ -42,6 +42,20 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("WARNUNG", rendered)
         self.assertIn("nichts automatisch geändert", rendered)
 
+    def test_threshold_environment_values_respect_documented_upper_bounds(self):
+        with patch.dict("os.environ", {
+            "PULSE_RAID_JOINS_PER_MINUTE": "1001",
+            "PULSE_RAID_NEW_ACCOUNT_DAYS": "3651",
+            "PULSE_RAID_JOINS_WARNING": "10001",
+            "PULSE_RAID_JOINS_CRITICAL": "10001",
+        }):
+            self.assertEqual(pr._env_int("PULSE_RAID_JOINS_PER_MINUTE", 10, 1000), 10)
+            self.assertEqual(pr._env_int("PULSE_RAID_NEW_ACCOUNT_DAYS", 7, 3650), 7)
+            self.assertEqual(
+                pr._thresholds("PULSE_RAID_JOINS", 10, 5, 20),
+                {"warning": 5, "elevated": 10, "critical": 20},
+            )
+
     def test_threshold_configuration_is_strictly_ordered(self):
         for thresholds in (pr.JOIN_LEVELS, pr.NEW_ACCOUNT_LEVELS, pr.MENTION_LEVELS, pr.COPY_CHANNEL_LEVELS):
             self.assertLess(thresholds["warning"], thresholds["elevated"])
