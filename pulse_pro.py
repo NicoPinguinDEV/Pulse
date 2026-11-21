@@ -1010,7 +1010,7 @@ def render_pro_page(ws, title, ctx, page, body, extra=""):
     user = getattr(ctx, "user", None) or {}
     user_id = user.get("id", "") if isinstance(user, dict) else getattr(user, "id", "")
     body = (
-        '<div class="pulse-shell" data-pulse-user="' + ws.esc(user_id) + '">'
+        '<div class="pulse-shell"><span id="pulseTutorialAccount" data-pulse-user="' + ws.esc(user_id) + '" hidden></span>'
         + __import__("pulse_testmode").banner_html(ws.esc)
         + pulse_flags.banner_html(ws.esc)
         + body
