@@ -18,6 +18,8 @@ import sqlite3
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from pulse_env_validation import safe_int
 from typing import Optional
 
 from fastapi import Cookie, Form, HTTPException, Request, Query
@@ -736,7 +738,7 @@ async def run_workflows(bot=None):
             condition=json.loads(w["condition_json"] or "{}")
             actions=json.loads(w["actions_json"] or "[]")
             guild = getattr(bot,"get_guild",lambda _ : None)(
-                int(os.getenv("DISCORD_GUILD_ID",str(__import__("pulse_ids").GUILD_ID)))
+                safe_int("DISCORD_GUILD_ID", __import__("pulse_ids").GUILD_ID, 1, 2**63 - 1)
             ) if bot else None
             if not guild:
                 continue
