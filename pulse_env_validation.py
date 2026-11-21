@@ -62,6 +62,34 @@ def _value(env, name: str) -> str:
     return str(env.get(name, "") or "").strip()
 
 
+def safe_int(name: str, default: int, minimum: int, maximum: int, environ=None) -> int:
+    """Read an integer setting, falling back when it is missing, malformed or outside its allowed range."""
+    env = os.environ if environ is None else environ
+    raw = _value(env, name)
+    if not raw:
+        return default
+    try:
+        value = int(raw, 10)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return value if minimum <= value <= maximum else default
+
+
+def safe_float(name: str, default: float, minimum: float, maximum: float, environ=None) -> float:
+    """Read a finite float setting, falling back when it is missing, malformed or outside its allowed range."""
+    env = os.environ if environ is None else environ
+    raw = _value(env, name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        return default
+    return value
+
+
 def _valid_url(raw: str) -> bool:
     try:
         parsed = urlsplit(raw)
