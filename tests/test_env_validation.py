@@ -120,6 +120,7 @@ class StartupTests(unittest.TestCase):
                 "AUTO_BACKUP_HOURS": "Infinity",
                 "MAX_BACKUPS": "-5",
                 "PULSE_SESSION_IDLE_HOURS": "NaN",
+                "DISCORD_GUILD_ID": "",
             }
             code = (
                 "import pulse_backup as b; import webserver as w; import pulse_sessions as s; "
@@ -127,7 +128,8 @@ class StartupTests(unittest.TestCase):
                 "assert b.TOTAL_MAX_BYTES == 4000 * 1024 * 1024; "
                 "assert (w.SESSION_DAYS, w.AUTO_BACKUP_HOURS, w.MAX_BACKUPS) == (7, 24.0, 30); "
                 "assert s.MAX_SESSION_SECONDS == 7 * 86400; "
-                "assert s.IDLE_SECONDS == 24 * 3600"
+                "assert s.IDLE_SECONDS == 24 * 3600; "
+                "import pulse_ids; assert w.GUILD_ID == pulse_ids.GUILD_ID"
             )
             result = subprocess.run(
                 [sys.executable, "-c", code],
