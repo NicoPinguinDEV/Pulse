@@ -51,6 +51,7 @@ import pulse_logging
 from pulse_safe_path import contained_file
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
+from pulse_env_validation import safe_int
 from pulse_time import display, parse_timestamp
 from pulse_employment import build_employment_event, employment_hired_at, store_employment_event
 
