@@ -194,6 +194,36 @@ class HelpTests(unittest.TestCase):
         self.assertIn("/warns", visible_admin)
         self.assertIn("/warn-remove", visible_admin)
 
+    def test_nested_commands_use_leaf_rights_and_keep_parent_section(self):
+        tree = tree_with(group="dienst")
+        group = tree.get_command("dienst")
+
+        async def callback(interaction: discord.Interaction):
+            return None
+
+        group.add_command(
+            app_commands.Command(name="warn", description="Teammitglied verwarnen", callback=callback)
+        )
+        item = next(row for row in ch.entries(tree) if row[0] == "dienst warn")
+        self.assertEqual(item[3], "warn")     # rights are evaluated against the leaf
+        self.assertEqual(item[4], "dienst")  # ordinary children stay in the parent section
+
+        member = [
+            command
+            for rows in ch.build_help(
+                ch.entries(tree), {"can_view_dashboard": True}, discord.Permissions.none()
+            ).values()
+            for command, _description in rows
+        ]
+        self.assertNotIn("/dienst warn", member)
+
+        supervisor_sections = dict(ch.build_help(
+            ch.entries(tree), {"can_manage_team_warnings": True}, discord.Permissions.none()
+        ))
+        self.assertIn("/dienst warn", [
+            command for command, _description in supervisor_sections["⏱ Dienst & ich"]
+        ])
+
     def test_every_listed_command_exists(self):
         import ast
         from pathlib import Path
