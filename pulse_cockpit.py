@@ -21,6 +21,41 @@ from pulse_cockpit_utils import (
 from pulse_home_utils import format_hm
 
 
+def cockpit_ticket_summary(connection, this_start, this_end, prev_start, prev_end) -> dict:
+    """Return complete cockpit ticket KPIs without loading the bounded ticket list."""
+    bounds = [
+        value.isoformat() if hasattr(value, "isoformat") else str(value)
+        for value in (this_start, this_end, prev_start, prev_end)
+    ]
+    row = connection.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE
+                WHEN closed_at IS NOT NULL AND julianday(closed_at) IS NOT NULL
+                     AND substr(closed_at,1,10) BETWEEN ? AND ?
+                THEN 1 ELSE 0 END), 0) AS closed_this,
+            COALESCE(SUM(CASE
+                WHEN closed_at IS NOT NULL AND julianday(closed_at) IS NOT NULL
+                     AND substr(closed_at,1,10) BETWEEN ? AND ?
+                THEN 1 ELSE 0 END), 0) AS closed_prev,
+            (SELECT COUNT(*) FROM tickets
+             WHERE status='open' AND COALESCE(claimed_by_id,'')='') AS unclaimed_count,
+            (SELECT opened_at FROM tickets
+             WHERE status='open' AND COALESCE(claimed_by_id,'')=''
+               AND julianday(opened_at) IS NOT NULL
+             ORDER BY julianday(opened_at) ASC LIMIT 1) AS oldest_unclaimed_opened_at
+        FROM tickets
+        """,
+        bounds,
+    ).fetchone()
+    return {
+        "closed_this": int(row["closed_this"] or 0),
+        "closed_prev": int(row["closed_prev"] or 0),
+        "unclaimed_count": int(row["unclaimed_count"] or 0),
+        "oldest_unclaimed_opened_at": row["oldest_unclaimed_opened_at"],
+    }
+
+
 def register(app) -> None:
     import webserver as ws
     from pulse_pro import render_pro_page
@@ -96,7 +131,15 @@ def register(app) -> None:
         team_prev = sum(v for k, v in prev_week.items() if k in member_ids)
         active_this = sum(1 for k, v in this_week.items() if k in member_ids and v > 0)
         active_prev = sum(1 for k, v in prev_week.items() if k in member_ids and v > 0)
-        tickets = db.list_tickets(limit=3000)
+        with db.connect() as ticket_connection:
+            ticket_metrics = cockpit_ticket_summary(
+                ticket_connection, this_start, this_end, prev_start, prev_end
+            )
+        closed_this = ticket_metrics["closed_this"]
+        closed_prev = ticket_metrics["closed_prev"]
+        unclaimed_count = ticket_metrics["unclaimed_count"]
+        oldest_unclaimed = _parse_iso(ticket_metrics["oldest_unclaimed_opened_at"])
+
         voice_available = True
         try:
             from cogs.voice_support import get_cases
@@ -107,18 +150,8 @@ def register(app) -> None:
         voice_waiting = voice["waiting"]
         voice_active = voice["active"]
 
-        def closed_between(start, end):
-            count = 0
-            for t in tickets:
-                closed = _parse_iso(t.get("closed_at"))
-                if closed and start <= closed.date() <= end:
-                    count += 1
-            return count
-
-        closed_this, closed_prev = closed_between(this_start, this_end), closed_between(prev_start, prev_end)
         apps = [a for a in ws.load_json(ws.APPS_FILE, {}).values() if isinstance(a, dict) and a.get("status") == "pending"]
         promos = db.promotion_requests("pending", 200)
-        unclaimed = [t for t in tickets if t.get("status") == "open" and not t.get("claimed_by_id")]
 
         def kpi(icon, label, value, cur=None, prev=None):
             extra = ""
@@ -157,10 +190,9 @@ def register(app) -> None:
             oldest_voice = _parse_iso(voice_waiting[0].get("created_at"))
             waiting_text = f" · ältester Fall seit {format_hm(max(0, (now - oldest_voice).total_seconds()))}" if oldest_voice else ""
             signals.append((1, f"🎧 <b>{len(voice_waiting)} Voice-Support-Fall/Fälle</b> warten auf Übernahme{e(waiting_text)}."))
-        if unclaimed:
-            oldest = min((_parse_iso(t.get("opened_at")) for t in unclaimed if _parse_iso(t.get("opened_at"))), default=None)
-            wait = f" · ältestes seit {format_hm((now - oldest).total_seconds())}" if oldest else ""
-            signals.append((1, f'▣ <b>{len(unclaimed)} Tickets</b> ohne Bearbeiter{e(wait)}. <a class="text-indigo-500" href="/tickets">Zu den Tickets →</a>'))
+        if unclaimed_count:
+            wait = f" · ältestes seit {format_hm((now - oldest_unclaimed).total_seconds())}" if oldest_unclaimed else ""
+            signals.append((1, f'▣ <b>{unclaimed_count} Tickets</b> ohne Bearbeiter{e(wait)}. <a class="text-indigo-500" href="/tickets">Zu den Tickets →</a>'))
         if apps:
             signals.append((1, f'✎ <b>{len(apps)} Bewerbungen</b> warten auf Entscheidung. <a class="text-indigo-500" href="/applications">Bearbeiten →</a>'))
         if promos:
