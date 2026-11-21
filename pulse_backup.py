@@ -31,6 +31,8 @@ import zlib
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
+from pulse_env_validation import safe_float
+
 FORMAT = "pulse-full-backup"
 FORMAT_VERSION = 1
 # predeploy_/prerollback_: written by deploy/remote_deploy.sh and deploy/rollback_code.sh (never pruned automatically).
@@ -53,7 +55,7 @@ MEDIA_FILES = ("assets/support_wait.mp3", "assets/support_wait.ogg", "assets/sup
 EXCLUDED = {"backups": "Sicherungen selbst (keine Rekursion)", ".session_secret": "Geheimnis – bei Verlust nur Neuanmeldung",
             ".env": "Geheimnisse"}
 
-DEFAULT_BUDGET_BYTES = int(float(os.getenv("PULSE_BACKUP_MAX_MB", "500")) * 1024 * 1024)
+DEFAULT_BUDGET_BYTES = int(safe_float("PULSE_BACKUP_MAX_MB", 500.0, 1.0, 100000.0) * 1024 * 1024)
 _CHUNK = 1024 * 1024
 SAFETY_BACKUP_BUDGET_BYTES = 1 << 50  # DATA-1: the safety backup before a restore has no size budget (it must be complete)
 _MAINTENANCE = threading.Event()
@@ -905,7 +907,7 @@ def retention_keep(names_with_time: list[tuple[str, datetime]], daily: int = 7, 
 
 
 SAFETY_COPIES_KEPT = 3
-TOTAL_MAX_BYTES = int(float(os.getenv("PULSE_BACKUP_TOTAL_MAX_MB", "4000")) * 1024 * 1024)
+TOTAL_MAX_BYTES = int(safe_float("PULSE_BACKUP_TOTAL_MAX_MB", 4000.0, 1.0, 1000000.0) * 1024 * 1024)
 
 
 def total_size(backup_dir) -> int:
