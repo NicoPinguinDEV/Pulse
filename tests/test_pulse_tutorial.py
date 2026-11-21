@@ -78,7 +78,7 @@ class TutorialAssetTests(unittest.TestCase):
             patch.object(ws, "render_page", side_effect=lambda _title, _ctx, _page, body, _extra: body),
         ):
             rendered = pulse_pro.render_pro_page(ws, "Test", ctx, "me", "<p>Body</p>")
-        self.assertIn('data-pulse-user="42&quot; onmouseover=&quot;alert(1)"', rendered)
+        self.assertIn('<span id="pulseTutorialAccount" data-pulse-user="42&quot; onmouseover=&quot;alert(1)" hidden></span>', rendered)
         self.assertIn("data-pulse-user", rendered)
         self.assertIn("pulse.team-intro.v1:", self.assets)
 
