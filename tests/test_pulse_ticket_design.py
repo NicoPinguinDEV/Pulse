@@ -275,9 +275,10 @@ class PanelLayoutTests(unittest.TestCase):
             tickets._pulse_db, "open_ticket_category_counts",
             return_value={"support": 3, "bug": 5},
         ) as counts:
-            view = tickets.panel_view(panel)
-            layout = tickets.build_panel_layout(SimpleNamespace(icon=None), panel, view)
-        counts.assert_called_once_with(["support", "bug"])
+            guild = SimpleNamespace(icon=None, id=777)
+            view = tickets.panel_view(panel, guild_id=guild.id)
+            layout = tickets.build_panel_layout(guild, panel, view)
+        counts.assert_called_once_with(["support", "bug"], guild_id=777)
         components = layout.to_components()
         self.assertEqual([c["type"] for c in components], [17, 1])  # card, then the menu below it
         inner = components[0]["components"]
@@ -296,8 +297,8 @@ class PanelLayoutTests(unittest.TestCase):
         with patch.object(
             tickets._pulse_db, "open_ticket_category_counts", return_value={"support": 4}
         ) as counts:
-            embed = tickets.build_panel_embed(SimpleNamespace(icon=None), panel)
-        counts.assert_called_once_with(["support"])
+            embed = tickets.build_panel_embed(SimpleNamespace(icon=None, id=777), panel)
+        counts.assert_called_once_with(["support"], guild_id=777)
         self.assertEqual(embed.fields[0].name, "📊 Ticket-Auslastung")
         self.assertIn("Verfügbar `4/10` (40 %)", embed.fields[0].value)
 

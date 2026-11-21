@@ -1740,7 +1740,7 @@ async def suite_ticket_action(i,action,tid):
     ]
     if not eligible:
         return await i.response.send_message("❌ Keine andere berechtigte Führungskraft für diese Ticketkategorie.",ephemeral=True)
-    loads = db.open_ticket_counts([candidate.id for candidate in eligible])
+    loads = db.open_ticket_counts([candidate.id for candidate in eligible], guild_id=i.guild.id)
     member=min(eligible,key=lambda candidate:loads.get(str(candidate.id),0))
     if not db.transfer_ticket(tid,member.id,member.display_name,actor_id=i.user.id,actor_name=i.user.display_name):
         return await i.response.send_message("❌ Ticket konnte nicht übergeben werden (bereits zugewiesen oder geschlossen).",ephemeral=True)
@@ -2588,7 +2588,7 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
         tid=db.create_ticket(str(i.channel.id),str(i.guild.id),str(i.user.id),i.user.display_name,kategorie[:80],prioritaet)
         ms=managers(i.guild,web)
-        loads=db.open_ticket_counts([manager.id for manager in ms])
+        loads=db.open_ticket_counts([manager.id for manager in ms],guild_id=i.guild.id)
         ms.sort(key=lambda manager:loads.get(str(manager.id),0))
         if ms:db.notify(ms[0].id,"🎫 Ticket zugewiesen",f"{tid} · {kategorie}","warning","/tickets",f"auto:{tid}",21600)
         e=discord.Embed(title=f"🎫 Fall {tid}",description=beschreibung[:3500],color=_pulse_color("info"));e.add_field(name="Kategorie",value=kategorie[:80]);e.add_field(name="Priorität",value=prioritaet);await i.response.send_message(embed=e,view=TicketView(tid));audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_created",kategorie)

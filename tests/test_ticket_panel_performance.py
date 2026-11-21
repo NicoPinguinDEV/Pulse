@@ -27,11 +27,11 @@ class TicketPanelWorkloadTests(unittest.TestCase):
             patch.object(tickets._pulse_db, "open_ticket_category_counts", return_value={"support": 4, "bug": 2}) as counts,
             patch.object(tickets, "category_meta", side_effect=AssertionError("must not reload definitions per category")),
         ):
-            entries = tickets.panel_entries(panel)
+            entries = tickets.panel_entries(panel, guild_id=777)
 
         self.assertEqual(entries, [("Support", "🎫", 4, 10), ("Bug", "⚙️", 2, 5)])
         definitions.assert_called_once_with()
-        counts.assert_called_once_with(["support", "bug"])
+        counts.assert_called_once_with(["support", "bug"], guild_id=777)
 
     def test_modern_panel_layout_reuses_entries_for_embed_and_layout(self):
         panel_config = {"category_keys": ["support"], "show_load": True, "list_categories": True}
@@ -47,11 +47,12 @@ class TicketPanelWorkloadTests(unittest.TestCase):
             patch.object(tickets, "layout_from_spec", return_value="layout") as layout,
             patch.object(tickets, "view_rows", return_value=[]),
         ):
-            result = tickets.build_panel_layout(SimpleNamespace(), panel_config, SimpleNamespace())
+            guild = SimpleNamespace(id=777)
+            result = tickets.build_panel_layout(guild, panel_config, SimpleNamespace())
 
         self.assertEqual(result, "layout")
-        panel_entries.assert_called_once_with(panel)
-        build_embed.assert_called_once_with(SimpleNamespace(), panel_config, None, entries=entries)
+        panel_entries.assert_called_once_with(panel, guild_id=777)
+        build_embed.assert_called_once_with(guild, panel_config, None, entries=entries)
         self.assertEqual(block.call_args.args[0], entries)
         layout.assert_called_once()
 
@@ -68,10 +69,10 @@ class TicketPanelWorkloadTests(unittest.TestCase):
                 return_value={"support": 4, "bug": 2},
             ) as counts,
         ):
-            view = tickets.panel_view(panel)
+            view = tickets.panel_view(panel, guild_id=777)
 
         definitions.assert_called_once_with()
-        counts.assert_called_once_with(["support", "bug"])
+        counts.assert_called_once_with(["support", "bug"], guild_id=777)
         select = view.children[0]
         self.assertEqual([option.value for option in select.options], ["support", "bug"])
         self.assertIn("4/10 offen", select.options[0].description)
@@ -81,7 +82,7 @@ class TicketPanelWorkloadTests(unittest.TestCase):
         )
 
     def test_legacy_panel_uses_one_grouped_category_count_query(self):
-        guild = SimpleNamespace(icon=None)
+        guild = SimpleNamespace(icon=None, id=777)
         with patch.object(
             tickets._pulse_db, "open_ticket_category_counts",
             return_value={key: 1 for key in tickets.CATEGORY_META},
@@ -89,7 +90,7 @@ class TicketPanelWorkloadTests(unittest.TestCase):
             embed = tickets.build_panel_embed(guild)
 
         self.assertIsInstance(embed, discord.Embed)
-        counts.assert_called_once_with(tickets.CATEGORY_META)
+        counts.assert_called_once_with(tickets.CATEGORY_META, guild_id=777)
 
 
 if __name__ == "__main__":
