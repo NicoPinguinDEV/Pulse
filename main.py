@@ -136,18 +136,28 @@ class CustomBot(commands.Bot):
             from pulse_command_groups import add_alias_groups
             from pulse_command_help import apply_visibility
             from pulse_command_sync import sync_commands
-            missing = add_alias_groups(self.tree)  # BOT-04 (E-11): /team …, /setup … – old names stay as aliases
+            missing = add_alias_groups(self.tree)  # Existing command objects move; no duplicate aliases remain.
             if missing:
-                print(f"⚠️ Befehlsgruppen: nicht gefunden (Cog nicht geladen?): {', '.join(missing)}")
-            apply_visibility(self.tree)  # BOT-04: setup/maintenance commands hidden from ordinary members
+                print(f"⚠️ Befehlsgruppen: nicht verfügbar oder Name belegt: {', '.join(missing)}")
+            apply_visibility(self.tree)  # Root and subcommand visibility before generating the sync hash.
             result = await sync_commands(self.tree)
             self.pulse_synced_commands = result["count"]
+            print(
+                "📋 Globale Discord-Commands geprüft: "
+                f"{result['chat_input_commands']}/100 Chat-Input · "
+                f"{result['user_context_menus']}/15 User-Context · "
+                f"{result['message_context_menus']}/15 Message-Context · "
+                f"{result['nested_subcommands']} Subcommands."
+            )
             if result["synced"]:
-                print(f"🔄 {result['count']} Slash Commands synchronisiert ({result['reason']}).")
+                print(f"🔄 {result['count']} globale Slash-Command-Wurzeln synchronisiert ({result['reason']}).")
             else:
                 print(f"🔄 Slash Commands unverändert ({result['count']}) – kein Sync nötig.")
         except Exception as e:
-            print(f"❌ Fehler beim Sync: {e}")
+            pulse_logging.get("discord.commands").exception(
+                "Slash-Command-Synchronisierung fehlgeschlagen (%s)", type(e).__name__
+            )
+            print(f"❌ Slash-Command-Sync fehlgeschlagen ({type(e).__name__}): {str(e)[:700]}")
 
         # Pulse Ultimate Automation Engine starten
         try:
