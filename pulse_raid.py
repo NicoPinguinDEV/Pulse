@@ -10,7 +10,6 @@ tuned via environment variables (see .env.example). Nothing here changes channel
 from __future__ import annotations
 
 import hashlib
-import os
 from collections import OrderedDict, deque
 
 from pulse_env_validation import safe_int
