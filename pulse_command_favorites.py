@@ -14,7 +14,9 @@ def normalize_command_name(value) -> str:
         name = name[1:]
     if len(name) > 100 or not _COMMAND_NAME_RE.fullmatch(name):
         return ""
-    return name
+    # Existing per-user favorites survive the move from legacy root commands to groups.
+    from pulse_command_groups import canonical_command_name
+    return canonical_command_name(name)
 
 
 def normalize_favorites(value) -> list[str]:

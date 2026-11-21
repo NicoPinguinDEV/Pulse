@@ -43,7 +43,7 @@ class VisibilityTests(unittest.TestCase):
 
 
 class AliasGroupTests(unittest.TestCase):
-    """BOT-04 (E-11): /team and /setup built from the existing commands; old names stay."""
+    """BOT-04: /team and /setup contain the original commands, not duplicate callbacks."""
 
     def build(self):
         from discord.ext import commands
@@ -56,6 +56,7 @@ class AliasGroupTests(unittest.TestCase):
 
             @app_commands.command(name="team-kick", description="Nur Teamrollen entfernen")
             @app_commands.describe(grund="Pflichtgrund")
+            @app_commands.checks.has_permissions(manage_roles=True)
             async def team_kick(self, interaction: discord.Interaction, member: str, grund: str = ""):
                 self.calls.append((member, grund))
 
@@ -71,33 +72,70 @@ class AliasGroupTests(unittest.TestCase):
             bot = commands.Bot(command_prefix="!", intents=discord.Intents.none())
             cog = Demo()
             await bot.add_cog(cog)
+            originals = {
+                "team-kick": bot.tree.get_command("team-kick"),
+                "setup_rp": bot.tree.get_command("setup_rp"),
+                "promote": bot.tree.get_command("promote"),
+            }
             missing = cg.add_alias_groups(bot.tree)
-            return bot, cog, missing
+            return bot, cog, missing, originals
         return asyncio.run(go())
 
-    def test_groups_reuse_the_original_callbacks(self):
-        bot, cog, missing = self.build()
-        self.assertIn("warn", missing)                                   # not loaded here → reported, not invented
+    def test_groups_move_the_original_commands_without_losing_metadata(self):
+        bot, cog, missing, originals = self.build()
+        self.assertIn("warn", missing)  # not loaded in this focused fixture
+
         team = bot.tree.get_command("team")
         kick = team.get_command("kick")
+        promote = team.get_command("befoerdern")
+        setup = bot.tree.get_command("setup")
+        setup_rp = setup.get_command("rp")
+
+        # The exact registered command objects were moved and renamed; no callback clone exists.
+        self.assertIs(kick, originals["team-kick"])
+        self.assertIs(promote, originals["promote"])
+        self.assertIs(setup_rp, originals["setup_rp"])
+        self.assertIsNone(bot.tree.get_command("team-kick"))
+        self.assertIsNone(bot.tree.get_command("promote"))
+        self.assertIsNone(bot.tree.get_command("setup_rp"))
+
         self.assertEqual([p.name for p in kick.parameters], ["member", "grund"])
         self.assertEqual(kick.parameters[1].description, "Pflichtgrund")
+        self.assertEqual(len(kick.checks), 1)  # original Discord permission check remains attached
+        self.assertTrue(setup.default_permissions.manage_guild)
+
         asyncio.run(kick._do_call(None, {"member": "Max", "grund": "Inaktiv"}))
         self.assertEqual(cog.calls, [("Max", "Inaktiv")])
-        self.assertIsNotNone(bot.tree.get_command("team-kick"))          # old name still works
-        self.assertTrue(bot.tree.get_command("setup").default_permissions.manage_guild)
-        import pulse_command_groups as cg
-        self.assertEqual(cg.add_alias_groups(bot.tree), [])               # second call changes nothing
 
-    def test_help_lists_aliases_once_with_original_rights(self):
-        bot, _, _ = self.build()
+        import pulse_command_groups as cg
+        # A second pass does not duplicate/reparent commands. Missing fixture targets remain reported.
+        self.assertEqual(cg.add_alias_groups(bot.tree), missing)
+
+    def test_help_lists_moved_commands_once_with_original_rights(self):
+        bot, _, _, _ = self.build()
         items = ch.entries(bot.tree)
-        names = [i[0] for i in items]
+        names = [item[0] for item in items]
         self.assertIn("team kick", names)
+        self.assertIn("team befoerdern", names)
         self.assertNotIn("team-kick", names)
-        member = [c for rows in dict(ch.build_help(items, {"can_view_dashboard": True}, discord.Permissions.none())).values() for c, _ in rows]
-        self.assertNotIn("/team befoerdern", member)                    # same rule as /promote: leadership only
-        lead = [c for rows in dict(ch.build_help(items, {"can_promote": True, "can_manage_team_warnings": True}, discord.Permissions.none())).values() for c, _ in rows]
+        self.assertNotIn("promote", names)
+
+        member = [
+            command
+            for rows in dict(ch.build_help(items, {"can_view_dashboard": True}, discord.Permissions.none())).values()
+            for command, _description in rows
+        ]
+        self.assertNotIn("/team befoerdern", member)  # same leadership restriction as /promote
+
+        lead = [
+            command
+            for rows in dict(ch.build_help(
+                items,
+                {"can_promote": True, "can_manage_team_warnings": True},
+                discord.Permissions.none(),
+            )).values()
+            for command, _description in rows
+        ]
         self.assertIn("/team befoerdern", lead)
 
     def test_alias_targets_exist(self):
@@ -107,14 +145,12 @@ class AliasGroupTests(unittest.TestCase):
         import pulse_command_groups as cg
         root = Path(ch.__file__).parent
         names = set()
-        for f in root.glob("cogs/*.py"):
-            for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+        for file in root.glob("cogs/*.py"):
+            for node in ast.walk(ast.parse(file.read_text(encoding="utf-8"))):
                 if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "command":
                     names.update(ast.literal_eval(k.value) for k in node.keywords if k.arg == "name")
-        targets = {orig for _, (_, mapping) in cg.ALIASES.items() for orig in mapping.values()}
+        targets = {original for _, (_, mapping) in cg.ALIASES.items() for original in mapping.values()}
         self.assertEqual(sorted(targets - names), [])
-
-
 class HelpTests(unittest.TestCase):
     def test_help_is_generated_and_filtered(self):
         tree = tree_with("pulse", "warn", "promote", "setup_buero", "neuer_befehl", group="dienst")

@@ -17,8 +17,22 @@ def build_tree():
     async def callback(interaction: discord.Interaction):
         return None
 
-    for name in ("pulse", "pulse-hilfe", "warn", "promote", "setup_buero"):
+    for name in ("pulse", "pulse-hilfe"):
         tree.add_command(app_commands.Command(name=name, description=f"Beschreibung {name}", callback=callback))
+
+    team = app_commands.Group(name="team", description="Teamaktionen")
+    team.add_command(app_commands.Command(name="warn", description="Teammitglied verwarnen", callback=callback))
+    team.add_command(app_commands.Command(name="befoerdern", description="Teammitglied befördern", callback=callback))
+    tree.add_command(team)
+
+    setup = app_commands.Group(
+        name="setup",
+        description="Einrichtung",
+        default_permissions=discord.Permissions(manage_guild=True),
+    )
+    setup.add_command(app_commands.Command(name="buero", description="Büro einrichten", callback=callback))
+    tree.add_command(setup)
+
     group = app_commands.Group(name="dienst", description="Dienstverwaltung")
     group.add_command(app_commands.Command(name="status", description="Zeigt Dienststatus", callback=callback))
     tree.add_command(group)
@@ -42,6 +56,12 @@ class FavoriteStorageTests(unittest.TestCase):
         self.assertEqual(
             favorites.normalize_favorites(many),
             many[:favorites.MAX_FAVORITES],
+        )
+
+    def test_legacy_root_favorites_are_migrated_to_group_paths(self):
+        self.assertEqual(
+            favorites.normalize_favorites(["/warn", "setup_rp", "team-kick", "/pulse", "warn"]),
+            ["team warn", "setup rp", "team kick", "pulse"],
         )
 
     def test_add_requires_current_permission_and_prevents_duplicates(self):
@@ -71,18 +91,18 @@ class FavoriteStorageTests(unittest.TestCase):
         member = favorites.permitted_command_names(tree, {}, discord.Permissions.none())
         self.assertIn("pulse", member)
         self.assertIn("dienst status", member)
-        self.assertNotIn("warn", member)
-        self.assertNotIn("promote", member)
-        self.assertNotIn("setup_buero", member)
+        self.assertNotIn("team warn", member)
+        self.assertNotIn("team befoerdern", member)
+        self.assertNotIn("setup buero", member)
 
         lead = favorites.permitted_command_names(
             tree,
             {"can_promote": True, "can_manage_team_warnings": True},
             discord.Permissions(manage_guild=True),
         )
-        self.assertIn("warn", lead)
-        self.assertIn("promote", lead)
-        self.assertIn("setup_buero", lead)
+        self.assertIn("team warn", lead)
+        self.assertIn("team befoerdern", lead)
+        self.assertIn("setup buero", lead)
         self.assertNotIn("pulse-favoriten", lead)
 
 
@@ -116,7 +136,7 @@ class FavoriteCommandTests(unittest.TestCase):
             patch("cogs.pulse_pro.db.get_setting", return_value=["pulse", "warn"]),
         ):
             choices = asyncio.run(_pulse_favorites_autocomplete(self.interaction, "warn"))
-        self.assertEqual([choice.value for choice in choices], ["warn"])
+        self.assertEqual([choice.value for choice in choices], ["team warn"])
 
     def test_add_command_saves_only_the_callers_allowed_favorite(self):
         cog = PulsePro.__new__(PulsePro)

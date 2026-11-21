@@ -51,34 +51,68 @@ def required_permissions(name: str) -> discord.Permissions | None:
 
 
 def apply_visibility(tree) -> int:
-    """Sets default_permissions on the listed top-level commands (before the sync). Returns how many changed.
-    A command that already declares its own default_permissions is left alone."""
+    """Apply visibility permissions to root commands and moved subcommands.
+
+    Group-level permissions are retained. Children inherit their group's restriction in
+    Discord; child-specific checks and callback authorization remain untouched.
+    """
+    from pulse_command_groups import original_of
+
     changed = 0
     for command in tree.get_commands():
         wanted = required_permissions(command.name)
         if wanted is not None and getattr(command, "default_permissions", None) is None:
             command.default_permissions = wanted
             changed += 1
+
+        for sub in getattr(command, "commands", None) or []:
+            original = original_of(f"{command.name} {sub.name}") or sub.name
+            child_wanted = required_permissions(original)
+            if (
+                child_wanted is not None
+                and getattr(command, "default_permissions", None) is None
+                and getattr(sub, "default_permissions", None) is None
+            ):
+                sub.default_permissions = child_wanted
+                changed += 1
     return changed
 
 
 def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str]]:
-    """(name incl. group, description, default_permissions, rights key) for every slash command and subcommand.
-    Old names that also exist in a group (BOT-04 aliases) are listed once, under the group name; the rights key
-    stays the original name so the same Pulse right decides."""
+    """Return every slash command path, effective default permissions and rights key.
+
+    Moved /team and /setup children keep their original rights key, so help visibility
+    remains identical even though the displayed command path has changed.
+    """
     from pulse_command_groups import original_of
+
     out, aliased = [], set()
     for command in tree.get_commands():
-        perms = getattr(command, "default_permissions", None)
+        root_permissions = getattr(command, "default_permissions", None)
         for sub in getattr(command, "commands", None) or []:
             qualified = f"{command.name} {sub.name}"
             original = original_of(qualified)
             if original:
                 aliased.add(original)
-            out.append((qualified, sub.description, perms, original or command.name))
+            child_permissions = getattr(sub, "default_permissions", None)
+            effective_permissions = (
+                child_permissions if child_permissions is not None else root_permissions
+            )
+            out.append((
+                qualified,
+                getattr(sub, "description", "") or "",
+                effective_permissions,
+                original or command.name,
+            ))
+
     for command in tree.get_commands():
         if not getattr(command, "commands", None) and command.name not in aliased:
-            out.append((command.name, getattr(command, "description", "") or "", getattr(command, "default_permissions", None), command.name))
+            out.append((
+                command.name,
+                getattr(command, "description", "") or "",
+                getattr(command, "default_permissions", None),
+                command.name,
+            ))
     return out
 
 
