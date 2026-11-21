@@ -15,7 +15,7 @@ All routes authorize server-side (webserver.auth); state-changing routes are POS
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Cookie, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -295,11 +295,11 @@ def register(app) -> None:
         pulse_flags.require("capacity_heatmap")
         if not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote") or ctx.perms.get("can_view_analytics")):
             raise HTTPException(status_code=403, detail="Die Kapazitätsübersicht ist für Leitung und Analytics freigegeben.")
-        with pulse_db.connect() as db:
-            voice = [dict(r) for r in db.execute("SELECT created_at, support_started_at, closed_at FROM voice_support_case_history "
-                                                 "ORDER BY closed_at DESC LIMIT 5000").fetchall()]
-        data = pulse_insights.heatmap(pulse_db.list_tickets(limit=5000), voice, ws.load_shifts_raw().get("history", []),
-                                      now=datetime.now(timezone.utc), days=days)
+        now = datetime.now(timezone.utc)
+        days = max(7, min(int(days), 120))
+        ticket_inputs, voice = pulse_db.heatmap_inputs(now - timedelta(days=days), now)
+        data = pulse_insights.heatmap(ticket_inputs, voice, ws.load_shifts_raw().get("history", []),
+                                      now=now, days=days)
         peak = max([v for row in data["demand"] for v in row] + [1])
 
         def cell(d, h):

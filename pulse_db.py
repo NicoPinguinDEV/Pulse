@@ -1187,6 +1187,49 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def heatmap_inputs(start_at, end_at) -> tuple[list[dict], list[dict]]:
+    """Return only ticket/voice timestamps inside a heatmap window, without UI list caps."""
+    def bound(value):
+        return value.isoformat(timespec="microseconds") if hasattr(value, "isoformat") else str(value or "")
+
+    start_value, end_value = bound(start_at), bound(end_at)
+    with connect() as connection:
+        ticket_rows = connection.execute(
+            """
+            SELECT opened_at
+            FROM tickets
+            WHERE julianday(opened_at) IS NOT NULL
+              AND julianday(opened_at) >= julianday(?)
+              AND julianday(opened_at) <= julianday(?)
+            ORDER BY julianday(opened_at)
+            """,
+            (start_value, end_value),
+        ).fetchall()
+        voice_rows = connection.execute(
+            """
+            SELECT created_at, support_started_at, closed_at
+            FROM voice_support_case_history
+            WHERE julianday(COALESCE(
+                    NULLIF(created_at,''), NULLIF(support_started_at,''), NULLIF(closed_at,'')
+                  )) IS NOT NULL
+              AND julianday(COALESCE(
+                    NULLIF(created_at,''), NULLIF(support_started_at,''), NULLIF(closed_at,'')
+                  )) >= julianday(?)
+              AND julianday(COALESCE(
+                    NULLIF(created_at,''), NULLIF(support_started_at,''), NULLIF(closed_at,'')
+                  )) <= julianday(?)
+            ORDER BY julianday(COALESCE(
+                NULLIF(created_at,''), NULLIF(support_started_at,''), NULLIF(closed_at,'')
+            ))
+            """,
+            (start_value, end_value),
+        ).fetchall()
+    return (
+        [{"opened_at": row["opened_at"]} for row in ticket_rows],
+        [dict(row) for row in voice_rows],
+    )
+
+
 def open_ticket_counts(claimed_by_ids):
     """Return complete open-ticket counts for supplied assignees using grouped SQL."""
     ids = list(dict.fromkeys(
