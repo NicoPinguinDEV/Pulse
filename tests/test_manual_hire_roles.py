@@ -148,14 +148,15 @@ class ManualHireRouteTests(unittest.TestCase):
         }
         self.assertEqual({role.id for role in self.target.roles}, expected_ids)
         self.assertEqual({role.id for role in self.target.added_roles}, expected_ids)
-        self.assertTrue(self.mocks[-1].await_count == 1)
+        self.mocks[-1].assert_awaited_once()
 
     def test_missing_required_role_refuses_hire_before_any_role_is_added(self):
         missing_id = pulse_ids.TEAM_HIRE_GROUP_ROLE_IDS["low_team"]
         self.guild.roles = [role for role in self.guild.roles if role.id != missing_id]
         response = self.post_hire()
         self.assertEqual(response.status_code, 303)
-        self.assertIn("Es wurde nichts geändert", response.headers.get("location", ""))
+        from urllib.parse import unquote
+        self.assertIn("Es wurde nichts geändert", unquote(response.headers.get("location", "")))
         self.assertEqual(self.target.added_roles, [])
 
     def test_additional_administrator_role_is_rejected_for_non_admin_actor(self):
@@ -165,7 +166,8 @@ class ManualHireRouteTests(unittest.TestCase):
                 role.permissions.administrator = True
         response = self.post_hire()
         self.assertEqual(response.status_code, 303)
-        self.assertIn("Administratorrechte", response.headers.get("location", ""))
+        from urllib.parse import unquote
+        self.assertIn("Administratorrechte", unquote(response.headers.get("location", "")))
         self.assertEqual(self.target.added_roles, [])
 
 
