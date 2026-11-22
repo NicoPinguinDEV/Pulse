@@ -31,12 +31,13 @@ import pulse_schedule_rules as schedule_rules
 import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
+from pulse_env_validation import safe_int
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 from pulse_rank_guard import actor_rank_change_problem
 
 BASE = str(pulse_paths.DATA_DIR)  # Phase 13: data directory (pulse_suite.db, activity_check.db)
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
+GUILD_ID = safe_int("DISCORD_GUILD_ID", 0, 0, 2**63 - 1)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 REPORT_HOUR = 20
 PROBATION_DAYS = 14
@@ -135,7 +136,7 @@ def set_setting(key,value):
     with cx() as c:c.execute("INSERT OR REPLACE INTO suite_settings(key,value) VALUES(?,?)",(key,json.dumps(value,ensure_ascii=False)))
 
 def seed():
-    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"shift_reminder_minutes":shift_reminders_logic.DEFAULT_LEAD_MINUTES,"report_channel_id":int(os.getenv("PULSE_REPORT_CHANNEL_ID","0") or 0),"last_daily":"","last_weekly":""}
+    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"shift_reminder_minutes":shift_reminders_logic.DEFAULT_LEAD_MINUTES,"report_channel_id":safe_int("PULSE_REPORT_CHANNEL_ID", 0, 0, 2**63 - 1),"last_daily":"","last_weekly":""}
     for k,v in vals.items():
         if setting(k,None) is None:set_setting(k,v)
 

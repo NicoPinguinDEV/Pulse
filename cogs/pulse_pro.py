@@ -15,9 +15,10 @@ from discord.ext import commands, tasks
 import pulse_db as db
 from pulse_jobs import record_error, tracked
 from pulse_time import parse_timestamp
+from pulse_env_validation import safe_int
 
 
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
+GUILD_ID = safe_int("DISCORD_GUILD_ID", 0, 0, 2**63 - 1)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 

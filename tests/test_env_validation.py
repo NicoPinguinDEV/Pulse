@@ -1,7 +1,9 @@
 """O-06: optional .env settings are checked without ever echoing their values; every variable is documented."""
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -85,6 +87,64 @@ class StartupTests(unittest.TestCase):
     def test_validator_module_imports_without_side_effects(self):
         code = "import sys; sys.path.insert(0, '.'); import pulse_env_validation; sys.exit(0 if pulse_env_validation.validate_environment({}) == [] else 1)"
         self.assertEqual(subprocess.run([sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True).returncode, 0)
+
+
+    def test_safe_numeric_settings_use_defaults_for_invalid_values(self):
+        env = {
+            "SERVER_PORT": "not-a-port",
+            "SESSION_DAYS": "0",
+            "MAX_BACKUPS": "-3",
+            "AUTO_BACKUP_HOURS": "Infinity",
+            "PULSE_BACKUP_MAX_MB": "NaN",
+            "PULSE_BACKUP_TOTAL_MAX_MB": "not-a-number",
+        }
+        self.assertEqual(ev.safe_int("SERVER_PORT", 25095, 1, 65535, env), 25095)
+        self.assertEqual(ev.safe_int("SESSION_DAYS", 7, 1, 365, env), 7)
+        self.assertEqual(ev.safe_int("MAX_BACKUPS", 30, 1, 1000, env), 30)
+        self.assertEqual(ev.safe_int("DISCORD_GUILD_ID", 0, 0, 2**63 - 1, {"DISCORD_GUILD_ID": ""}), 0)
+        self.assertEqual(ev.safe_float("AUTO_BACKUP_HOURS", 24.0, 0.0, 8760.0, env), 24.0)
+        self.assertEqual(ev.safe_float("PULSE_BACKUP_MAX_MB", 500.0, 1.0, 100000.0, env), 500.0)
+        self.assertEqual(ev.safe_float("PULSE_BACKUP_TOTAL_MAX_MB", 4000.0, 1.0, 1000000.0, env), 4000.0)
+
+    def test_invalid_startup_settings_do_not_break_dashboard_or_backup_imports(self):
+        # Exercise the real import-time consumers with isolated, temporary data paths.
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {
+                "PATH": os.environ.get("PATH", ""),
+                "PYTHONPATH": str(ROOT),
+                "PYTHONIOENCODING": "utf-8",
+                "PULSE_DATA_DIR": tmp,
+                "PULSE_DB_PATH": str(Path(tmp) / "pulse.db"),
+                "PULSE_BACKUP_MAX_MB": "NaN",
+                "PULSE_BACKUP_TOTAL_MAX_MB": "not-a-number",
+                "SESSION_DAYS": "0",
+                "AUTO_BACKUP_HOURS": "Infinity",
+                "MAX_BACKUPS": "-5",
+                "PULSE_SESSION_IDLE_HOURS": "NaN",
+                "DISCORD_GUILD_ID": "not-a-snowflake",
+                "PULSE_REPORT_CHANNEL_ID": "not-a-channel",
+            }
+            code = (
+                "import pulse_backup as b; import webserver as w; import pulse_sessions as s; "
+                "assert b.DEFAULT_BUDGET_BYTES == 500 * 1024 * 1024; "
+                "assert b.TOTAL_MAX_BYTES == 4000 * 1024 * 1024; "
+                "assert (w.SESSION_DAYS, w.AUTO_BACKUP_HOURS, w.MAX_BACKUPS) == (7, 24.0, 30); "
+                "assert s.MAX_SESSION_SECONDS == 7 * 86400; "
+                "assert s.IDLE_SECONDS == 24 * 3600; "
+                "import pulse_ids; assert w.GUILD_ID == pulse_ids.GUILD_ID; "
+                "import cogs.pulse_pro as pro; import cogs.pulse_suite as suite; "
+                "assert pro.GUILD_ID == 0 and suite.GUILD_ID == 0; "
+                "suite.init_db(); suite.seed(); assert suite.setting('report_channel_id') == 0"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
 
 
 if __name__ == "__main__":

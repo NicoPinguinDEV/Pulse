@@ -15,6 +15,8 @@ import secrets
 import threading
 import time
 
+from pulse_env_validation import safe_int
+
 
 def _idle_seconds() -> int:
     """Parse the configured idle timeout safely; invalid values fall back to the documented default."""
@@ -30,13 +32,8 @@ def _idle_seconds() -> int:
 
 
 IDLE_SECONDS = _idle_seconds()
-try:  # absolute lifetime: same setting as the cookie (SESSION_DAYS, default 7), enforced server-side as well
-    _session_days = float(os.getenv("SESSION_DAYS", "7"))
-    if not math.isfinite(_session_days):
-        raise ValueError("session lifetime must be finite")
-    MAX_SESSION_SECONDS = max(3600, int(_session_days * 86400))
-except (TypeError, ValueError, OverflowError):
-    MAX_SESSION_SECONDS = 7 * 86400
+# Match the browser cookie and the dashboard's documented 1–365 day setting.
+MAX_SESSION_SECONDS = safe_int("SESSION_DAYS", 7, 1, 365) * 86400
 
 _SCHEMA_READY: dict[tuple[str, int, int], None] = {}
 _SCHEMA_READY_LOCK = threading.Lock()

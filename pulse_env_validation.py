@@ -26,6 +26,14 @@ INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "PULSE_RAID_NEW_ACCOUNT_DAYS": (1, 3650),
     "PULSE_RAID_MASS_MENTIONS": (1, 1000),
     "PULSE_RAID_COPY_CHANNELS": (1, 1000),
+    "PULSE_RAID_JOINS_WARNING": (1, 10000),
+    "PULSE_RAID_JOINS_CRITICAL": (1, 10000),
+    "PULSE_RAID_NEW_ACCOUNTS_WARNING": (1, 10000),
+    "PULSE_RAID_NEW_ACCOUNTS_CRITICAL": (1, 10000),
+    "PULSE_RAID_MASS_MENTIONS_WARNING": (1, 10000),
+    "PULSE_RAID_MASS_MENTIONS_CRITICAL": (1, 10000),
+    "PULSE_RAID_COPY_CHANNELS_WARNING": (1, 10000),
+    "PULSE_RAID_COPY_CHANNELS_CRITICAL": (1, 10000),
 }
 FLOAT_RANGES: dict[str, tuple[float, float]] = {
     "MAX_SHIFT_HOURS": (0.5, 24.0),                                 # pulse_shift_utils.parse_max_shift_hours (E-2)
@@ -60,6 +68,34 @@ STRICT_SWITCH_VARS = ("SYNC_WARN_ROLES", "PULSE_RAID_WATCH")
 
 def _value(env, name: str) -> str:
     return str(env.get(name, "") or "").strip()
+
+
+def safe_int(name: str, default: int, minimum: int, maximum: int, environ=None) -> int:
+    """Read an integer setting, falling back when it is missing, malformed or outside its allowed range."""
+    env = os.environ if environ is None else environ
+    raw = _value(env, name)
+    if not raw:
+        return default
+    try:
+        value = int(raw, 10)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return value if minimum <= value <= maximum else default
+
+
+def safe_float(name: str, default: float, minimum: float, maximum: float, environ=None) -> float:
+    """Read a finite float setting, falling back when it is missing, malformed or outside its allowed range."""
+    env = os.environ if environ is None else environ
+    raw = _value(env, name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        return default
+    return value
 
 
 def _valid_url(raw: str) -> bool:
