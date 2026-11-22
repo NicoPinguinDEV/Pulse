@@ -78,7 +78,7 @@ def apply_visibility(tree) -> int:
     return changed
 
 
-def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str]]:
+def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str, str]]:
     """Return every slash command path, effective default permissions and rights key.
 
     Moved /team and /setup children keep their original rights key, so help visibility
@@ -98,11 +98,16 @@ def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str]]:
             effective_permissions = (
                 child_permissions if child_permissions is not None else root_permissions
             )
+            # Rights follow the leaf command. Ordinary nested commands remain grouped
+            # under their parent command for the help section.
+            rights_key = original or sub.name
+            section_key = original or command.name
             out.append((
                 qualified,
                 getattr(sub, "description", "") or "",
                 effective_permissions,
-                original or command.name,
+                rights_key,
+                section_key,
             ))
 
     for command in tree.get_commands():
@@ -111,6 +116,7 @@ def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str]]:
                 command.name,
                 getattr(command, "description", "") or "",
                 getattr(command, "default_permissions", None),
+                command.name,
                 command.name,
             ))
     return out
@@ -122,8 +128,9 @@ def build_help(items, pulse_perms: dict, discord_perms: discord.Permissions | No
     visible = []
     for item in items:
         name, description, needed = item[:3]
-        top = item[3] if len(item) > 3 else name.split(" ")[0]  # rights/section key (original name for aliases)
-        need = NEEDS.get(top)
+        rights_key = item[3] if len(item) > 3 else name.split(" ")[0]
+        section_key = item[4] if len(item) > 4 else rights_key
+        need = NEEDS.get(rights_key)
         if need == "lead" and not lead:
             continue
         if need == "can_manage_team_warnings" and not pulse_perms.get(need):
@@ -132,7 +139,7 @@ def build_help(items, pulse_perms: dict, discord_perms: discord.Permissions | No
             continue
         if needed is not None and not pulse_perms.get("is_admin") and not (discord_perms and discord_perms >= needed):
             continue
-        visible.append((name, description, top))
+        visible.append((name, description, section_key))
     sections, used = [], set()
     for title, names in SECTIONS:
         rows = [(f"/{n}", d) for n, d, key in visible if key in names or n.split(" ")[0] in names]
