@@ -1,6 +1,7 @@
 """Regression tests for the modular webserver composition root."""
 
 import unittest
+from pathlib import Path
 
 import webserver
 
@@ -35,6 +36,16 @@ class WebserverDomainModuleTests(unittest.TestCase):
         for name in EXPECTED_LEGACY_EXPORTS:
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(webserver, name, None)))
+
+    def test_composition_root_stays_below_four_thousand_lines(self):
+        line_count = len(Path(webserver.__file__).read_text(encoding="utf-8").splitlines())
+        self.assertLessEqual(line_count, 4_000)
+
+    def test_each_domain_module_stays_below_twenty_five_hundred_lines(self):
+        for module in webserver._PULSE_WEB_MODULES:
+            with self.subTest(module=module.__name__):
+                line_count = len(Path(module.__file__).read_text(encoding="utf-8").splitlines())
+                self.assertLessEqual(line_count, 2_500)
 
     def test_domain_modules_share_the_existing_fastapi_application(self):
         for module in webserver._PULSE_WEB_MODULES:
