@@ -29,10 +29,12 @@ REQUIRED = os.environ.get("PULSE_E2E") == "1"
 
 try:
     from playwright.sync_api import Error as PlaywrightError
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 except ImportError:  # optional dev dependency
     sync_playwright = None
     PlaywrightError = Exception
+    PlaywrightTimeoutError = TimeoutError
 
 
 def _free_port() -> int:
@@ -1029,6 +1031,22 @@ class _InterviewBase(_PreviewE2EBase):
     def _slot(self, page, app_id: str, value: str, duration: str = "", lead: str = ""):
         """Fills the interview form of one application card and submits it; returns the toast text."""
         page.goto(self._url("/applications"))
+        # On a fresh mobile preview the first-run guide may still be opening
+        # while the page is already usable. Dismiss it through its real Skip
+        # control and close the mobile navigation before interacting with the
+        # application form; neither overlay should intercept the form submit.
+        mobile_button = page.locator("#pulseMobileBtn")
+        if mobile_button.is_visible():
+            tutorial = page.locator("#pulseTutorialCard")
+            try:
+                tutorial.wait_for(state="visible", timeout=650)
+            except PlaywrightTimeoutError:
+                pass
+            if tutorial.is_visible():
+                page.locator("#pulseTutorialSkip").click()
+                tutorial.wait_for(state="hidden")
+            if mobile_button.get_attribute("aria-expanded") == "true":
+                mobile_button.click()
         form = page.locator(f"#app-{app_id} {SLOT_FORM}")
         form.locator('input[name="interview_at"]').fill(value)
         if duration:

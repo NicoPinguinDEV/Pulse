@@ -9,7 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_web() -> str:
-    return (ROOT / "webserver.py").read_text(encoding="utf-8")
+    sources = (
+        "webserver.py",
+        "pulse_web/ui.py",
+        "pulse_web/dashboard.py",
+        "pulse_web/tickets.py",
+        "pulse_web/team.py",
+        "pulse_web/applications.py",
+        "pulse_web/backups.py",
+        "pulse_web/administration.py"
+    )
+    return "\n".join((ROOT / path).read_text(encoding="utf-8") for path in sources)
 
 
 def function_source(source: str, name: str) -> str:

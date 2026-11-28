@@ -46,7 +46,12 @@ class CallSiteTests(unittest.TestCase):
     """The flows that await Discord between load and save must use merge-on-save (no stale snapshot)."""
 
     def block(self, path, start, end):
-        source = (Path(__file__).resolve().parents[1] / path).read_text(encoding="utf-8")
+        root = Path(__file__).resolve().parents[1]
+        if path == "webserver.py":
+            sources = ("webserver.py", "pulse_web/ui.py", "pulse_web/dashboard.py", "pulse_web/tickets.py", "pulse_web/team.py", "pulse_web/applications.py", "pulse_web/backups.py", "pulse_web/administration.py")
+            source = "\n".join((root / name).read_text(encoding="utf-8") for name in sources)
+        else:
+            source = (root / path).read_text(encoding="utf-8")
         begin = source.index(start)
         return source[begin:source.index(end, begin + len(start))]
 

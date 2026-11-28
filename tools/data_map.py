@@ -65,7 +65,7 @@ def main() -> int:
                         writers[rel(path)].append(lineno)
         usage[name] = {"modules": sorted(modules), "writers": {k: v[:6] for k, v in writers.items()}}
 
-    json_backup = function_source(ROOT / "webserver.py", "build_backup")
+    json_backup = function_source(ROOT / "pulse_web" / "backups.py", "build_backup")
     zip_backup = function_source(ROOT / "pulse_next.py", "create_backup")
     db_src = (ROOT / "pulse_db.py").read_text(encoding="utf-8")
     tables_block = re.search(r"^TABLES\s*=\s*\[(.*?)\]", db_src, re.S | re.M)
@@ -142,7 +142,7 @@ def main() -> int:
         "## Manuell geprüfte Ergänzungen (Stand P0-3, 20.10.2026)",
         "",
         "- **ZIP-Backup und `backups/`:** Der Ordner ist nur das *Ziel* der ZIP-Datei (`pulse_next.create_backup`), kein Inhalt – die Spalte zeigt dort fälschlich ✅.",
-        "- **Transkripte im JSON-Backup:** Dateien über 2 MB oder über 10 MB gesamt werden **still übersprungen** (`webserver.build_backup`).",
+        "- **Transkripte im JSON-Backup:** Dateien über 2 MB oder über 10 MB gesamt werden **still übersprungen** (`pulse_web.backups.build_backup`).",
         "- **ZIP-Backup:** ganze `pulse.db` + 7 JSON-Dateien + `attachments/` bis zu einem Größenlimit; ohne `abmeldungen.db`, `activity_check.db`, die fünf weiteren Datenbanken, `uploads/` und `transcripts/`.",
         "- **Nur in den älteren JSON-/ZIP-Backup-Pfaden nicht enthalten:** `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`, `pulse_announcement_archive.json`, `role_nickname_state.json`, `social_promo_sources.json`, `ai_moderation_cases.json` und `uploads/` (Panel-/Banner-Bilder, Voice-Audio). Diese Aussage gilt ausdrücklich nicht für das oben beschriebene aktuelle `pulse_backup`-Komplett-Backup; dort sind die konfigurierten Datenbanken, JSON-Dateien und Upload-Ordner enthalten, soweit sie lesbar sind und das Größenbudget eingehalten wird.",
         "- **Auch im aktuellen Komplett-Backup bewusst ausgeschlossen:** `.session_secret` (sowie `.env` und `backups/`, siehe Abschnitt „Komplett-Backup `pulse_backup`“).",

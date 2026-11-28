@@ -98,7 +98,7 @@ class MentionTests(unittest.TestCase):
         # inventory from the plan: recruiting, ticket ping roles, office roles,
         # RP @everyone, social promo – each passes its own allowed_mentions
         checks = {
-            "webserver.py": "content = alert_role.mention if alert_role else",
+            "pulse_web/team.py": "content = alert_role.mention if alert_role else",
             "cogs/rp_verwaltung.py": "allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False)",
             "cogs/buero_system.py": "role_mentions = \" \".join(role.mention for role in office_roles)",
             "cogs/social_promo.py": "content = f\"<@&{SOCIAL_PING_ROLE_ID}>\\n\"",
@@ -110,7 +110,7 @@ class MentionTests(unittest.TestCase):
 
     def test_no_send_with_literal_role_or_everyone_ping_lacks_allowed_mentions(self):
         offenders = []
-        files = [ROOT / "webserver.py", ROOT / "main.py", *ROOT.glob("pulse_*.py"), *ROOT.glob("cogs/*.py")]
+        files = [ROOT / "webserver.py", *sorted((ROOT / "pulse_web").glob("*.py")), ROOT / "main.py", *ROOT.glob("pulse_*.py"), *ROOT.glob("cogs/*.py")]
         for f in files:
             src = f.read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(src)):

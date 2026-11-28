@@ -113,7 +113,7 @@ class DutyTests(unittest.TestCase):
         self.assertEqual(status.response.sent[0], "⏱ You have been on duty for 2 h. This week: 4 h.")
 
     def test_dashboard_route_uses_the_shared_function(self):
-        source = Path(ws.__file__).read_text(encoding="utf-8")
+        source = (Path(__file__).resolve().parents[1] / "pulse_web" / "dashboard.py").read_text(encoding="utf-8")
         route = source[source.index('@app.post("/shift/action")'):]
         route = route[:route.index("\n\n\n")]
         self.assertIn("apply_shift_action(", route)

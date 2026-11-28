@@ -192,7 +192,7 @@ class SourceGuardTests(unittest.TestCase):
     def test_code_assets_stay_in_the_code_folder(self):
         voice = read("cogs/voice_support.py")
         self.assertIn('Path(__file__).resolve().parents[1] / "assets" / "voice_support_after_hours.mp3.b64"', voice)
-        self.assertIn('STATIC_CSS = BASE_DIR / "static" / "pulse.css"', read("webserver.py"))
+        self.assertIn('STATIC_CSS = BASE_DIR / "static" / "pulse.css"', read("pulse_web/ui.py"))
         self.assertIn("os.path.join(ws.BASE_DIR,'cogs')", read("pulse_pro.py"))
         self.assertIn('Path(ws.DATA_DIR) / "assets"', read("pulse_pro.py"))  # uploaded music = data
 

@@ -768,7 +768,10 @@ class Legal(Base):
         self.assertEqual(keep, (7, 4, 6))
 
     def test_cookie_table_lists_every_cookie_the_code_sets(self):
-        source = "".join(Path(name).read_text(encoding="utf-8") for name in ("webserver.py", "pulse_admin.py"))
+        source = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (Path("webserver.py"), *sorted(Path("pulse_web").glob("*.py")), Path("pulse_admin.py"))
+        )
         names = set(re.findall(r'set_cookie\(\s*"([a-z_]+)"', source))
         table = " ".join(row[0] for row in legal.STORAGE)
         self.assertTrue(names)

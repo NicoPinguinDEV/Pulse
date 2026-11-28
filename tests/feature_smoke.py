@@ -53,13 +53,21 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_intelligence.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_web/__init__.py", "pulse_web/_compat.py", "pulse_web/ui.py", "pulse_web/dashboard.py", "pulse_web/tickets.py", "pulse_web/team.py", "pulse_web/applications.py", "pulse_web/backups.py", "pulse_web/administration.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_intelligence.py", "pulse_team_protection.py"):
         parse(name)
 
-    web = read("webserver.py")
+    web_domain_paths = (
+        "pulse_web/ui.py",
+        "pulse_web/dashboard.py",
+        "pulse_web/tickets.py",
+        "pulse_web/team.py",
+        "pulse_web/applications.py",
+        "pulse_web/backups.py",
+        "pulse_web/administration.py",
+    )
+    web = read("webserver.py") + "\n" + "\n".join(read(path) for path in web_domain_paths)
     pro = read("pulse_pro.py")
     main = read("main.py")
-    web = read("webserver.py")
     shift_utils = read("pulse_shift_utils.py")
     # Activity Check: use the same absolute database files in the bot and web app,
     # preserve empty-vs-legacy snapshots, and issue idempotent 20:00 warnings.
@@ -661,10 +669,11 @@ def main() -> None:
     assert 'auth(request, user_session, perm="can_view_analytics")' in web
 
     # Melonly stays internal and is editable/deletable.
-    web_tree = parse("webserver.py")
+    create_log_module = read("pulse_web/dashboard.py")
+    web_tree = ast.parse(create_log_module)
     create_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "create_log"]
-    assert create_log_nodes, "webserver.py: create_log fehlt"
-    create_log_source = ast.get_source_segment(web, create_log_nodes[0]) or ""
+    assert create_log_nodes, "pulse_web/dashboard.py: create_log fehlt"
+    create_log_source = ast.get_source_segment(create_log_module, create_log_nodes[0]) or ""
     assert "send_team_update_embed" not in create_log_source
     assert 'Melonly-Eintrag erstellt' in create_log_source
     assert '@app.post("/log/edit")' in web

@@ -140,7 +140,7 @@ class DuplicateMatcherTests(unittest.TestCase):
 
 class DuplicateHintIntegrationContractTests(unittest.TestCase):
     def test_main_application_page_only_renders_hints_for_reviewers(self):
-        source = function_source("webserver.py", "applications_page")
+        source = function_source("pulse_web/applications.py", "applications_page")
         self.assertIn("can_review = can_review_applications(ctx)", source)
         self.assertIn("duplicate_detection.render_duplicate_notice(", source)
         self.assertIn("duplicate_index=duplicate_index", source)
