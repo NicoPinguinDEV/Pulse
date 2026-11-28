@@ -16,7 +16,12 @@ NOBODY = {"can_view_dashboard": True}
 
 
 def record_event_calls(path):
-    tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+    if path == "webserver.py":
+        sources = ("webserver.py", "pulse_web/ui.py", "pulse_web/dashboard.py", "pulse_web/tickets.py", "pulse_web/team.py", "pulse_web/applications.py", "pulse_web/backups.py", "pulse_web/administration.py")
+        source = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in sources)
+    else:
+        source = (ROOT / path).read_text(encoding="utf-8")
+    tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func

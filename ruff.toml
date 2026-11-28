@@ -139,6 +139,9 @@ include = [
     "pulse_cockpit.py",
     "tests/test_cockpit_ticket_metrics.py",
     "tests/test_capacity_heatmap_query.py",
+    "pulse_web/__init__.py",
+    "pulse_web/_compat.py",
+    "tests/test_webserver_domain_modules.py",
 ]
 
 [lint]

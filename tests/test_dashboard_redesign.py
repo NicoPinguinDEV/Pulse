@@ -179,7 +179,7 @@ class DashboardRedesignTests(unittest.TestCase):
     def test_roblox_suggestion_script_has_valid_quotes(self):
         # DASHBOARD_HEAD is a normal (non-raw) string: an escaped \" ends up as a bare quote in the
         # browser and broke the whole inline script ("missing ) after argument list").
-        web = (ROOT / "webserver.py").read_text(encoding="utf-8")
+        web = (ROOT / "pulse_web" / "dashboard.py").read_text(encoding="utf-8")
         head = web.split('DASHBOARD_HEAD = """', 1)[1].split('"""', 1)[0]
         self.assertNotIn('<option value=\\"', head)
         self.assertIn("'<option value=\"' + escapeHtml(u.name) + '\">'", head)

@@ -207,7 +207,7 @@ class RankChangeDomainTests(WarningDomainTests):
         self.assertIn("probezeit:app_commands.Choice[int]", source)
         self.assertIn("web.finish_promotion(", source)
         self.assertIn("web.finish_demotion(", source)
-        web = Path("webserver.py").read_text(encoding="utf-8")
+        web = Path("pulse_web/administration.py").read_text(encoding="utf-8")
         self.assertEqual(web.count('"promoted_by_id": actor_id'), 1)  # one place writes the probation entry
 
 
