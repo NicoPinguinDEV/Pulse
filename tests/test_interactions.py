@@ -98,7 +98,7 @@ class MentionTests(unittest.TestCase):
         # inventory from the plan: recruiting, ticket ping roles, office roles,
         # RP @everyone, social promo – each passes its own allowed_mentions
         checks = {
-            "pulse_web/applications.py": "content = alert_role.mention if alert_role else",
+            "pulse_web/team.py": "content = alert_role.mention if alert_role else",
             "cogs/rp_verwaltung.py": "allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False)",
             "cogs/buero_system.py": "role_mentions = \" \".join(role.mention for role in office_roles)",
             "cogs/social_promo.py": "content = f\"<@&{SOCIAL_PING_ROLE_ID}>\\n\"",

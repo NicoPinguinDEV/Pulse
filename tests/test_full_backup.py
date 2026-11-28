@@ -612,7 +612,7 @@ class FullBackupRouteTests(unittest.TestCase):
         def panel(data):
             seen["panel"] = threading.current_thread() is threading.main_thread()
             return data
-        guild = type("G", (), {"icon": None})()
+        guild = type("G", (), {"icon": None, "name": "Test Guild"})()
         Path(self.ws.BACKUP_DIR).mkdir(parents=True, exist_ok=True)
         with patch.object(self.ws, "build_discord_structure", structure), patch.object(self.ws, "add_panel_data", panel):
             asyncio.run(self.ws.create_backup_file_async(guild))
