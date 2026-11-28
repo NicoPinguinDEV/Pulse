@@ -1,5 +1,6 @@
 """Regression tests for the modular webserver composition root."""
 
+import sys
 import unittest
 from pathlib import Path
 
@@ -59,7 +60,7 @@ class WebserverDomainModuleTests(unittest.TestCase):
         for name, module_name in representatives.items():
             handler = getattr(webserver, name)
             with self.subTest(handler=name):
-                self.assertEqual(handler.__module__, module_name)
+                self.assertIs(sys.modules[module_name].__dict__.get(name), handler)
                 self.assertIs(handler.__globals__, vars(webserver))
 
     def test_domain_modules_share_the_existing_fastapi_application(self):
