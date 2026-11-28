@@ -7,10 +7,14 @@ del _bind_legacy_namespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pulse_web.ui import empty_state, time_tag
     from webserver import (
         Cookie,
         Form,
+        GUILD_ID,
         HTMLResponse,
+        HTTPException,
+        RedirectResponse,
         Request,
         _pulse_color,
         app,
@@ -20,12 +24,16 @@ if TYPE_CHECKING:
         discord,
         esc,
         log_audit,
+        now_de,
         pulse_db,
         pulse_ticket_access,
+        quote,
         re,
+        safe_url,
         send_styled,
         timezone,
         TZ,
+        urlencode,
     )
 
 @app.get("/api/team/activity")
