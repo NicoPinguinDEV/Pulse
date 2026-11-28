@@ -110,15 +110,15 @@ class EmploymentEventDomainTests(unittest.TestCase):
 class EmploymentEventIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-    web_domain_paths = (
-        "pulse_web/ui.py",
-        "pulse_web/dashboard.py",
-        "pulse_web/tickets.py",
-        "pulse_web/team.py",
-        "pulse_web/applications.py",
-        "pulse_web/backups.py",
-        "pulse_web/administration.py",
-    )
+        web_domain_paths = (
+            "pulse_web/ui.py",
+            "pulse_web/dashboard.py",
+            "pulse_web/tickets.py",
+            "pulse_web/team.py",
+            "pulse_web/applications.py",
+            "pulse_web/backups.py",
+            "pulse_web/administration.py",
+        )
         cls.web = read_source("webserver.py") + "\n" + "\n".join(read_source(path) for path in web_domain_paths)
         cls.suite = read_source("cogs/pulse_suite.py")
         cls.next = read_source("cogs/pulse_next.py")
