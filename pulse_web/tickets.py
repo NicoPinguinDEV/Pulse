@@ -4,6 +4,11 @@ from pulse_web._compat import bind_legacy_namespace as _bind_legacy_namespace
 _bind_legacy_namespace(globals())
 del _bind_legacy_namespace
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from webserver import pulse_db
+
 @app.get("/api/team/activity")
 async def team_activity_api(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)

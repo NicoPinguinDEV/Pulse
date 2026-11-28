@@ -4,6 +4,11 @@ from pulse_web._compat import bind_legacy_namespace as _bind_legacy_namespace
 _bind_legacy_namespace(globals())
 del _bind_legacy_namespace
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from webserver import TZ
+
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
