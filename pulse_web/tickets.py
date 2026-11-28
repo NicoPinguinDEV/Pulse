@@ -1283,7 +1283,7 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
             '.tr-meta b{color:inherit}.tr-text{font-size:13px;white-space:pre-wrap;word-break:break-word}.tr-line{font-size:11px;color:var(--muted);margin:4px 0}</style>'
             f'<section class="pulse-card"><div class="pulse-card-b">{pulse_ticket_extras.transcript_html(text)}</div></section>')
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], f"Transkript {ticket_id}", ctx, "tickets", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], f"Transkript {ticket_id}", ctx, "tickets", body))
 
 
 def _checklist_ctx(request, user_session):
@@ -1335,7 +1335,7 @@ async def team_checklists_page(request: Request, user_session: str = Cookie(None
                + "".join(f'<div class="pulse-row"><div class="pulse-row-title">{"🟢" if i["kind"] == "onboarding" else "🚪"} {esc(i["user_name"])}</div>'
                          f'<div class="pulse-row-meta">{time_tag(i["completed_at"])}</div></div>' for i in done_items) + '</div></section>'
                if done_items else ""))
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "On- & Offboarding", ctx, "team-checklists", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "On- & Offboarding", ctx, "team-checklists", body))
 
 
 @app.post("/team/checklists/toggle")
@@ -1435,7 +1435,7 @@ async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
             f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
             f'<div class="space-y-2">{items}</div>{pulse_lists.pager("/mod-cases", meta, {"q": q})}</div></section>')
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "Bürger-Moderation", ctx, "mod-cases", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "Bürger-Moderation", ctx, "mod-cases", body))
 
 
 @app.get("/mod-cases.csv")
@@ -1524,7 +1524,7 @@ async def mod_cases_history_page(request: Request, user_session: str = Cookie(No
             f'<div class="text-xs mt-2">Fallarten: BM = Bürger-Moderation, TF = Team-/Spielerfall, TW = Teamwarnung, KI = KI-Moderation.</div>'
             f'</div></section>' + "".join(parts))
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "Fall-Gesamtverlauf", ctx, "mod-cases", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "Fall-Gesamtverlauf", ctx, "mod-cases", body))
 
 
 def _mod_stats_bars(items, total: int) -> str:
@@ -1591,7 +1591,7 @@ async def mod_case_evidence_page(request: Request, user_session: str = Cookie(No
             f'<input class="pulse-input" name="ref" value="{esc(ref)}" aria-label="Fallreferenz" placeholder="Referenz, z. B. BM:MOD-1A2B3C">'
             f'<button class="pulse-btn primary">Öffnen</button></form></div></section>' + "".join(body_parts))
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "Fall-Beweise", ctx, "mod-cases", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "Fall-Beweise", ctx, "mod-cases", body))
 
 
 def _evidence_redirect(ref: str, message: str):
@@ -1705,7 +1705,7 @@ async def mod_cases_stats_page(request: Request, user_session: str = Cookie(None
                 + '<div class="pulse-two">' + card("AutoMod nach Regel", f"Median bis Fehlalarmprüfung: {_mod_stats_value(a['median_hours_to_review'], ' h')}", rules)
                 + card("Fälle je Moderator", "Top 10 im Zeitraum – Menge, keine Leistungsbewertung", f'<div class="pulse-list">{mods}</div>') + '</div>')
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "Moderationsstatistik", ctx, "mod-stats", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "Moderationsstatistik", ctx, "mod-stats", body))
 
 
 @app.get("/mod-cases/stats.csv")
@@ -1765,7 +1765,7 @@ async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None))
             f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">🚫 Ticket-Sperren</div></div><div class="pulse-card-b space-y-2">{block_rows}</div></section>'
             f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">⭐ Bewertungen</div></div><div class="pulse-card-b">{rating_html}</div></section>')
     import sys
-    return HTMLResponse(render_pro_page(sys.modules[__name__], "Ticket-Werkzeuge", ctx, "tickets", body))
+    return HTMLResponse(render_pro_page(sys.modules["webserver"], "Ticket-Werkzeuge", ctx, "tickets", body))
 
 
 @app.post("/tickets/tools/replies")
