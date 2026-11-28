@@ -56,6 +56,23 @@ def _auth_kind(source: str) -> str:
     return "— (öffentlich/keine erkennbare Prüfung)"
 
 
+def _effective_module(endpoint, source_file: Path | None) -> str:
+    """Return the domain module for extracted handlers.
+
+    Extracted functions deliberately keep __module__ == "webserver" so
+    legacy imports, monkeypatches and runtime hooks remain compatible. The
+    route inventory should nevertheless report their real source modules.
+    """
+    webserver = sys.modules.get("webserver")
+    for module in getattr(webserver, "_PULSE_WEB_MODULES", ()):
+        try:
+            if source_file is not None and Path(module.__file__).resolve() == source_file:
+                return module.__name__
+        except (AttributeError, OSError, TypeError):
+            continue
+    return getattr(endpoint, "__module__", "?")
+
+
 def effective_routes(app) -> list[dict]:
     rows = []
     for route in app.routes:
@@ -72,7 +89,7 @@ def effective_routes(app) -> list[dict]:
         rel = str(file.relative_to(ROOT)).replace("\\", "/") if file and ROOT in file.parents else str(file or "?")
         for method in methods or ["(mount)"]:
             rows.append({
-                "method": method, "path": route.path, "module": getattr(endpoint, "__module__", "?"),
+                "method": method, "path": route.path, "module": _effective_module(endpoint, file),
                 "function": getattr(endpoint, "__qualname__", "?"), "file": rel, "line": line,
                 "auth": _auth_kind(source) if source else "?",
             })
