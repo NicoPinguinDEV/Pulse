@@ -25,7 +25,7 @@ class DesignLintTests(unittest.TestCase):
     def test_standalone_pages_are_the_only_exceptions(self):
         self.assertEqual(sorted(lint.STANDALONE_FILES), ["pulse_phase7.py", "pulse_ticket_builder.py"])
         marked = [name for name in ("pulse_ultimate.py", "webserver.py") if lint.MARKER in (ROOT / name).read_text(encoding="utf-8")]
-        self.assertEqual(marked, ["pulse_ultimate.py", "webserver.py"])
+        self.assertEqual(marked, ["pulse_ultimate.py"])
 
     def test_new_modules_use_no_inline_colors(self):
         for name in NEW_MODULES:

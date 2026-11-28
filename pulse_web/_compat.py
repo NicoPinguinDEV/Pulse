@@ -76,7 +76,8 @@ def load_domain_modules(
 
         namespace.update(
             {
-                "__name__": module_name,
+                # Legacy handlers intentionally keep their public webserver identity.
+                "__name__": "webserver",
                 "__file__": spec.origin,
                 "__package__": module.__package__,
                 "__loader__": spec.loader,

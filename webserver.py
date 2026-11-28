@@ -29,7 +29,7 @@ import zipfile
 from datetime import date as date_cls, datetime, timedelta, timezone
 from collections import OrderedDict
 from types import SimpleNamespace
-from typing import List
+from typing import TYPE_CHECKING, List
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlparse
 
@@ -54,6 +54,15 @@ from pulse_version import PULSE_VERSION
 from pulse_env_validation import safe_float, safe_int
 from pulse_time import display, parse_timestamp
 from pulse_employment import build_employment_event, employment_hired_at, store_employment_event
+
+if TYPE_CHECKING:
+    # Names provided by the ordered domain loader below. The type-only imports
+    # keep static analysis aware of those legacy globals without importing the
+    # route modules during webserver initialization.
+    from pulse_web.administration import commit_shift_event, track_member_entry, user_entry
+    from pulse_web.backups import _start_background_tasks, _stop_background_tasks
+    from pulse_web.dashboard import get_melonly_repository
+    from pulse_web.ui import simple_page
 
 from pulse_shift_utils import (AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, OFFBOARDING_CLOSE_REASON, credited_shift_seconds,
                                needs_duration_confirmation, parse_max_shift_hours, shift_age_seconds, shift_event_id)

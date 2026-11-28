@@ -4,6 +4,26 @@ from pulse_web._compat import bind_legacy_namespace as _bind_legacy_namespace
 _bind_legacy_namespace(globals())
 del _bind_legacy_namespace
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Runtime bindings come from the webserver composition root until the
+    # remaining legacy cross-domain globals are converted to service APIs.
+    from webserver import (
+        FileResponse,
+        GUILD_ID,
+        HTMLResponse,
+        HTTPException,
+        app,
+        discord,
+        esc,
+        log_audit,
+        pulse_db,
+        pulse_logging,
+        pulse_public_site,
+        rate_limited,
+    )
+
 # UI-BAUSTEINE
 # =============================================================
 CARD = "bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm"
@@ -185,7 +205,7 @@ def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> 
     if body_hook is not None:
         body = body_hook() + body
     toast = ""
-    if ctx.msg:
+    if getattr(ctx, "msg", ""):
         color = BADGE_OK if ctx.msg_ok else BADGE_BAD
         icon = "✅" if ctx.msg_ok else "⚠️"
         # U-04: the message sticks to the top of the viewport (forms scroll back to their position after
