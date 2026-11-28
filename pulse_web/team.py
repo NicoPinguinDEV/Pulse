@@ -7,7 +7,7 @@ del _bind_legacy_namespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from webserver import TZ
+    from webserver import TZ, discord
 
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, user_session: str = Cookie(None)):
