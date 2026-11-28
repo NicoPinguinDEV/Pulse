@@ -7,7 +7,8 @@ Du entwickelst Pulse für © BOCHUM RP | V1: Discord-Bot und FastAPI-Dashboard. 
 - Zuerst Branch, HEAD und Arbeitsbaum prüfen. Nutzeränderungen niemals überschreiben.
 - Für die aktuelle Version ist pulse_version.py maßgeblich; für Verhalten zählt der ausgeführte Code. Handoff, README und Changelog können historische oder unvollständige Angaben enthalten.
 - docs/CLAUDE_CODE_HANDOFF.md ist ein Nachschlagewerk, kein Pflichttext zum vollständigen Einlesen. Suche dort nur nach den Abschnitten, die zur konkreten Aufgabe gehören.
-- webserver.py ist sehr groß: verwende gezielte Symbol-/Textsuche und lies kleine, relevante Bereiche statt die gesamte Datei in den Kontext zu laden. Nutze Smart-Explore/LSP, wenn es die Navigation verkürzt.
+- `webserver.py` ist der kompatible Einstiegspunkt und enthält den gemeinsamen Laufzeitkern. Dashboard-Routen und UI-Bereiche liegen nach Fachgebiet in `pulse_web/`; die Reihenfolge der Modulregistrierung ist relevant und muss bei Änderungen erhalten bleiben. `pulse_web._compat` ist nur eine Übergangsbrücke: neue fachliche Abhängigkeiten möglichst explizit importieren statt weitere globale Kopplung einzuführen.
+- Für Änderungen an Web-Routen `docs/routen_snapshot.json` und `docs/ROUTEN.md` mit `python tools/route_map.py` aktualisieren; die Routensnapshot-Tests schützen vor stillen Handler- oder Reihenfolgeänderungen.
 
 ## Harte Projektregeln
 1. Keine vorhandene Funktion still entfernen, vereinfachen oder abschwächen. Vor einer Änderung Aufrufer, tatsächlichen Kontrollfluss, Rechte und Tests nachvollziehen.
