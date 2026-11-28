@@ -7,7 +7,26 @@ del _bind_legacy_namespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from webserver import back, datetime, discord, pulse_db, TZ
+    from webserver import (
+        Cookie,
+        Form,
+        HTMLResponse,
+        Request,
+        _pulse_color,
+        app,
+        auth,
+        back,
+        datetime,
+        discord,
+        esc,
+        log_audit,
+        pulse_db,
+        pulse_ticket_access,
+        re,
+        send_styled,
+        timezone,
+        TZ,
+    )
 
 @app.get("/api/team/activity")
 async def team_activity_api(request: Request, user_session: str = Cookie(None)):
